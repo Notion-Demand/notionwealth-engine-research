@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+google-cloud-aiplatform
+pypdf
+faiss-cpu
+numpy
+python-dotenv
+google-genai
+python-docx
+streamlit
