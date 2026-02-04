@@ -1,0 +1,18 @@
+# PDF parsing (pdfplumber only - more reliable installation)
+pdfplumber==0.11.4
+
+# LLM Integration - Google Gemini
+langchain==0.1.20
+langchain-google-genai==1.0.1
+google-generativeai>=0.4.1,<0.5.0  # Compatible with langchain-google-genai
+
+# Data handling
+pandas>=2.2.0  # Compatible with Python 3.13
+pydantic>=2.10.0  # Pre-built wheels for Python 3.13
+
+# Utilities
+python-dotenv==1.0.0
+tqdm==4.66.1
+
+# Optional: Enhanced text processing
+regex==2023.12.25
