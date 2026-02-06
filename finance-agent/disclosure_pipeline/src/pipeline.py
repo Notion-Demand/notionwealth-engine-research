@@ -99,6 +99,7 @@ def run_pipeline(
     import time
     start_time = time.time()
     timings = {}
+    summary = {"results": [], "verdict": None, "usage": {}}
 
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -121,7 +122,7 @@ def run_pipeline(
         
         if not parsed_data:
             logger.error("No data parsed. Check your PDF files and try again.")
-            return
+            return {"results": [], "verdict": None, "usage": {}}
         
         save_parsed_data(parsed_data, str(parsed_data_path))
         
@@ -153,7 +154,7 @@ def run_pipeline(
 
     if not changes and not dry_run:
         logger.warning("No changes detected across all companies")
-        return
+        return {"results": [], "verdict": None, "usage": usage}
     
     # Step 3: Generate output
     step3_start = time.time()
@@ -239,6 +240,8 @@ def run_pipeline(
     logger.info("\n" + "="*60)
     logger.info("PIPELINE COMPLETE!")
     logger.info("="*60 + "\n")
+
+    return summary
 
 
 

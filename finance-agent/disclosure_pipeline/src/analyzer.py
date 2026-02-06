@@ -114,7 +114,7 @@ def create_gemini_llm(temperature: float = 0.1) -> ChatGoogleGenerativeAI:
         raise ValueError("GOOGLE_API_KEY not found")
 
     return ChatGoogleGenerativeAI(
-        model="gemini-3-flash-preview",
+        model="gemini-1.5-flash",
         temperature=temperature,
         google_api_key=api_key,
         convert_system_message_to_human=True

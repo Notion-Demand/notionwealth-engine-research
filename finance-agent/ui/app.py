@@ -4,9 +4,35 @@ import os
 import json
 import pandas as pd
 
+import importlib
+import inspect
+
 # Add project root to path
 sys.path.append(os.getcwd())
+# Add workspace root and pipeline paths
+pipeline_path = os.path.join(os.getcwd(), "disclosure_pipeline")
+if pipeline_path not in sys.path:
+    sys.path.append(pipeline_path)
 
+try:
+    import src.pipeline
+    importlib.reload(src.pipeline)
+    from src.pipeline import run_pipeline
+except ImportError as e:
+    # Fallback for different execution contexts
+    fallback_path = os.path.join(os.getcwd(), "..", "disclosure-analysis-pipeline")
+    if fallback_path not in sys.path:
+        sys.path.append(fallback_path)
+    try:
+        import src.pipeline
+        importlib.reload(src.pipeline)
+        from src.pipeline import run_pipeline
+    except ImportError:
+        # Error handling for path issues
+        st.error("Could not load Disclosure Pipeline.")
+        def run_pipeline(*args, **kwargs): return {}
+
+# Original Agents
 from control.control_plane import run_research_task
 from control.research_replay import list_research_sessions, replay_research
 from agents.portfolio_agent import analyze_portfolio
@@ -22,7 +48,7 @@ st.title("Financial Agent Decision Engine")
 # Sidebar
 mode = st.sidebar.radio(
     "Select Mode",
-    ["Deep Research", "Risk Assessment", "Competitive Analysis", "Portfolio Strategy", "Capital Modeling", "Investment Memo", "History & Replay"]
+    ["Deep Research",  "Disclosures Difference","Risk Assessment", "Competitive Analysis", "Portfolio Strategy", "Capital Modeling", "Investment Memo", "History & Replay"]
 )
 
 if mode == "Deep Research":
@@ -71,6 +97,58 @@ elif mode == "Competitive Analysis":
         with st.spinner("Comparing entities..."):
             report = analyze_competition(task)
             st.markdown(report)
+
+elif mode == "Disclosures Difference":
+    st.header("Quarterly Disclosure Analysis")
+    st.info("Analyzes shifts in MD&A, Risk Factors, and Accounting policies between quarters.")
+    
+    query = st.text_input("Analysis Query", "Analyze BAJFINANCE for latest disclosure changes")
+    
+    if st.button("Run"):
+        with st.spinner("Analyzing disclosures..."):
+            try:
+                # Run the pipeline with the hack for Bajaj Finance
+                summary = run_pipeline(
+                    data_dir="disclosure_pipeline/data",
+                    output_dir="disclosure_pipeline/output",
+                    skip_parsing=True
+                )
+                
+                if summary is None:
+                    st.error("Pipeline returned None. Check internal logic.")
+                    st.stop()
+                    
+                st.success("Analysis complete!")
+            except Exception as e:
+                st.error(f"Pipeline crashed with error: {str(e)}")
+                st.exception(e)
+                st.stop()
+
+            verdict = summary.get("verdict")
+            if verdict:
+                # Signal Indicator
+                signal = verdict.get("final_signal", "Noise")
+                color = "green" if signal == "Positive" else "red" if signal == "Negative" else "gray"
+                st.markdown(f"### Overall Sentiment: :{color}[{signal}]")
+                
+                # Verdict & Insights
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.subheader("Strategic Verdict")
+                    st.write(verdict.get("verdict", "No verdict available."))
+                
+                with col2:
+                    st.subheader("Insights & Highlights")
+                    st.write(verdict.get("insights", "No insights available."))
+            
+            # Detailed Changes Table
+            results = summary.get("results", [])
+            if results:
+                st.subheader("Detected Significant Changes")
+                df = pd.DataFrame(results)
+                # Keep only relevant columns for the UI
+                ui_df = df[["Section", "Description", "Signal"]]
+                st.table(ui_df)
 
 elif mode == "Portfolio Strategy":
     st.header("Portfolio Strategy & Risk")

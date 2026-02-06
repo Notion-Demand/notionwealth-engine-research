@@ -240,7 +240,7 @@ def create_extraction_llm() -> ChatGoogleGenerativeAI:
         raise ValueError("GOOGLE_API_KEY not found in environment variables")
     
     return ChatGoogleGenerativeAI(
-        model="gemini-3-flash-preview",
+        model="gemini-1.5-flash",
         temperature=0.1,  # Low temperature for consistent extraction
         google_api_key=api_key,
         convert_system_message_to_human=True  # Required for system prompts
