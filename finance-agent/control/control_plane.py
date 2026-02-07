@@ -4,7 +4,8 @@ import datetime
 from pydantic import BaseModel, Field
 from typing import List, Dict, Optional, Any
 from agents.financial_agent import analyze_financials
-from core.financial_memory import load_facts
+from core.financial_memory import load_facts, get_facts_for_companies
+from core.entity_extraction import extract_companies
 from control.research_replay import save_session
 import re
 
@@ -36,8 +37,11 @@ class ResearchSession(BaseModel):
 # --- Verification Agent ---
 
 class VerificationAgent:
-    def verify(self, text: str) -> VerificationReport:
-        facts = load_facts()
+    def verify(self, text: str, companies: list[str] = None) -> VerificationReport:
+        if companies:
+            facts = get_facts_for_companies(companies)
+        else:
+            facts = load_facts()
         items = []
         
         # Simple heuristic: extract numbers and check if they exist in facts
@@ -108,10 +112,11 @@ class VerificationAgent:
 class ControlPlane:
     def run_task(self, query: str) -> ResearchSession:
         session = ResearchSession(query=query)
-        
+        companies = extract_companies(query)
+
         # 1. Execute Research
         session.trace.append(TraceStep(action="Start Task", output=f"Query: {query}"))
-        
+
         try:
             result = analyze_financials(query)
             session.final_result = result
@@ -119,10 +124,10 @@ class ControlPlane:
         except Exception as e:
             session.trace.append(TraceStep(action="Error", output=str(e)))
             return session
-            
-        # 2. Verify
+
+        # 2. Verify (using filtered facts for speed)
         verifier = VerificationAgent()
-        report = verifier.verify(result)
+        report = verifier.verify(result, companies=companies)
         session.verification_report = report
         session.trace.append(TraceStep(action="Verification", output=report.model_dump()))
         

@@ -43,6 +43,17 @@ from agents.competitive_agent import analyze_competition
 
 st.set_page_config(page_title="Financial Decision Engine", layout="wide")
 
+# Warm-up: preload heavy resources into memory on first Streamlit run
+@st.cache_resource
+def _warmup_resources():
+    from core.vector import load as load_vector
+    from core.financial_memory import load_facts
+    load_vector()
+    load_facts()
+    return True
+
+_warmup_resources()
+
 st.title("Financial Agent Decision Engine")
 
 # Sidebar

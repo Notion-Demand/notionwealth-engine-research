@@ -7,6 +7,7 @@ import os
 import logging
 import re
 import json
+from concurrent.futures import ThreadPoolExecutor
 from typing import List, Dict, Optional, Tuple
 from dotenv import load_dotenv
 
@@ -232,25 +233,33 @@ def compare_quarters(
     llm: ChatGoogleGenerativeAI
 ) -> Tuple[List[DisclosureChange], Dict]:
     """
-    Returns (List of changes, aggregate usage_metadata)
+    Returns (List of changes, aggregate usage_metadata).
+    Runs all 3 section comparisons in parallel for speed.
     """
     all_changes: List[DisclosureChange] = []
     total_usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
 
-    for section in ["MD&A", "Risk_Factors", "Accounting"]:
-        changes, usage = compare_sections(
+    sections = ["MD&A", "Risk_Factors", "Accounting"]
+
+    def compare_one(section):
+        # Create a separate LLM instance per thread for safety
+        section_llm = create_gemini_llm()
+        return compare_sections(
             section,
             data_previous.get(section),
             data_current.get(section),
-            llm
+            section_llm
         )
-        all_changes.extend(changes)
-        
-        # Accumulate usage
-        if usage:
-            total_usage["input_tokens"] += usage.get("input_tokens", 0)
-            total_usage["output_tokens"] += usage.get("output_tokens", 0)
-            total_usage["total_tokens"] += usage.get("total_tokens", 0)
+
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        futures = {executor.submit(compare_one, s): s for s in sections}
+        for future in futures:
+            changes, usage = future.result()
+            all_changes.extend(changes)
+            if usage:
+                total_usage["input_tokens"] += usage.get("input_tokens", 0)
+                total_usage["output_tokens"] += usage.get("output_tokens", 0)
+                total_usage["total_tokens"] += usage.get("total_tokens", 0)
 
     return all_changes, total_usage
 

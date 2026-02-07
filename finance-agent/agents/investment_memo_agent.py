@@ -25,7 +25,7 @@ def generate_investment_memo(task: str) -> str:
     {analysis}
     
     VERIFICATION REPORT:
-    {json.dumps(verification, indent=2)}
+    {json.dumps(verification)}
     
     INSTRUCTIONS:
     - Format as a clean Markdown document.
