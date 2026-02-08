@@ -107,7 +107,37 @@ elif mode == "Competitive Analysis":
     if st.button("Run Competitive Analysis"):
         with st.spinner("Comparing entities..."):
             report = analyze_competition(task)
-            st.markdown(report)
+            
+            if isinstance(report, dict):
+                # 1. Executive Summary
+                st.subheader("Executive Summary")
+                st.markdown(report.get("executive_summary", "No summary available."))
+                
+                # 2. Metric Comparison Table
+                st.subheader("Key Metrics Comparison")
+                rows = report.get("comparison_table", [])
+                if rows:
+                    df = pd.DataFrame(rows)
+                    st.dataframe(df, use_container_width=True)
+                else:
+                    st.info("No structured metrics found for comparison.")
+                
+                # 3. Strategic Positioning
+                st.subheader("Strategic Positioning")
+                st.markdown(report.get("strategic_positioning", "No strategic analysis available."))
+                
+                # 4. Risks
+                st.subheader("Risks & Vulnerabilities")
+                risks = report.get("risks", [])
+                if isinstance(risks, list):
+                    for r in risks:
+                        st.markdown(f"- {r}")
+                else:
+                    st.markdown(str(risks))
+
+            else:
+                # Fallback for old text format
+                st.markdown(report)
 
 elif mode == "Disclosures Difference":
     st.header("Quarterly Disclosure Analysis")
@@ -118,15 +148,33 @@ elif mode == "Disclosures Difference":
     if st.button("Run"):
         with st.spinner("Analyzing disclosures..."):
             try:
-                # Run the pipeline with the hack for Bajaj Finance
+                # Extract potential target company from query
+                target_company = None
+                if "analyze" in query.lower():
+                    # diverse inputs: "Analyze Bajaj Finance", "Analyze BAJFINANCE for...", "Analyze Apple"
+                    parts = query.split()
+                    for i, p in enumerate(parts):
+                        if p.lower() == "analyze" and i + 1 < len(parts):
+                            # Grab the next word or two as the company name
+                            target_company = parts[i+1]
+                            # Heuristic: if next word is not a preposition/stopword, append it
+                            if i + 2 < len(parts) and parts[i+2].lower() not in ["for", "with", "using", "to"]:
+                                target_company += " " + parts[i+2]
+                            break
+                            
+                # Use cached parsed data if available, skip slow PDF re-parsing
+                import os
+                parsed_exists = os.path.exists("disclosure_pipeline/output/parsed_data.json")
                 summary = run_pipeline(
-                    data_dir="disclosure_pipeline/data",
+                    data_dir="../disclosure-analysis-pipeline/all-pdfs",
                     output_dir="disclosure_pipeline/output",
-                    skip_parsing=True
+                    skip_parsing=parsed_exists,
+                    target_company=target_company,
+                    skip_file_output=True
                 )
                 
                 if summary is None:
-                    st.error("Pipeline returned None. Check internal logic.")
+                    st.error("Pipeline returned None. Check internal logic or filtered data.")
                     st.stop()
                     
                 st.success("Analysis complete!")

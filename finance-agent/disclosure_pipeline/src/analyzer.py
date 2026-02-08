@@ -7,6 +7,7 @@ import os
 import logging
 import re
 import json
+from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Dict, Optional, Tuple
 from dotenv import load_dotenv
@@ -126,6 +127,8 @@ def create_gemini_llm(temperature: float = 0.1) -> ChatGoogleGenerativeAI:
 # Core Comparison
 # ---------------------------------------------------------------------
 
+MIN_SECTION_LENGTH = 100  # Skip placeholder/empty sections
+
 def compare_sections(
     section_name: str,
     text_previous: Optional[str],
@@ -135,7 +138,9 @@ def compare_sections(
     """
     Returns (List of changes, usage_metadata)
     """
-    if not text_previous or not text_current:
+    if (not text_previous or not text_current
+            or len(text_previous) < MIN_SECTION_LENGTH
+            or len(text_current) < MIN_SECTION_LENGTH):
         return [], {}
 
     prompt = ChatPromptTemplate.from_messages([
@@ -180,9 +185,9 @@ Return JSON:
     seen_desc = set()
 
     for ch in parsed.get("changes", []):
-        quote_old = ch.get("quote_old", "").strip()
-        quote_new = ch.get("quote_new", "").strip()
-        desc = ch.get("description_of_change", "").strip()
+        quote_old = (ch.get("quote_old") or "").strip()
+        quote_new = (ch.get("quote_new") or "").strip()
+        desc = (ch.get("description_of_change") or "").strip()
         signal_val = ch.get("signal_classification", "Noise")
         
         try:
@@ -334,17 +339,79 @@ Return JSON with keys: 'insights', 'verdict', 'final_signal'.""")
 # Multi-Company Analysis
 # ---------------------------------------------------------------------
 
+# ---------------------------------------------------------------------
+# Caching
+# ---------------------------------------------------------------------
+
+ANALYSIS_CACHE_PATH = Path("disclosure_pipeline/output/analysis_cache.json")
+
+def load_analysis_cache() -> Dict:
+    if ANALYSIS_CACHE_PATH.exists():
+        try:
+            with open(ANALYSIS_CACHE_PATH, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"Failed to load cache: {e}")
+    return {}
+
+def save_analysis_cache(cache: Dict):
+    try:
+        ANALYSIS_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(ANALYSIS_CACHE_PATH, 'w') as f:
+            json.dump(cache, f, indent=2)
+    except Exception as e:
+        logger.error(f"Failed to save cache: {e}")
+
+def get_cache_key(company: str, q_prev: str, q_curr: str, section: str) -> str:
+    """Generate a unique key for the cache."""
+    return f"{company}|{q_prev}|{q_curr}|{section}"
+
+
+# ---------------------------------------------------------------------
+# Multi-Company Analysis
+# ---------------------------------------------------------------------
+
+def _has_meaningful_data(quarter_data: Dict[str, Optional[str]]) -> bool:
+    """Check if a quarter has any section with enough content to analyze."""
+    return any(
+        quarter_data.get(s) and len(quarter_data.get(s, "")) >= MIN_SECTION_LENGTH
+        for s in ["MD&A", "Risk_Factors", "Accounting"]
+    )
+
+
 def analyze_all_companies(parsed_data: Dict, dry_run: bool = False) -> Tuple[List[Dict], Dict]:
     """
-    Returns (List of changes, aggregate usage_metadata)
+    Returns (analysis_summary_dict, aggregate usage_metadata).
+    Quarter pairs are analyzed in parallel. Pairs with empty/placeholder
+    data are skipped entirely.
     """
+    from pathlib import Path
+
     llm = None if dry_run else create_gemini_llm()
     results = []
     total_usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
 
+    # Load cache
+    cache = load_analysis_cache()
+    cache_hits = 0
+
+    # Collect all quarter pairs across all companies
+    pairs_to_analyze = []
+
     for company, quarters_data in parsed_data.items():
-        # Sort quarters chronologically
-        quarters = sorted(quarters_data.keys(), key=lambda q: (q.split('_')[1], q.split('_')[0]) if '_' in q else q)
+        # Filter to quarters with meaningful data, then sort chronologically
+        meaningful_quarters = [
+            q for q in quarters_data.keys()
+            if _has_meaningful_data(quarters_data[q])
+        ]
+        quarters = sorted(
+            meaningful_quarters,
+            key=lambda q: (q.split('_')[1], q.split('_')[0]) if '_' in q else q
+        )
+
+        if len(quarters) < 2:
+            logger.info(f"Skipping {company}: fewer than 2 quarters with data")
+            continue
 
         for i in range(1, len(quarters)):
             q_prev, q_curr = quarters[i - 1], quarters[i]
@@ -352,22 +419,39 @@ def analyze_all_companies(parsed_data: Dict, dry_run: bool = False) -> Tuple[Lis
             if dry_run:
                 continue
 
+            # Check if all sections are cached for this pair
+            sections = ["MD&A", "Risk_Factors", "Accounting"]
+            cached_changes_for_pair = []
+            fully_cached = True
+
+            for section in sections:
+                key = get_cache_key(company, q_prev, q_curr, section)
+                if key not in cache:
+                    fully_cached = False
+                    break
+                cached_changes_for_pair.extend(cache[key])
+
+            if fully_cached:
+                logger.info(f"Cache hit for {company} {q_prev}->{q_curr}")
+                cache_hits += 1
+                results.extend(cached_changes_for_pair)
+                continue
+
+            pairs_to_analyze.append((company, q_curr, q_prev, quarters_data))
+
+    # Run uncached pairs in parallel
+    if pairs_to_analyze:
+        def analyze_pair(args):
+            company, q_curr, q_prev, quarters_data = args
+            pair_llm = create_gemini_llm()
             changes, usage = compare_quarters(
-                company,
-                q_curr,
-                q_prev,
-                quarters_data[q_curr],
-                quarters_data[q_prev],
-                llm
+                company, q_curr, q_prev,
+                quarters_data[q_curr], quarters_data[q_prev],
+                pair_llm
             )
-
-            # Accumulate usage
-            total_usage["input_tokens"] += usage.get("input_tokens", 0)
-            total_usage["output_tokens"] += usage.get("output_tokens", 0)
-            total_usage["total_tokens"] += usage.get("total_tokens", 0)
-
+            pair_results = []
             for c in changes:
-                results.append({
+                pair_results.append({
                     "Company": company,
                     "Quarter_Previous": q_prev,
                     "Quarter_Current": q_curr,
@@ -377,6 +461,26 @@ def analyze_all_companies(parsed_data: Dict, dry_run: bool = False) -> Tuple[Lis
                     "Description": c.description_of_change,
                     "Signal": c.signal_classification.value
                 })
+            return pair_results, usage
+
+        with ThreadPoolExecutor(max_workers=len(pairs_to_analyze)) as executor:
+            futures = [executor.submit(analyze_pair, p) for p in pairs_to_analyze]
+            for future, (company, q_curr, q_prev, _) in zip(futures, pairs_to_analyze):
+                pair_results, usage = future.result()
+                results.extend(pair_results)
+                total_usage["input_tokens"] += usage.get("input_tokens", 0)
+                total_usage["output_tokens"] += usage.get("output_tokens", 0)
+                total_usage["total_tokens"] += usage.get("total_tokens", 0)
+
+                # Update cache
+                by_section = defaultdict(list)
+                for r in pair_results:
+                    by_section[r["Section"]].append(r)
+                for section in ["MD&A", "Risk_Factors", "Accounting"]:
+                    key = get_cache_key(company, q_prev, q_curr, section)
+                    cache[key] = by_section.get(section, [])
+
+        save_analysis_cache(cache)
 
     # Global dedup
     final = []
@@ -387,23 +491,19 @@ def analyze_all_companies(parsed_data: Dict, dry_run: bool = False) -> Tuple[Lis
             seen.add(key)
             final.append(r)
 
-    # Generate Final Verdicts for each company/quarter pair
-    # For now, let's just do it for the main company being analyzed
+    if cache_hits > 0:
+        logger.info(f"Used cached analysis for {cache_hits} quarter pairs")
+
+    # Generate Final Verdict
     if final and not dry_run:
         logger.info("Generating final synthesis and verdict...")
         verdict, v_usage = generate_final_verdict(final, llm)
-        
-        # Accumulate usage
+
         total_usage["input_tokens"] += v_usage.get("input_tokens", 0)
         total_usage["output_tokens"] += v_usage.get("output_tokens", 0)
         total_usage["total_tokens"] += v_usage.get("total_tokens", 0)
-        
-        # We'll attach the verdict to a special return format or log it
-        final_summary = {
-            "results": final,
-            "verdict": verdict
-        }
-        return final_summary, total_usage
+
+        return {"results": final, "verdict": verdict}, total_usage
 
     return {"results": final, "verdict": None}, total_usage
 

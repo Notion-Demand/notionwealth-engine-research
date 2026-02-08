@@ -83,7 +83,9 @@ def run_pipeline(
     output_dir: str = "output",
     dry_run: bool = False,
     skip_parsing: bool = False,
-    use_semantic: bool = True
+    use_semantic: bool = True,
+    target_company: str = None,
+    skip_file_output: bool = False
 ):
     """
     Run the complete disclosure analysis pipeline.
@@ -95,6 +97,7 @@ def run_pipeline(
         skip_parsing: If True, use existing parsed_data.json
         use_semantic: If True, use AI-based semantic extraction (for earnings transcripts).
                      If False, use regex-based extraction (for structured SEC filings).
+        target_company: Optional filter for specific company files.
     """
     import time
     start_time = time.time()
@@ -108,21 +111,45 @@ def run_pipeline(
     
     # Step 1: Parse PDFs
     step1_start = time.time()
-    if skip_parsing and parsed_data_path.exists():
-        logger.info("Loading existing parsed data...")
-        with open(parsed_data_path, 'r') as f:
-            parsed_data = json.load(f)
-        logger.info(f"Loaded data for {len(parsed_data)} companies")
+    
+    # Always try to load existing data first to enable incremental updates
+    existing_data = {}
+    if parsed_data_path.exists():
+        try:
+            with open(parsed_data_path, 'r') as f:
+                existing_data = json.load(f)
+            logger.info(f"Loaded existing data for {len(existing_data)} companies")
+        except Exception as e:
+            logger.error(f"Failed to load existing parsed data: {e}")
+
+    if skip_parsing:
+        parsed_data = existing_data
     else:
         logger.info(f"\n{'='*60}")
         logger.info("STEP 1: Parsing PDF Documents")
+        if target_company:
+            logger.info(f"Targeting company: {target_company}")
         logger.info(f"{'='*60}\n")
         
-        parsed_data = parse_all_pdfs(data_dir, use_semantic_extraction=use_semantic)
+        new_parsed_data = parse_all_pdfs(
+            data_dir, 
+            use_semantic_extraction=use_semantic,
+            target_company=target_company
+        )
+        
+        # Merge logic: Update existing data with new data
+        # If target_company is set, we only update that company's data
+        parsed_data = existing_data.copy()
+        for company, quarters in new_parsed_data.items():
+            if company not in parsed_data:
+                parsed_data[company] = {}
+            # Update specific quarters (overwrite if exists, add if new)
+            for q, text in quarters.items():
+                parsed_data[company][q] = text
         
         if not parsed_data:
-            logger.error("No data parsed. Check your PDF files and try again.")
-            return {"results": [], "verdict": None, "usage": {}}
+            logger.error("No data parsed (and no existing data). Check your PDF files.")
+            # return {"results": [], "verdict": None, "usage": {}} # Don't return yet, maybe cache has something?
         
         save_parsed_data(parsed_data, str(parsed_data_path))
         
@@ -163,19 +190,21 @@ def run_pipeline(
     logger.info(f"{'='*60}\n")
     
     if not dry_run:
-        # Save to CSV
         df = pd.DataFrame(changes)
-        csv_path = output_path / "disclosure_changes.csv"
-        df.to_csv(csv_path, index=False)
-        logger.info(f"Saved {len(df)} changes to {csv_path}")
-        
-        # Save to Styled Excel
-        excel_path = output_path / "disclosure_changes.xlsx"
-        try:
-            save_styled_excel(df, excel_path)
-        except Exception as e:
-            logger.error(f"Failed to save styled Excel: {e}")
-        
+
+        if not skip_file_output:
+            # Save to CSV
+            csv_path = output_path / "disclosure_changes.csv"
+            df.to_csv(csv_path, index=False)
+            logger.info(f"Saved {len(df)} changes to {csv_path}")
+
+            # Save to Styled Excel
+            excel_path = output_path / "disclosure_changes.xlsx"
+            try:
+                save_styled_excel(df, excel_path)
+            except Exception as e:
+                logger.error(f"Failed to save styled Excel: {e}")
+
         # Display Final Verdict if available
         if verdict_data:
             logger.info("\n" + "="*60)
@@ -202,7 +231,7 @@ def run_pipeline(
         for section, count in df['Section'].value_counts().items():
             logger.info(f"  {section}: {count}")
         
-        # Save summary
+        # Build summary
         summary = {
             "total_changes": len(df),
             "by_signal": df['Signal'].value_counts().to_dict(),
@@ -210,10 +239,11 @@ def run_pipeline(
             "verdict": verdict_data,
             "usage": usage
         }
-        summary_path = output_path / "summary.json"
-        with open(summary_path, 'w') as f:
-            json.dump(summary, f, indent=2)
-        logger.info(f"Saved summary to {summary_path}")
+        if not skip_file_output:
+            summary_path = output_path / "summary.json"
+            with open(summary_path, 'w') as f:
+                json.dump(summary, f, indent=2)
+            logger.info(f"Saved summary to {summary_path}")
     
     timings['Step 3: Output Generation'] = time.time() - step3_start
     total_time = time.time() - start_time
