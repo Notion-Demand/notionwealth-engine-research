@@ -7,6 +7,7 @@ import os
 import logging
 import re
 import json
+from collections import defaultdict
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Dict, Optional, Tuple
