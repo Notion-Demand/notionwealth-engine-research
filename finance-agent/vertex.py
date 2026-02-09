@@ -30,7 +30,7 @@ def call_gemini(prompt: str, use_cache: bool = True, max_retries: int = 3) -> st
     for attempt in range(max_retries):
         try:
             response = client.models.generate_content(
-                model="gemini-2.0-flash-exp",
+                model="gemini-2.0-flash",
                 contents=prompt
             )
             result = response.text

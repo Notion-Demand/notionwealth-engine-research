@@ -146,7 +146,11 @@ def parse_filename(filename: str) -> Optional[Dict[str, str]]:
     return None
 
 
-def parse_all_pdfs(data_dir: str = "data", use_semantic_extraction: bool = True) -> Dict:
+def parse_all_pdfs(
+    data_dir: str = "data", 
+    use_semantic_extraction: bool = True,
+    target_company: Optional[str] = None
+) -> Dict:
     """
     Parse all PDFs in the data directory.
     Returns nested dict: {company: {quarter: {section: text}}}
@@ -155,6 +159,7 @@ def parse_all_pdfs(data_dir: str = "data", use_semantic_extraction: bool = True)
         data_dir: Directory containing PDF files
         use_semantic_extraction: If True, use AI to extract sections from unstructured transcripts.
                                  If False, use regex-based section detection (for structured SEC filings).
+        target_company: Optional company name substring to filter files (case-insensitive).
     """
     data_path = Path(data_dir)
     if not data_path.exists():
@@ -168,17 +173,36 @@ def parse_all_pdfs(data_dir: str = "data", use_semantic_extraction: bool = True)
         logger.warning(f"No PDF files found in {data_dir}")
         return {}
     
-    logger.info(f"Found {len(pdf_files)} PDF files to process")
+    logger.info(f"Found {len(pdf_files)} PDF files potential candidates")
+    if target_company:
+        logger.info(f"Filtering for company: {target_company}")
+
     logger.info(f"Extraction mode: {'Semantic (AI-based)' if use_semantic_extraction else 'Regex-based (SEC filings)'}")
     
     for pdf_path in pdf_files:
-        # Parse filename to get company and quarter
-        file_info = parse_filename(pdf_path.name)
-        if not file_info:
+        # 1. Filter by target company if specified
+        if target_company and target_company.lower() not in pdf_path.name.lower():
             continue
+
+        # Parse filename to get company and quarter
+        # Heuristic: try standard format first, else use filename as company placeholder
+        file_info = parse_filename(pdf_path.name)
         
-        company = file_info["company"]
-        quarter = file_info["quarter"]
+        if file_info:
+            company = file_info["company"]
+            quarter = file_info["quarter"]
+        else:
+            # Fallback for non-standard filenames (e.g. "Bajaj Finance Q1.pdf")
+            # We use the filename as company and try to guess quarter, or just use filename
+            company = target_company.upper() if target_company else "UNKNOWN"
+            # Try to extract quarter from filename
+            q_match = re.search(r"(Q[1-4]).*?(FY\d{2})", pdf_path.name, re.IGNORECASE)
+            if q_match:
+                quarter = f"{q_match.group(1).upper()}_{q_match.group(2).upper()}"
+            else:
+                quarter = pdf_path.stem
+
+        # Parse the document
         
         # Parse the document
         parser = DocumentParser(pdf_path)

@@ -44,11 +44,43 @@ def analyze_competition(task: str) -> str:
     2. Compare them using the available data.
        - If data for a company is missing in the "metrics" section, explicitly state: "Data for [Company] not available in local verified memory."
     3. Output Format:
-       - **Executive Summary**: High-level comparison.
-       - **Metric Comparison Table**: Columns for Company, Metric, Value, Year.
-       - **Strategic Positioning**: Narrative comparison of strengths/weaknesses.
-       - **Risks vs Peers**: Where is each company vulnerable?
-    4. Cite sources (filenames) for all data points.
+       Return a valid JSON object with the following schema:
+       {{
+         "executive_summary": "High-level narrative comparison of the companies.",
+         "comparison_table": [
+           {{"Company": "Company A", "Metric": "Revenue", "Value": "10B", "Year": "2024"}},
+           {{"Company": "Company B", "Metric": "Revenue", "Value": "12B", "Year": "2024"}}
+         ],
+         "strategic_positioning": "Narrative comparison of strengths, weaknesses, and market position.",
+         "risks": [
+           "Risk 1 for Company A",
+           "Risk 1 for Company B"
+         ]
+       }}
+    4. Cite sources (filenames) for all data points within the text.
+    5. Return ONLY valid JSON, no markdown formatting or extra text.
     """
 
-    return call_gemini(prompt)
+    response = call_gemini(prompt)
+    
+    # Parse JSON
+    try:
+        # Remove markdown code fences if present
+        import re
+        content = response
+        json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', content, re.DOTALL)
+        if json_match:
+            json_str = json_match.group(1)
+        else:
+            json_match = re.search(r'\{.*?\}', content, re.DOTALL)
+            json_str = json_match.group(0) if json_match else content
+
+        return json.loads(json_str)
+    except Exception as e:
+        # Fallback to returning raw text in a wrapper
+        return {
+            "executive_summary": "Error parsing JSON response. Raw output below.",
+            "comparison_table": [],
+            "strategic_positioning": str(response),
+            "risks": []
+        }

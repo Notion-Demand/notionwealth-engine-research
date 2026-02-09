@@ -26,7 +26,8 @@ def detect_anomalies(facts: list[dict]) -> list[str]:
         key = (fact.get("company", "Unknown"), fact.get("metric", "Unknown"))
         if key not in history:
             history[key] = {}
-        history[key][fact.get("year", "Unknown")] = fact.get("value", "0")
+        year = str(fact.get("year")) if fact.get("year") is not None else "Unknown"
+        history[key][year] = fact.get("value", "0")
 
     # Detect shifts
     for (company, metric), years in history.items():

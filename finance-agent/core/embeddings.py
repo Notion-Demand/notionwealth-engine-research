@@ -32,7 +32,7 @@ def embed(texts):
         for j in range(0, len(uncached_texts), batch_size):
             batch = uncached_texts[j : j + batch_size]
             res = client.models.embed_content(
-                model="text-embedding-004",
+                model="models/gemini-embedding-001",
                 contents=batch
             )
             new_embeddings.extend([e.values for e in res.embeddings])
