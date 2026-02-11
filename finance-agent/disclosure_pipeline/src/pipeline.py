@@ -85,7 +85,8 @@ def run_pipeline(
     skip_parsing: bool = False,
     use_semantic: bool = True,
     target_company: str = None,
-    skip_file_output: bool = False
+    skip_file_output: bool = False,
+    run_evaluation: bool = False
 ):
     """
     Run the complete disclosure analysis pipeline.
@@ -98,6 +99,8 @@ def run_pipeline(
         use_semantic: If True, use AI-based semantic extraction (for earnings transcripts).
                      If False, use regex-based extraction (for structured SEC filings).
         target_company: Optional filter for specific company files.
+        skip_file_output: If True, skip CSV/Excel generation (for UI performance)
+        run_evaluation: If True, run judge LLM evaluation after analysis
     """
     import time
     start_time = time.time()
@@ -134,7 +137,8 @@ def run_pipeline(
         new_parsed_data = parse_all_pdfs(
             data_dir, 
             use_semantic_extraction=use_semantic,
-            target_company=target_company
+            target_company=target_company,
+            existing_data=existing_data
         )
         
         # Merge logic: Update existing data with new data
@@ -267,6 +271,34 @@ def run_pipeline(
     logger.info(f"{'TOTAL PIPELINE TIME':.<40} {total_time:>8.2f}s")
     logger.info("=" * 60)
 
+    # Step 4: Judge LLM Evaluation (Optional)
+    if run_evaluation and not dry_run and changes:
+        step4_start = time.time()
+        logger.info(f"\n{'='*60}")
+        logger.info("STEP 4: Judge LLM Evaluation")
+        logger.info(f"{'='*60}\n")
+        
+        try:
+            from .judge_evaluator import run_full_evaluation
+            from .evaluation_report import generate_evaluation_report
+            
+            evaluation_results = run_full_evaluation(
+                parsed_data=parsed_data,
+                analysis_results=changes,
+                verdict=verdict_data
+            )
+            
+            # Generate reports
+            generate_evaluation_report(evaluation_results, output_dir)
+            
+            # Add to summary
+            summary["evaluation"] = evaluation_results.get("summary_scores", {})
+            
+            timings['Step 4: Judge Evaluation'] = time.time() - step4_start
+        except Exception as e:
+            logger.error(f"Evaluation failed: {e}")
+            logger.exception(e)
+
     logger.info("\n" + "="*60)
     logger.info("PIPELINE COMPLETE!")
     logger.info("="*60 + "\n")
@@ -305,6 +337,11 @@ def main():
         action="store_true",
         help="Use regex-based extraction (for structured SEC filings). Default is semantic extraction (for earnings transcripts)."
     )
+    parser.add_argument(
+        "--evaluate",
+        action="store_true",
+        help="Run judge LLM evaluation after analysis to assess accuracy"
+    )
     
     args = parser.parse_args()
     
@@ -313,7 +350,8 @@ def main():
         output_dir=args.output_dir,
         dry_run=args.dry_run,
         skip_parsing=args.skip_parsing,
-        use_semantic=not args.use_regex  # Default to semantic
+        use_semantic=not args.use_regex,  # Default to semantic
+        run_evaluation=args.evaluate
     )
 
 

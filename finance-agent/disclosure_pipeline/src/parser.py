@@ -149,7 +149,8 @@ def parse_filename(filename: str) -> Optional[Dict[str, str]]:
 def parse_all_pdfs(
     data_dir: str = "data", 
     use_semantic_extraction: bool = True,
-    target_company: Optional[str] = None
+    target_company: Optional[str] = None,
+    existing_data: Optional[Dict] = None
 ) -> Dict:
     """
     Parse all PDFs in the data directory.
@@ -160,7 +161,10 @@ def parse_all_pdfs(
         use_semantic_extraction: If True, use AI to extract sections from unstructured transcripts.
                                  If False, use regex-based section detection (for structured SEC filings).
         target_company: Optional company name substring to filter files (case-insensitive).
+        existing_data: Previously parsed data to skip already-extracted quarters.
     """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    
     data_path = Path(data_dir)
     if not data_path.exists():
         logger.error(f"Data directory {data_dir} does not exist")
@@ -179,56 +183,80 @@ def parse_all_pdfs(
 
     logger.info(f"Extraction mode: {'Semantic (AI-based)' if use_semantic_extraction else 'Regex-based (SEC filings)'}")
     
+    # Collect extraction tasks
+    extraction_tasks = []
+    
     for pdf_path in pdf_files:
         # 1. Filter by target company if specified
         if target_company and target_company.lower() not in pdf_path.name.lower():
             continue
 
         # Parse filename to get company and quarter
-        # Heuristic: try standard format first, else use filename as company placeholder
         file_info = parse_filename(pdf_path.name)
         
         if file_info:
             company = file_info["company"]
             quarter = file_info["quarter"]
         else:
-            # Fallback for non-standard filenames (e.g. "Bajaj Finance Q1.pdf")
-            # We use the filename as company and try to guess quarter, or just use filename
             company = target_company.upper() if target_company else "UNKNOWN"
-            # Try to extract quarter from filename
             q_match = re.search(r"(Q[1-4]).*?(FY\d{2})", pdf_path.name, re.IGNORECASE)
             if q_match:
                 quarter = f"{q_match.group(1).upper()}_{q_match.group(2).upper()}"
             else:
                 quarter = pdf_path.stem
 
-        # Parse the document
+        # Smart cache: skip if valid data already exists for this quarter
+        if existing_data:
+            cached = existing_data.get(company, {}).get(quarter, {})
+            md_a = cached.get("MD&A", "")
+            if md_a and len(md_a) > 100 and md_a not in ("No MD&A content extracted", None):
+                logger.info(f"⚡ Cache hit for {company} {quarter} — skipping extraction")
+                if company not in results:
+                    results[company] = {}
+                results[company][quarter] = cached
+                continue
         
-        # Parse the document
+        extraction_tasks.append((pdf_path, company, quarter))
+    
+    if not extraction_tasks:
+        logger.info("All PDFs already cached — no extraction needed")
+        return results
+    
+    logger.info(f"Extracting {len(extraction_tasks)} PDFs in parallel...")
+    
+    def _extract_one(task):
+        pdf_path, company, quarter = task
         parser = DocumentParser(pdf_path)
         
         if use_semantic_extraction:
-            # For earnings call transcripts: extract full text, then use AI to categorize
             full_text = parser.extract_text()
-            
             if not full_text or len(full_text) < 100:
-                logger.warning(f"Insufficient text extracted from {pdf_path.name}, skipping")
-                continue
+                logger.warning(f"Insufficient text from {pdf_path.name}, skipping")
+                return company, quarter, None
             
-            # Import here to avoid circular dependency
             from .semantic_extraction import extract_semantic_sections
-            
             logger.info(f"Using semantic extraction for {company} {quarter}...")
             sections = extract_semantic_sections(full_text, company, quarter)
         else:
-            # For structured SEC filings: use regex-based section detection
             logger.info(f"Using regex-based extraction for {company} {quarter}...")
             sections = parser.parse()
         
-        # Store results
-        if company not in results:
-            results[company] = {}
-        results[company][quarter] = sections
+        return company, quarter, sections
+    
+    # Run extractions in parallel (max 4 concurrent to avoid rate limiting)
+    with ThreadPoolExecutor(max_workers=min(4, len(extraction_tasks))) as executor:
+        futures = {executor.submit(_extract_one, task): task for task in extraction_tasks}
+        
+        for future in as_completed(futures):
+            try:
+                company, quarter, sections = future.result()
+                if sections:
+                    if company not in results:
+                        results[company] = {}
+                    results[company][quarter] = sections
+            except Exception as e:
+                task = futures[future]
+                logger.error(f"Failed to extract {task[0].name}: {e}")
     
     logger.info(f"Successfully parsed data for {len(results)} companies")
     return results

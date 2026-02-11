@@ -144,6 +144,11 @@ elif mode == "Disclosures Difference":
     st.info("Analyzes shifts in MD&A, Risk Factors, and Accounting policies between quarters.")
     
     query = st.text_input("Analysis Query", "Analyze BAJFINANCE for latest disclosure changes")
+    run_evaluation = st.checkbox(
+        "🧑‍⚖️ Run Judge LLM Evaluation (assess accuracy, slower)",
+        value=False,
+        help="Validates extraction quality, change detection, signal classification, and verdict quality. Adds ~10-20 seconds."
+    )
     
     if st.button("Run"):
         with st.spinner("Analyzing disclosures..."):
@@ -170,7 +175,8 @@ elif mode == "Disclosures Difference":
                     output_dir="disclosure_pipeline/output",
                     skip_parsing=parsed_exists,
                     target_company=target_company,
-                    skip_file_output=True
+                    skip_file_output=True,
+                    run_evaluation=run_evaluation
                 )
                 
                 if summary is None:
@@ -208,6 +214,28 @@ elif mode == "Disclosures Difference":
                 # Keep only relevant columns for the UI
                 ui_df = df[["Section", "Description", "Signal"]]
                 st.table(ui_df)
+            
+            # Evaluation Metrics (if judge ran)
+            if "evaluation" in summary:
+                st.markdown("---")
+                st.subheader("📊 Judge LLM Evaluation Results")
+                eval_data = summary["evaluation"]
+                
+                # Main metrics
+                col1, col2, col3, col4 = st.columns(4)
+                col1.metric("Overall Accuracy", f"{eval_data.get('overall_accuracy', 0)}%")
+                col2.metric("Extraction", f"{eval_data.get('extraction_avg', 0)}%")
+                col3.metric("Detection", f"{eval_data.get('change_detection_avg', 0)}%")
+                col4.metric("Signals", f"{eval_data.get('signal_classification_avg', 0)}%")
+                
+                if eval_data.get("verdict_quality"):
+                    st.metric("Verdict Quality", f"{eval_data.get('verdict_quality')}%")
+                
+                # Link to detailed report
+                st.info("📄 Detailed evaluation report saved to `disclosure_pipeline/output/evaluation_report.md`")
+                
+                with st.expander("View Full Evaluation Data"):
+                    st.json(eval_data)
 
 elif mode == "Portfolio Strategy":
     st.header("Portfolio Strategy & Risk")
