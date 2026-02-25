@@ -8,3 +8,5 @@ python-dotenv
 google-genai
 python-docx
 streamlit
+yfinance
+pdfplumber
