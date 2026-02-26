@@ -44,7 +44,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Warm-up: preload heavy resources into memory on first Streamlit run
+# Warm-up: preload heavy resources into memory — deferred to first use in research modes
 @st.cache_resource
 def _warmup_resources():
     from core.vector import load as load_vector
@@ -53,7 +53,11 @@ def _warmup_resources():
     load_facts()
     return True
 
-_warmup_resources()
+# Pre-seed Bharti Airtel result for instant demo load
+_DEMO_CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "cache", "Bharti_Q2_2026__Bharti_Q3_2026.json")
+if "dashboard_payload" not in st.session_state and os.path.exists(_DEMO_CACHE):
+    with open(_DEMO_CACHE) as _f:
+        st.session_state["dashboard_payload"] = json.load(_f)
 
 st.title("Financial Agent Decision Engine")
 
@@ -64,6 +68,7 @@ mode = st.sidebar.radio(
 )
 
 if mode == "Deep Research":
+    _warmup_resources()
     st.header("Deep Fundamental Research")
     query = st.text_input("Research Topic", "Apple revenue growth drivers and risks")
     
@@ -91,6 +96,7 @@ if mode == "Deep Research":
                 st.json(session.get("trace", []))
 
 elif mode == "Risk Assessment":
+    _warmup_resources()
     st.header("Risk & Anomaly Detection")
     st.info("Detects financial anomalies and emerging risks.")
     task = st.text_input("Risk Topic", "Apple supply chain and regulatory risks")
@@ -150,6 +156,27 @@ elif mode == "Disclosures Difference":
 
     # Import parser utilities
     from multiagent_analysis.parser import extract_ticker_from_query, discover_pdfs, list_available_companies
+    from pathlib import Path
+
+    # Disk cache setup
+    _CACHE_DIR = Path(os.path.dirname(os.path.abspath(__file__))).parent / "cache"
+    _CACHE_DIR.mkdir(exist_ok=True)
+
+    def _cache_path(q_prev: str, q_curr: str) -> Path:
+        key = f"{Path(q_prev).stem}__{Path(q_curr).stem}"
+        return _CACHE_DIR / f"{key}.json"
+
+    def _load_cache(q_prev: str, q_curr: str):
+        p = _cache_path(q_prev, q_curr)
+        if p.exists():
+            with open(p) as f:
+                return json.load(f)
+        return None
+
+    def _save_cache(q_prev: str, q_curr: str, payload: dict):
+        p = _cache_path(q_prev, q_curr)
+        with open(p, "w") as f:
+            json.dump(payload, f)
 
     # Show available companies
     available = list_available_companies()
@@ -160,6 +187,7 @@ elif mode == "Disclosures Difference":
         "Analyze Bharti Airtel for latest disclosure changes",
         help=f"Available companies: {available_str}"
     )
+    force_refresh = st.checkbox("Force refresh (bypass cache)", value=False)
 
     if st.button("🚀 Run Multi-Agent Analysis", type="primary"):
         # Extract ticker from query
@@ -175,19 +203,24 @@ elif mode == "Disclosures Difference":
             st.error(str(e))
             st.stop()
 
-        # Show what we're analyzing
-        from pathlib import Path
         st.caption(f"📁 Found: **{Path(q_prev_path).name}** → **{Path(q_curr_path).name}**")
 
-        with st.spinner(f"Running 8 agents in parallel on {ticker}... (~25s)"):
-            try:
-                payload = asyncio.run(run_multiagent_pipeline(q_prev_path, q_curr_path))
-            except Exception as e:
-                st.error(f"Pipeline error: {str(e)}")
-                st.exception(e)
-                st.stop()
+        # Check disk cache first
+        cached = None if force_refresh else _load_cache(q_prev_path, q_curr_path)
 
-        st.success("✅ Analysis Complete!")
+        if cached:
+            st.success("⚡ Loaded from cache (instant)")
+            payload = cached
+        else:
+            with st.spinner(f"Running 8 agents in parallel on {ticker}... (~25s)"):
+                try:
+                    payload = asyncio.run(run_multiagent_pipeline(q_prev_path, q_curr_path))
+                except Exception as e:
+                    st.error(f"Pipeline error: {str(e)}")
+                    st.exception(e)
+                    st.stop()
+            _save_cache(q_prev_path, q_curr_path, payload)
+            st.success("✅ Analysis Complete!")
 
         # Save payload for quick re-render
         st.session_state["dashboard_payload"] = payload
