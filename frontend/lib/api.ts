@@ -63,10 +63,16 @@ export type AnalyzeResult = {
   payload: Record<string, unknown>;
 };
 
-export async function runAnalysis(query: string): Promise<AnalyzeResult> {
+export interface AnalyzeParams {
+  ticker: string;
+  q_prev: string;
+  q_curr: string;
+}
+
+export async function runAnalysis(params: AnalyzeParams): Promise<AnalyzeResult> {
   return apiFetch<AnalyzeResult>("/analyze", {
     method: "POST",
-    body: JSON.stringify({ query }),
+    body: JSON.stringify(params),
   });
 }
 

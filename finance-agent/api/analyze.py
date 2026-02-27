@@ -1,16 +1,18 @@
 """
-POST /analyze — Run the analysis pipeline and cache the result.
+POST /analyze — Run the multi-agent disclosure analysis pipeline.
 
-Request body:
-  { "query": "Analyze Bharti Airtel earnings Q3 FY25" }
+Request body (structured — preferred):
+  { "ticker": "BHARTI", "q_prev": "Q2_2026", "q_curr": "Q3_2026" }
 
-The pipeline call is intentionally thin: it delegates to the existing
-`vertex.call_gemini` / agent logic. Results are stored in `analysis_results`
-so the frontend can retrieve them later.
+The endpoint resolves the PDF paths from the all-pdfs directory,
+runs the full multi-agent pipeline, persists the result, and returns
+the DashboardPayload.
 """
 
 import json
-from typing import Annotated
+import os
+from pathlib import Path
+from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -20,9 +22,16 @@ from db.supabase import supabase_admin
 
 router = APIRouter(prefix="/analyze", tags=["analyze"])
 
+_PDF_DIR = Path(__file__).parent.parent / "multiagent_analysis" / "all-pdfs"
+
+
+# ── Request / Response models ─────────────────────────────────────────────────
 
 class AnalyzeRequest(BaseModel):
-    query: str
+    # Structured (preferred)
+    ticker: Optional[str] = None
+    q_prev: Optional[str] = None
+    q_curr: Optional[str] = None
 
 
 class AnalyzeResponse(BaseModel):
@@ -30,36 +39,68 @@ class AnalyzeResponse(BaseModel):
     payload: dict
 
 
+# ── PDF resolver ──────────────────────────────────────────────────────────────
+
+def _resolve_pdf(ticker: str, quarter: str) -> Path:
+    """
+    Find PDF for ticker+quarter in all-pdfs/, case-insensitive.
+    Raises HTTPException 422 if not found.
+    """
+    target = f"{ticker}_{quarter}.pdf".lower()
+    for fname in os.listdir(_PDF_DIR):
+        if fname.lower() == target:
+            return _PDF_DIR / fname
+
+    available = sorted(
+        f for f in os.listdir(_PDF_DIR)
+        if f.upper().startswith(ticker.upper() + "_")
+    )
+    hint = f" Available for {ticker}: {available}" if available else ""
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail=f"PDF not found: {ticker} {quarter}.{hint}",
+    )
+
+
+# ── Endpoint ──────────────────────────────────────────────────────────────────
+
 @router.post("", response_model=AnalyzeResponse)
 async def analyze(
     req: AnalyzeRequest,
     user_id: Annotated[str, Depends(get_current_user)],
 ):
-    """Run analysis pipeline and persist result."""
-    try:
-        # Lazy import to avoid loading heavy deps at startup
-        from vertex import call_gemini  # type: ignore[import]
+    """Run the multi-agent disclosure analysis pipeline."""
+    if not req.ticker or not req.q_prev or not req.q_curr:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Required fields: ticker, q_prev, q_curr",
+        )
 
-        raw = call_gemini(req.query)
+    if req.q_prev == req.q_curr:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="q_prev and q_curr must be different quarters",
+        )
+
+    ticker = req.ticker.upper()
+    q_prev_path = _resolve_pdf(ticker, req.q_prev)
+    q_curr_path = _resolve_pdf(ticker, req.q_curr)
+
+    try:
+        from multiagent_analysis.pipeline import run_pipeline
+        payload = await run_pipeline(str(q_prev_path), str(q_curr_path))
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Pipeline error: {exc}",
         ) from exc
 
-    # Wrap plain-text response in a minimal payload envelope
-    payload: dict
-    if isinstance(raw, dict):
-        payload = raw
-    else:
-        payload = {"result": str(raw), "query": req.query}
-
     # Persist to DB
     row = {
         "user_id": user_id,
-        "company_ticker": _extract_ticker(req.query),
-        "q_prev": "",
-        "q_curr": "",
+        "company_ticker": ticker,
+        "q_prev": req.q_prev,
+        "q_curr": req.q_curr,
         "payload": json.dumps(payload),
     }
     result = supabase_admin.table("analysis_results").insert(row).execute()
@@ -80,10 +121,3 @@ async def get_history(user_id: Annotated[str, Depends(get_current_user)]):
         .execute()
     )
     return result.data or []
-
-
-def _extract_ticker(query: str) -> str:
-    """Best-effort ticker/company extraction from free-form query."""
-    words = query.upper().split()
-    # Return last word as a rough proxy for ticker; improve as needed
-    return words[-1] if words else "UNKNOWN"
