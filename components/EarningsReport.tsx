@@ -382,7 +382,7 @@ export default function EarningsReport({ payload }: EarningsReportProps) {
       (payload.result as string | undefined) ?? JSON.stringify(payload, null, 2);
     const query = (payload.query as string | undefined) ?? "Analysis";
 
-    async function handleSendEmail() {
+    const handleSendEmail = async () => {
       if (!emailTarget) return alert("Enter a recipient email.");
       setSending(true);
       try {
@@ -393,7 +393,7 @@ export default function EarningsReport({ payload }: EarningsReportProps) {
       } finally {
         setSending(false);
       }
-    }
+    };
 
     return (
       <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
