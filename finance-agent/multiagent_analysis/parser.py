@@ -18,21 +18,65 @@ DEFAULT_DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "all
 
 # Mapping: our PDF ticker → yfinance NSE symbol (for stock price data)
 NSE_TICKERS = {
-    "BHARTI": "BHARTIARTL.NS",
-    "SBI": "SBIN.NS",
-    "HDFC": "HDFCBANK.NS",
-    "BAJAJ": "BAJFINANCE.NS",
-    "RELIANCE": "RELIANCE.NS",
-    "TCS": "TCS.NS",
-    "INFOSYS": "INFY.NS",
-    "ICICI": "ICICIBANK.NS",
-    "LT": "LT.NS",
-    "HUL": "HINDUNILVR.NS",
+    # ── Original 10 (keys preserved verbatim) ──
+    "BHARTI":     "BHARTIARTL.NS",
+    "SBI":        "SBIN.NS",
+    "HDFC":       "HDFCBANK.NS",
+    "BAJAJ":      "BAJFINANCE.NS",
+    "RELIANCE":   "RELIANCE.NS",
+    "TCS":        "TCS.NS",
+    "INFOSYS":    "INFY.NS",
+    "ICICI":      "ICICIBANK.NS",
+    "LT":         "LT.NS",
+    "HUL":        "HINDUNILVR.NS",
+    # ── Remaining Nifty 50 ──
+    "KOTAKBANK":  "KOTAKBANK.NS",
+    "AXISBANK":   "AXISBANK.NS",
+    "ITC":        "ITC.NS",
+    "HCLTECH":    "HCLTECH.NS",
+    "WIPRO":      "WIPRO.NS",
+    "ULTRACEMCO": "ULTRACEMCO.NS",
+    "ADANIENT":   "ADANIENT.NS",
+    "ADANIPORTS": "ADANIPORTS.NS",
+    "TITAN":      "TITAN.NS",
+    "MARUTI":     "MARUTI.NS",
+    "NTPC":       "NTPC.NS",
+    "POWERGRID":  "POWERGRID.NS",
+    "ONGC":       "ONGC.NS",
+    "TATAMOTORS": "TATAMOTORS.NS",
+    "TATASTEEL":  "TATASTEEL.NS",
+    "SBILIFE":    "SBILIFE.NS",
+    "HDFCLIFE":   "HDFCLIFE.NS",
+    "ICICIPRULI": "ICICIPRULI.NS",
+    "SUNPHARMA":  "SUNPHARMA.NS",
+    "DRREDDY":    "DRREDDY.NS",
+    "CIPLA":      "CIPLA.NS",
+    "ASIANPAINT": "ASIANPAINT.NS",
+    "NESTLEIND":  "NESTLEIND.NS",
+    "BAJAJFINSV": "BAJAJFINSV.NS",
+    "JSWSTEEL":   "JSWSTEEL.NS",
+    "COALINDIA":  "COALINDIA.NS",
+    "INDUSINDBK": "INDUSINDBK.NS",
+    "HINDALCO":   "HINDALCO.NS",
+    "GRASIM":     "GRASIM.NS",
+    "TECHM":      "TECHM.NS",
+    "EICHERMOT":  "EICHERMOT.NS",
+    "HEROMOTOCO": "HEROMOTOCO.NS",
+    "TATACONSUM": "TATACONSUM.NS",
+    "BRITANNIA":  "BRITANNIA.NS",
+    "APOLLOHOSP": "APOLLOHOSP.NS",
+    "DIVISLAB":   "DIVISLAB.NS",
+    "LTIM":       "LTIM.NS",
+    "MM":         "M&M.NS",
+    "BPCL":       "BPCL.NS",
+    "BAJAJAUTO":  "BAJAJ-AUTO.NS",
 }
 
 # Comprehensive alias dictionary — maps every known name/abbreviation to the PDF ticker
 # Format: "alias (lowercase)" → "TICKER (as it appears in filenames)"
 TICKER_ALIASES: dict = {
+    # ── Original 10 ──────────────────────────────────────────────────────────
+
     # Reliance Industries
     "reliance": "RELIANCE",
     "reliance industries": "RELIANCE",
@@ -79,7 +123,6 @@ TICKER_ALIASES: dict = {
     # Bajaj Finance
     "bajaj": "BAJAJ",
     "bajaj finance": "BAJAJ",
-    "bajaj finserv": "BAJAJ",
     "bajfinance": "BAJAJ",
 
     # Hindustan Unilever
@@ -87,6 +130,207 @@ TICKER_ALIASES: dict = {
     "hindustan unilever": "HUL",
     "unilever india": "HUL",
     "hindustan lever": "HUL",
+
+    # ── New Nifty 50 additions ────────────────────────────────────────────────
+
+    # Kotak Mahindra Bank
+    "kotak": "KOTAKBANK",
+    "kotak bank": "KOTAKBANK",
+    "kotak mahindra": "KOTAKBANK",
+    "kotak mahindra bank": "KOTAKBANK",
+    "kotakbank": "KOTAKBANK",
+
+    # Axis Bank
+    "axis": "AXISBANK",
+    "axis bank": "AXISBANK",
+    "axisbank": "AXISBANK",
+
+    # ITC
+    "itc": "ITC",
+    "itc limited": "ITC",
+    "indian tobacco": "ITC",
+
+    # HCL Technologies
+    "hcl": "HCLTECH",
+    "hcltech": "HCLTECH",
+    "hcl tech": "HCLTECH",
+    "hcl technologies": "HCLTECH",
+
+    # Wipro
+    "wipro": "WIPRO",
+
+    # UltraTech Cement
+    "ultratech": "ULTRACEMCO",
+    "ultratech cement": "ULTRACEMCO",
+    "ultracemco": "ULTRACEMCO",
+
+    # Adani Enterprises
+    "adani": "ADANIENT",
+    "adani enterprises": "ADANIENT",
+    "adanient": "ADANIENT",
+
+    # Adani Ports
+    "adani ports": "ADANIPORTS",
+    "adaniports": "ADANIPORTS",
+    "adani ports sez": "ADANIPORTS",
+
+    # Titan Company
+    "titan": "TITAN",
+    "titan company": "TITAN",
+
+    # Maruti Suzuki
+    "maruti": "MARUTI",
+    "maruti suzuki": "MARUTI",
+    "suzuki": "MARUTI",
+
+    # NTPC
+    "ntpc": "NTPC",
+    "national thermal power": "NTPC",
+
+    # Power Grid Corporation
+    "powergrid": "POWERGRID",
+    "power grid": "POWERGRID",
+    "power grid corporation": "POWERGRID",
+
+    # ONGC
+    "ongc": "ONGC",
+    "oil and natural gas": "ONGC",
+    "oil natural gas corporation": "ONGC",
+
+    # Tata Motors
+    "tata motors": "TATAMOTORS",
+    "tatamotors": "TATAMOTORS",
+    "jaguar land rover": "TATAMOTORS",
+    "jlr": "TATAMOTORS",
+
+    # Tata Steel
+    "tata steel": "TATASTEEL",
+    "tatasteel": "TATASTEEL",
+
+    # SBI Life Insurance
+    "sbi life": "SBILIFE",
+    "sbilife": "SBILIFE",
+    "sbi life insurance": "SBILIFE",
+
+    # HDFC Life Insurance
+    "hdfc life": "HDFCLIFE",
+    "hdfclife": "HDFCLIFE",
+    "hdfc life insurance": "HDFCLIFE",
+
+    # ICICI Prudential Life
+    "icici pru": "ICICIPRULI",
+    "icici prudential": "ICICIPRULI",
+    "icicipruli": "ICICIPRULI",
+    "icici prudential life": "ICICIPRULI",
+
+    # Sun Pharmaceutical
+    "sun pharma": "SUNPHARMA",
+    "sunpharma": "SUNPHARMA",
+    "sun pharmaceutical": "SUNPHARMA",
+
+    # Dr. Reddy's Laboratories
+    "dr reddy": "DRREDDY",
+    "drreddy": "DRREDDY",
+    "dr reddys": "DRREDDY",
+    "dr reddy's": "DRREDDY",
+    "dr. reddy": "DRREDDY",
+
+    # Cipla
+    "cipla": "CIPLA",
+
+    # Asian Paints
+    "asian paints": "ASIANPAINT",
+    "asianpaint": "ASIANPAINT",
+
+    # Nestle India
+    "nestle": "NESTLEIND",
+    "nestleind": "NESTLEIND",
+    "nestle india": "NESTLEIND",
+
+    # Bajaj Finserv
+    "bajaj finserv": "BAJAJFINSV",
+    "bajajfinsv": "BAJAJFINSV",
+
+    # JSW Steel
+    "jsw steel": "JSWSTEEL",
+    "jswsteel": "JSWSTEEL",
+    "jsw": "JSWSTEEL",
+
+    # Coal India
+    "coal india": "COALINDIA",
+    "coalindia": "COALINDIA",
+
+    # IndusInd Bank
+    "indusind": "INDUSINDBK",
+    "indusindbk": "INDUSINDBK",
+    "indusind bank": "INDUSINDBK",
+
+    # Hindalco Industries
+    "hindalco": "HINDALCO",
+    "hindalco industries": "HINDALCO",
+
+    # Grasim Industries
+    "grasim": "GRASIM",
+    "grasim industries": "GRASIM",
+
+    # Tech Mahindra
+    "tech mahindra": "TECHM",
+    "techm": "TECHM",
+    "tech m": "TECHM",
+
+    # Eicher Motors / Royal Enfield
+    "eicher": "EICHERMOT",
+    "eichermot": "EICHERMOT",
+    "eicher motors": "EICHERMOT",
+    "royal enfield": "EICHERMOT",
+
+    # Hero MotoCorp
+    "hero": "HEROMOTOCO",
+    "heromotoco": "HEROMOTOCO",
+    "hero motocorp": "HEROMOTOCO",
+    "hero honda": "HEROMOTOCO",
+
+    # Tata Consumer Products
+    "tata consumer": "TATACONSUM",
+    "tataconsum": "TATACONSUM",
+    "tata consumer products": "TATACONSUM",
+    "tata global": "TATACONSUM",
+
+    # Britannia Industries
+    "britannia": "BRITANNIA",
+    "britannia industries": "BRITANNIA",
+
+    # Apollo Hospitals
+    "apollo": "APOLLOHOSP",
+    "apollohosp": "APOLLOHOSP",
+    "apollo hospitals": "APOLLOHOSP",
+
+    # Divi's Laboratories
+    "divis": "DIVISLAB",
+    "divislab": "DIVISLAB",
+    "divi's": "DIVISLAB",
+    "divis lab": "DIVISLAB",
+    "divis laboratories": "DIVISLAB",
+
+    # LTIMindtree
+    "ltim": "LTIM",
+    "ltimindtree": "LTIM",
+    "lti mindtree": "LTIM",
+    "mindtree": "LTIM",
+
+    # Mahindra & Mahindra
+    "mahindra": "MM",
+    "m&m": "MM",
+    "mahindra mahindra": "MM",
+    "mahindra and mahindra": "MM",
+
+    # Bharat Petroleum
+    "bpcl": "BPCL",
+    "bharat petroleum": "BPCL",
+
+    # Bajaj Auto
+    "bajaj auto": "BAJAJAUTO",
+    "bajajauto": "BAJAJAUTO",
 }
 
 
