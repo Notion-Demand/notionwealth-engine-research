@@ -10,7 +10,7 @@ import AgentPanel, {
 } from "@/components/AgentPanel";
 import { runAnalysisStream } from "@/lib/api";
 import { NIFTY50_LIST, quarterLabel, SECTION_NAMES } from "@/lib/nifty50";
-import { BarChart2, ChevronDown } from "lucide-react";
+import { BarChart2, ChevronDown, RefreshCw } from "lucide-react";
 import clsx from "clsx";
 
 const DEFAULT_SECTIONS = [...SECTION_NAMES];
@@ -192,7 +192,7 @@ export default function DashboardClient() {
   const [result, setResult] = useState<Record<string, unknown> | null>(null);
   const [agentState, setAgentState] = useState<AgentPanelState | null>(null);
 
-  async function handleAnalyze(e: React.FormEvent) {
+  async function handleAnalyze(e: React.FormEvent, force = false) {
     e.preventDefault();
     if (!ticker || !qPrev || !qCurr || qPrev === qCurr) return;
 
@@ -203,7 +203,7 @@ export default function DashboardClient() {
 
     try {
       const res = await runAnalysisStream(
-        { ticker, q_prev: qPrev, q_curr: qCurr },
+        { ticker, q_prev: qPrev, q_curr: qCurr, ...(force ? { force: true } : {}) },
         (event) => {
           setAgentState((prev) => {
             // "start" always initialises fresh state (prev is null at this point)
@@ -404,7 +404,16 @@ export default function DashboardClient() {
 
         {/* ── Final report ─────────────────────────────────────────────── */}
         {result && !loading && (
-          <div className="mt-8">
+          <div className="mt-8 space-y-2">
+            <div className="flex justify-end">
+              <button
+                onClick={(e) => handleAnalyze(e, true)}
+                className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-500 hover:bg-gray-50 hover:text-gray-700"
+              >
+                <RefreshCw size={12} />
+                Clear cache &amp; re-analyze
+              </button>
+            </div>
             <EarningsReport payload={result} />
           </div>
         )}

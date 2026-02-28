@@ -67,6 +67,7 @@ export interface AnalyzeParams {
   ticker: string;
   q_prev: string;
   q_curr: string;
+  force?: boolean;
 }
 
 export type PipelineProgressEvent =

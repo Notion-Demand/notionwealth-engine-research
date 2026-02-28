@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ detail: "Invalid JSON" }, { status: 400 });
   }
 
-  const { ticker, q_prev, q_curr } = body;
+  const { ticker, q_prev, q_curr, force } = body as typeof body & { force?: boolean };
   if (!ticker || !q_prev || !q_curr) {
     return NextResponse.json(
       { detail: "Required fields: ticker, q_prev, q_curr" },
@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
   const encoder = new TextEncoder();
 
   // ── Cache hit: serve instantly ────────────────────────────────────────────
-  const cached = await getCachedAnalysis(tickerUp, q_prev, q_curr);
+  const cached = force ? null : await getCachedAnalysis(tickerUp, q_prev, q_curr);
   if (cached) {
     console.log(`[Cache] HIT for ${tickerUp} ${q_prev}→${q_curr}`);
     const stream = new ReadableStream({
