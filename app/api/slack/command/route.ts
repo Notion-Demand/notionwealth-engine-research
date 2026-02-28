@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Parse the command text
-  const parsed = parseEarningsCommand(text);
+  const parsed = await parseEarningsCommand(text);
   if (!parsed.ok) {
     return NextResponse.json({ response_type: "ephemeral", text: parsed.error });
   }

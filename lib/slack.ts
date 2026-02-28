@@ -1,7 +1,6 @@
 import crypto from "crypto";
-import path from "path";
-import fs from "fs";
-import { quarterLabel } from "@/lib/nifty50";
+import { quarterLabel, NIFTY50 } from "@/lib/nifty50";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { DashboardPayload } from "@/lib/pipeline";
 
 // ── Signature verification ────────────────────────────────────────────────────
@@ -28,33 +27,97 @@ export function verifySlackSignature(
   }
 }
 
-// ── Command parser ────────────────────────────────────────────────────────────
+// ── Ticker resolution ─────────────────────────────────────────────────────────
 
-const PDF_DIR = path.join(
-  process.cwd(),
-  "finance-agent",
-  "multiagent_analysis",
-  "all-pdfs"
-);
+/** Common short-names / aliases → internal ticker key */
+const TICKER_ALIASES: Record<string, string> = {
+  "airtel": "BHARTI", "bharti airtel": "BHARTI",
+  "hdfc bank": "HDFC", "hdfcbank": "HDFC",
+  "icici bank": "ICICI", "icicibank": "ICICI",
+  "state bank": "SBI", "state bank of india": "SBI",
+  "bajaj finance": "BAJAJ", "bajajfinance": "BAJAJ",
+  "larsen": "LT", "larsen toubro": "LT", "l&t": "LT",
+  "hindustan unilever": "HUL", "hul": "HUL",
+  "kotak": "KOTAKBANK", "kotak bank": "KOTAKBANK", "kotak mahindra": "KOTAKBANK",
+  "axis bank": "AXISBANK",
+  "hcl": "HCLTECH", "hcl tech": "HCLTECH", "hcl technologies": "HCLTECH",
+  "ultratech": "ULTRACEMCO", "ultra tech": "ULTRACEMCO", "ultratech cement": "ULTRACEMCO",
+  "adani enterprises": "ADANIENT",
+  "adani ports": "ADANIPORTS", "adaniports": "ADANIPORTS",
+  "maruti suzuki": "MARUTI", "maruti": "MARUTI",
+  "power grid": "POWERGRID",
+  "tata motors": "TATAMOTORS",
+  "tata steel": "TATASTEEL",
+  "sbi life": "SBILIFE", "sbilife": "SBILIFE",
+  "hdfc life": "HDFCLIFE", "hdfclife": "HDFCLIFE",
+  "icici pru": "ICICIPRULI", "icici prudential": "ICICIPRULI",
+  "sun pharma": "SUNPHARMA", "sunpharma": "SUNPHARMA",
+  "dr reddy": "DRREDDY", "dr reddys": "DRREDDY", "dr. reddy": "DRREDDY",
+  "asian paints": "ASIANPAINT", "asianpaint": "ASIANPAINT",
+  "nestle": "NESTLEIND", "nestle india": "NESTLEIND",
+  "bajaj finserv": "BAJAJFINSV", "bajajfinserv": "BAJAJFINSV",
+  "jsw steel": "JSWSTEEL", "jswsteel": "JSWSTEEL",
+  "coal india": "COALINDIA", "coalindia": "COALINDIA",
+  "indusind": "INDUSINDBK", "indusind bank": "INDUSINDBK",
+  "tech mahindra": "TECHM", "techmahindra": "TECHM",
+  "eicher": "EICHERMOT", "royal enfield": "EICHERMOT", "eicher motors": "EICHERMOT",
+  "hero motocorp": "HEROMOTOCO", "hero moto": "HEROMOTOCO", "hero": "HEROMOTOCO",
+  "tata consumer": "TATACONSUM", "tataconsum": "TATACONSUM",
+  "apollo hospitals": "APOLLOHOSP", "apollo": "APOLLOHOSP",
+  "divis": "DIVISLAB", "divi's": "DIVISLAB", "divi": "DIVISLAB",
+  "ltimindtree": "LTIM", "lti mindtree": "LTIM", "lti": "LTIM",
+  "mahindra": "MM", "m&m": "MM",
+  "bajaj auto": "BAJAJAUTO", "bajajauto": "BAJAJAUTO",
+  "infy": "INFOSYS",
+  "titan": "TITAN",
+  "ntpc": "NTPC",
+  "ongc": "ONGC",
+  "bpcl": "BPCL",
+  "cipla": "CIPLA",
+  "wipro": "WIPRO",
+  "britannia": "BRITANNIA",
+  "hindalco": "HINDALCO",
+  "grasim": "GRASIM",
+};
+
+/** Resolve a free-text company name/ticker to a registry key, or null. */
+function resolveTicker(input: string): string | null {
+  const up = input.toUpperCase().trim();
+  if (NIFTY50[up]) return up;
+
+  const lo = input.toLowerCase().replace(/[^a-z0-9\s&'.]/g, "").trim();
+  if (TICKER_ALIASES[lo]) return TICKER_ALIASES[lo];
+
+  // Substring match against company names in registry
+  for (const [ticker, info] of Object.entries(NIFTY50)) {
+    if (info.name.toLowerCase().includes(lo) || lo.includes(ticker.toLowerCase())) {
+      return ticker;
+    }
+  }
+  return null;
+}
+
+// ── Storage helpers ───────────────────────────────────────────────────────────
+
+const STORAGE_BUCKET = "transcripts";
 
 /** Return the two most-recent available quarters for a ticker (newest first). */
-function latestQuarters(ticker: string): [string, string] | null {
-  try {
-    const files = fs.readdirSync(PDF_DIR);
-    const quarters: string[] = [];
-    for (const f of files) {
-      const m = f.match(/^([A-Za-z]+)_Q(\d)_(\d{4})\.pdf$/i);
-      if (m && m[1].toUpperCase() === ticker.toUpperCase()) {
-        quarters.push(`Q${m[2]}_${m[3]}`);
-      }
-    }
-    quarters.sort((a, b) => b.localeCompare(a));
-    if (quarters.length < 2) return null;
-    return [quarters[0], quarters[1]];
-  } catch {
-    return null;
+async function latestQuarters(ticker: string): Promise<[string, string] | null> {
+  const { data, error } = await supabaseAdmin()
+    .storage.from(STORAGE_BUCKET)
+    .list("", { limit: 1000 });
+  if (error || !data) return null;
+
+  const quarters: string[] = [];
+  for (const f of data) {
+    const m = f.name.match(/^([A-Za-z]+)_Q(\d)_(\d{4})\.pdf$/i);
+    if (m && m[1].toUpperCase() === ticker) quarters.push(`Q${m[2]}_${m[3]}`);
   }
+  quarters.sort((a, b) => b.localeCompare(a));
+  return quarters.length >= 2 ? [quarters[0], quarters[1]] : null;
 }
+
+// ── Command parser ────────────────────────────────────────────────────────────
 
 export type ParsedCommand =
   | { ok: true; ticker: string; qCurr: string; qPrev: string }
@@ -63,36 +126,74 @@ export type ParsedCommand =
 /**
  * Parse `/earnings <text>` input.
  * Supported formats:
- *   BHARTI                      → latest two quarters for that ticker
- *   BHARTI Q3_2026 Q2_2026      → explicit quarters (curr first, prev second)
- *   BHARTI Q3 Q2                → short form, year inferred from latest available
+ *   airtel                        → latest two quarters (name resolved)
+ *   Bharti Airtel                 → same, multi-word company name
+ *   BHARTI                        → exact ticker
+ *   BHARTI Q3_2026 Q2_2026        → explicit quarters (curr first, prev second)
+ *   Bharti Airtel Q3_2026 Q2_2026 → name + explicit quarters
+ *   BHARTI Q3 Q2                  → short form, year inferred from latest available
  */
-export function parseEarningsCommand(text: string): ParsedCommand {
-  const parts = text.trim().toUpperCase().split(/\s+/).filter(Boolean);
-  if (!parts.length) {
-    return { ok: false, error: "Usage: `/earnings BHARTI Q3_2026 Q2_2026`" };
+export async function parseEarningsCommand(text: string): Promise<ParsedCommand> {
+  const raw = text.trim();
+  if (!raw) {
+    return { ok: false, error: "Usage: `/earnings Airtel Q3_2026 Q2_2026`" };
   }
 
-  const ticker = parts[0];
+  // Strip trailing quarter tokens (Q3_2026 or Q3) to isolate the company name
+  const tokens = raw.split(/\s+/);
+  const qTokens: string[] = [];
+  const nameTokens = [...tokens];
 
-  // Full explicit quarters: BHARTI Q3_2026 Q2_2026
-  if (parts.length >= 3 && /^Q\d_\d{4}$/.test(parts[1]) && /^Q\d_\d{4}$/.test(parts[2])) {
-    return { ok: true, ticker, qCurr: parts[1], qPrev: parts[2] };
+  while (nameTokens.length > 1) {
+    const last = nameTokens[nameTokens.length - 1].toUpperCase();
+    if (/^Q\d(_\d{4})?$/.test(last)) {
+      qTokens.unshift(nameTokens.pop()!);
+    } else {
+      break;
+    }
   }
 
-  // Short quarters: BHARTI Q3 Q2 — infer year from latest available
-  if (parts.length >= 3 && /^Q\d$/.test(parts[1]) && /^Q\d$/.test(parts[2])) {
-    const latest = latestQuarters(ticker);
+  // Resolve ticker — try progressively shorter substrings of name tokens
+  let ticker: string | null = null;
+  for (let len = nameTokens.length; len >= 1; len--) {
+    ticker = resolveTicker(nameTokens.slice(0, len).join(" "));
+    if (ticker) break;
+  }
+
+  if (!ticker) {
+    return {
+      ok: false,
+      error: `Couldn't recognise *${tokens[0]}* as a Nifty 50 company. Try the ticker (e.g. \`BHARTI\`) or full name (e.g. \`Bharti Airtel\`).`,
+    };
+  }
+
+  // Full explicit quarters: Q3_2026 Q2_2026
+  if (
+    qTokens.length >= 2 &&
+    /^Q\d_\d{4}$/.test(qTokens[0]) &&
+    /^Q\d_\d{4}$/.test(qTokens[1])
+  ) {
+    return { ok: true, ticker, qCurr: qTokens[0].toUpperCase(), qPrev: qTokens[1].toUpperCase() };
+  }
+
+  // Short quarters: Q3 Q2 — infer year from latest available
+  if (qTokens.length >= 2 && /^Q\d$/.test(qTokens[0]) && /^Q\d$/.test(qTokens[1])) {
+    const latest = await latestQuarters(ticker);
     const year = latest ? latest[0].split("_")[1] : new Date().getFullYear().toString();
-    return { ok: true, ticker, qCurr: `${parts[1]}_${year}`, qPrev: `${parts[2]}_${year}` };
+    return {
+      ok: true,
+      ticker,
+      qCurr: `${qTokens[0].toUpperCase()}_${year}`,
+      qPrev: `${qTokens[1].toUpperCase()}_${year}`,
+    };
   }
 
-  // Ticker only: default to latest two
-  const latest = latestQuarters(ticker);
+  // No quarters: default to latest two
+  const latest = await latestQuarters(ticker);
   if (!latest) {
     return {
       ok: false,
-      error: `No transcripts found for *${ticker}*. Try: \`/earnings BHARTI Q3_2026 Q2_2026\``,
+      error: `No transcripts found for *${ticker}*. Try: \`/earnings ${ticker} Q3_2026 Q2_2026\``,
     };
   }
   return { ok: true, ticker, qCurr: latest[0], qPrev: latest[1] };
