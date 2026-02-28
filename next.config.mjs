@@ -14,6 +14,12 @@ const nextConfig = {
       "/api/v1/analyze": [
         "./finance-agent/multiagent_analysis/all-pdfs/**",
       ],
+      "/api/v1/available": [
+        "./finance-agent/multiagent_analysis/all-pdfs/**",
+      ],
+      "/api/slack/command": [
+        "./finance-agent/multiagent_analysis/all-pdfs/**",
+      ],
     },
     // Prevent pdf-parse from being bundled by webpack (avoids test-file init issue)
     serverComponentsExternalPackages: ["pdf-parse"],

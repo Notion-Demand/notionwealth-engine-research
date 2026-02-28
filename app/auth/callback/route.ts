@@ -3,6 +3,10 @@
  *
  * Supabase Auth redirect handler — exchanges the auth code for a session
  * after Google OAuth sign-in (via Supabase Auth, NOT the per-user Gmail OAuth).
+ *
+ * Sign-in only requests basic scopes (email, profile) so no Gmail tokens
+ * are captured here. Users connect Gmail separately via Settings → Connections
+ * to get the gmail.send scope for the email feature.
  */
 
 import { NextRequest, NextResponse } from "next/server";

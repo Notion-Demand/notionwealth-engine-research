@@ -1,33 +1,288 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import Nav from "@/components/Nav";
 import EarningsReport from "@/components/EarningsReport";
-import { runAnalysis } from "@/lib/api";
-import { NIFTY50_LIST, QUARTERS, quarterLabel } from "@/lib/nifty50";
+import AgentPanel, {
+  makeInitialAgentState,
+  type AgentPanelState,
+  type AgentStatus,
+} from "@/components/AgentPanel";
+import { runAnalysisStream } from "@/lib/api";
+import { NIFTY50_LIST, quarterLabel, SECTION_NAMES } from "@/lib/nifty50";
 import { BarChart2, ChevronDown } from "lucide-react";
+import clsx from "clsx";
+
+const DEFAULT_SECTIONS = [...SECTION_NAMES];
+
+// ── Company autocomplete ──────────────────────────────────────────────────────
+
+function CompanySearch({
+  options,
+  value,
+  onChange,
+  disabled,
+}: {
+  options: { ticker: string; name: string }[];
+  value: string;
+  onChange: (ticker: string) => void;
+  disabled?: boolean;
+}) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const [highlighted, setHighlighted] = useState(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
+
+  const selectedName = options.find((o) => o.ticker === value)?.name ?? value;
+
+  const filtered = query.trim()
+    ? options.filter(
+        (o) =>
+          o.name.toLowerCase().includes(query.toLowerCase()) ||
+          o.ticker.toLowerCase().includes(query.toLowerCase())
+      )
+    : options;
+
+  // Close on outside click
+  useEffect(() => {
+    function onMouseDown(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+        setQuery("");
+      }
+    }
+    document.addEventListener("mousedown", onMouseDown);
+    return () => document.removeEventListener("mousedown", onMouseDown);
+  }, []);
+
+  // Scroll highlighted item into view
+  useEffect(() => {
+    const item = listRef.current?.children[highlighted] as HTMLElement | undefined;
+    item?.scrollIntoView({ block: "nearest" });
+  }, [highlighted]);
+
+  function select(ticker: string) {
+    onChange(ticker);
+    setOpen(false);
+    setQuery("");
+  }
+
+  function onKeyDown(e: React.KeyboardEvent) {
+    if (!open) {
+      if (e.key === "ArrowDown" || e.key === "Enter") {
+        setOpen(true);
+        setHighlighted(0);
+      }
+      return;
+    }
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setHighlighted((h) => Math.min(h + 1, filtered.length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setHighlighted((h) => Math.max(h - 1, 0));
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (filtered[highlighted]) select(filtered[highlighted].ticker);
+    } else if (e.key === "Escape") {
+      setOpen(false);
+      setQuery("");
+    }
+  }
+
+  return (
+    <div ref={containerRef} className="relative w-full">
+      <input
+        type="text"
+        disabled={disabled}
+        value={open ? query : selectedName}
+        placeholder="Search company or ticker…"
+        onFocus={() => { setOpen(true); setQuery(""); setHighlighted(0); }}
+        onChange={(e) => { setQuery(e.target.value); setHighlighted(0); }}
+        onKeyDown={onKeyDown}
+        className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:opacity-50"
+        autoComplete="off"
+        spellCheck={false}
+      />
+      {open && filtered.length > 0 && (
+        <ul
+          ref={listRef}
+          className="absolute z-50 mt-1 max-h-64 w-full overflow-auto rounded-md border border-gray-200 bg-white py-1 shadow-lg"
+        >
+          {filtered.map((o, i) => (
+            <li
+              key={o.ticker}
+              onMouseDown={() => select(o.ticker)}
+              onMouseEnter={() => setHighlighted(i)}
+              className={clsx(
+                "flex cursor-pointer items-center justify-between px-3 py-2 text-sm",
+                i === highlighted
+                  ? "bg-brand-50 text-brand-700"
+                  : "text-gray-700 hover:bg-gray-50"
+              )}
+            >
+              <span>{o.name}</span>
+              <span className="ml-3 shrink-0 font-mono text-xs text-gray-400">
+                {o.ticker}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {open && filtered.length === 0 && (
+        <div className="absolute z-50 mt-1 w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-400 shadow-lg">
+          No matches
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function DashboardClient() {
+  // ── Available PDFs ──────────────────────────────────────────────────────────
+  const [available, setAvailable] = useState<Record<string, string[]>>({});
+
+  useEffect(() => {
+    fetch("/api/v1/available")
+      .then((r) => r.json())
+      .then((data: Record<string, string[]>) => {
+        setAvailable(data);
+        const tickers = Object.keys(data);
+        if (tickers.length > 0) {
+          const first = tickers[0];
+          const quarters = data[first];
+          setTicker(first);
+          if (quarters.length >= 2) {
+            setQCurr(quarters[0]);
+            setQPrev(quarters[1]);
+          }
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const filteredList =
+    Object.keys(available).length > 0
+      ? NIFTY50_LIST.filter(({ ticker }) => available[ticker])
+      : NIFTY50_LIST;
+
+  // ── Picker state ────────────────────────────────────────────────────────────
   const [ticker, setTicker] = useState("BHARTI");
   const [qCurr, setQCurr] = useState("Q3_2026");
   const [qPrev, setQPrev] = useState("Q2_2026");
-  const [result, setResult] = useState<Record<string, unknown> | null>(null);
+
+  const quartersForTicker = available[ticker] ?? [];
+
+  function handleTickerChange(newTicker: string) {
+    setTicker(newTicker);
+    const quarters = available[newTicker] ?? [];
+    if (quarters.length >= 2) {
+      setQCurr(quarters[0]);
+      setQPrev(quarters[1]);
+    }
+    setResult(null);
+    setError(null);
+    setAgentState(null);
+  }
+
+  // ── Analysis state ──────────────────────────────────────────────────────────
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<Record<string, unknown> | null>(null);
+  const [agentState, setAgentState] = useState<AgentPanelState | null>(null);
 
   async function handleAnalyze(e: React.FormEvent) {
     e.preventDefault();
-    if (!ticker || !qPrev || !qCurr) return;
+    if (!ticker || !qPrev || !qCurr || qPrev === qCurr) return;
+
     setError(null);
     setResult(null);
     setLoading(true);
+    setAgentState(null); // will be set on "start" event (cache hits skip this)
+
     try {
-      const res = await runAnalysis({ ticker, q_prev: qPrev, q_curr: qCurr });
+      const res = await runAnalysisStream(
+        { ticker, q_prev: qPrev, q_curr: qCurr },
+        (event) => {
+          setAgentState((prev) => {
+            // "start" always initialises fresh state (prev is null at this point)
+            if (event.type === "start") {
+              const running = Object.fromEntries(
+                event.sections.map((s) => [s, "running" as AgentStatus])
+              );
+              const fresh = makeInitialAgentState(event.sections);
+              return {
+                ...fresh,
+                prevStatus: { ...running },
+                currStatus: { ...running },
+                deltaStatus: Object.fromEntries(
+                  event.sections.map((s) => [s, "idle" as AgentStatus])
+                ),
+                evasivenessStatus: "running",
+                phase: "thematic",
+              };
+            }
+
+            // All other events need existing state — skip if panel not yet initialised
+            if (!prev) return prev;
+            const next: AgentPanelState = {
+              ...prev,
+              prevStatus: { ...prev.prevStatus },
+              currStatus: { ...prev.currStatus },
+              deltaStatus: { ...prev.deltaStatus },
+            };
+
+            switch (event.type) {
+              case "thematic_done": {
+                if (event.which === "prev") {
+                  next.prevStatus[event.section] = "done";
+                } else {
+                  next.currStatus[event.section] = "done";
+                }
+                // Once both prev+curr are done for a section, start its delta
+                const prevDone = next.prevStatus[event.section] === "done";
+                const currDone = next.currStatus[event.section] === "done";
+                if (prevDone && currDone) {
+                  next.deltaStatus[event.section] = "running";
+                }
+                // Check if ALL thematic agents done → enter delta phase
+                const allThematic = DEFAULT_SECTIONS.every(
+                  (s) => next.prevStatus[s] === "done" && next.currStatus[s] === "done"
+                );
+                if (allThematic) next.phase = "delta";
+                break;
+              }
+              case "evasiveness_done": {
+                next.evasivenessStatus = "done";
+                next.evasivenessScore = event.score;
+                break;
+              }
+              case "delta_done": {
+                next.deltaStatus[event.section] = "done";
+                const allDelta = DEFAULT_SECTIONS.every(
+                  (s) => next.deltaStatus[s] === "done"
+                );
+                if (allDelta) next.phase = "finalizing";
+                break;
+              }
+              case "stock_done": {
+                next.stockStatus = "done";
+                next.stockChange = event.stockPriceChange;
+                break;
+              }
+            }
+            return next;
+          });
+        }
+      );
+
       setResult(res.payload);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Analysis failed");
     } finally {
       setLoading(false);
+      setAgentState(null);
     }
   }
 
@@ -51,6 +306,7 @@ export default function DashboardClient() {
 
         {/* ── Picker form ──────────────────────────────────────────────── */}
         <form
+          data-no-print
           onSubmit={handleAnalyze}
           className="flex flex-wrap items-end gap-3 rounded-xl border border-gray-200 bg-gray-50 p-4"
         >
@@ -59,23 +315,12 @@ export default function DashboardClient() {
             <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">
               Company
             </label>
-            <div className="relative">
-              <select
-                value={ticker}
-                onChange={(e) => setTicker(e.target.value)}
-                className={selectCls + " w-full"}
-              >
-                {NIFTY50_LIST.map(({ ticker: t, name }) => (
-                  <option key={t} value={t}>
-                    {name} ({t})
-                  </option>
-                ))}
-              </select>
-              <ChevronDown
-                size={14}
-                className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400"
-              />
-            </div>
+            <CompanySearch
+              options={filteredList}
+              value={ticker}
+              onChange={handleTickerChange}
+              disabled={loading}
+            />
           </div>
 
           {/* Previous quarter */}
@@ -88,8 +333,9 @@ export default function DashboardClient() {
                 value={qPrev}
                 onChange={(e) => setQPrev(e.target.value)}
                 className={selectCls}
+                disabled={loading}
               >
-                {QUARTERS.map((q) => (
+                {quartersForTicker.map((q) => (
                   <option key={q} value={q}>
                     {quarterLabel(q)}
                   </option>
@@ -114,8 +360,9 @@ export default function DashboardClient() {
                 value={qCurr}
                 onChange={(e) => setQCurr(e.target.value)}
                 className={selectCls}
+                disabled={loading}
               >
-                {QUARTERS.map((q) => (
+                {quartersForTicker.map((q) => (
                   <option key={q} value={q}>
                     {quarterLabel(q)}
                   </option>
@@ -138,18 +385,24 @@ export default function DashboardClient() {
           </button>
         </form>
 
+        {/* ── Error ────────────────────────────────────────────────────── */}
         {error && (
-          <p className="mt-4 rounded-md bg-red-50 p-3 text-sm text-red-700">
-            {error}
-          </p>
+          <p className="mt-4 rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</p>
         )}
 
-        {loading && (
-          <div className="mt-8 text-center text-sm text-gray-400">
-            Running multi-agent analysis — this takes ~30–60 s…
+        {/* ── Live agent panel ─────────────────────────────────────────── */}
+        {loading && agentState && (
+          <div className="mt-8">
+            <AgentPanel
+              state={agentState}
+              ticker={ticker}
+              qPrev={qPrev}
+              qCurr={qCurr}
+            />
           </div>
         )}
 
+        {/* ── Final report ─────────────────────────────────────────────── */}
         {result && !loading && (
           <div className="mt-8">
             <EarningsReport payload={result} />

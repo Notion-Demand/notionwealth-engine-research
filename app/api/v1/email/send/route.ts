@@ -25,24 +25,49 @@ function buildRawEmail(
   to: string,
   from: string,
   subject: string,
-  body: string
+  body: string,
+  html?: string
 ): string {
-  const lines = [
-    `To: ${to}`,
-    `From: ${from}`,
-    `Subject: ${subject}`,
-    "MIME-Version: 1.0",
-    "Content-Type: text/plain; charset=utf-8",
-    "",
-    body,
-  ];
+  let lines: string[];
+  if (html) {
+    const boundary = "----=_Part_quantalyze_001";
+    lines = [
+      `To: ${to}`,
+      `From: ${from}`,
+      `Subject: ${subject}`,
+      "MIME-Version: 1.0",
+      `Content-Type: multipart/alternative; boundary="${boundary}"`,
+      "",
+      `--${boundary}`,
+      "Content-Type: text/plain; charset=utf-8",
+      "",
+      body,
+      "",
+      `--${boundary}`,
+      "Content-Type: text/html; charset=utf-8",
+      "",
+      html,
+      "",
+      `--${boundary}--`,
+    ];
+  } else {
+    lines = [
+      `To: ${to}`,
+      `From: ${from}`,
+      `Subject: ${subject}`,
+      "MIME-Version: 1.0",
+      "Content-Type: text/plain; charset=utf-8",
+      "",
+      body,
+    ];
+  }
   return Buffer.from(lines.join("\r\n")).toString("base64url");
 }
 
 export async function POST(req: NextRequest) {
   try {
     const userId = await getUserId(req);
-    const { to, subject, body } = await req.json();
+    const { to, subject, body, html } = await req.json();
 
     const { data: conn } = await supabaseAdmin()
       .from("user_connections")
@@ -79,7 +104,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const raw = buildRawEmail(to, conn.gmail_email, subject, body);
+    const raw = buildRawEmail(to, conn.gmail_email, subject, body, html);
     const gmailResp = await fetch(
       "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
       {

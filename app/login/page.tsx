@@ -42,7 +42,9 @@ export default function LoginPage() {
   async function handleGoogleSignIn() {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: `${window.location.origin}/auth/callback` },
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback`,
+      },
     });
     if (error) setError(error.message);
   }
@@ -51,10 +53,10 @@ export default function LoginPage() {
     <div className="flex min-h-screen items-center justify-center px-4">
       <div className="w-full max-w-sm">
         <h1 className="mb-1 text-center text-2xl font-bold tracking-tight">
-          NotionWealth
+          Quantalyze
         </h1>
         <p className="mb-8 text-center text-sm text-gray-500">
-          Intelligence Engine
+          Earnings Intelligence Engine
         </p>
 
         <form onSubmit={handleEmailAuth} className="space-y-4">

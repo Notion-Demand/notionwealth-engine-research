@@ -74,6 +74,14 @@ export const QUARTERS = [
   "Q1_2025",
 ];
 
+/** The 4 thematic analysis sections — exported for both pipeline and UI */
+export const SECTION_NAMES = [
+  "Capital & Liquidity",
+  "Revenue & Growth",
+  "Operational Margin",
+  "Macro & Risk",
+] as const;
+
 /** Human-readable quarter label: "Q3_2026" → "Q3 FY26" */
 export function quarterLabel(q: string): string {
   const m = q.match(/^Q(\d)_(\d{4})$/);

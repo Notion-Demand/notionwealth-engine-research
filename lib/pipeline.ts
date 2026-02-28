@@ -8,6 +8,18 @@ import type { Schema } from "@google/generative-ai";
 import pdfParse from "pdf-parse";
 import path from "path";
 import fs from "fs";
+import { NIFTY50 } from "./nifty50";
+
+// ── Progress events (streamed back to client during pipeline execution) ───────
+
+export type ProgressEvent =
+  | { type: "start"; sections: string[] }
+  | { type: "thematic_done"; section: string; which: "prev" | "curr" }
+  | { type: "evasiveness_done"; score: number }
+  | { type: "delta_done"; section: string }
+  | { type: "stock_done"; stockPriceChange: number };
+
+export type ProgressCallback = (event: ProgressEvent) => void;
 
 // ── TypeScript types ──────────────────────────────────────────────────────────
 
@@ -74,11 +86,13 @@ const METRIC_DELTA_SCHEMA: Schema = {
     language_shift: { type: SchemaType.STRING },
     signal_classification: {
       type: SchemaType.STRING,
+      format: "enum",
       enum: ["Positive", "Negative", "Noise"],
     },
     signal_score: { type: SchemaType.NUMBER },
     ui_component_type: {
       type: SchemaType.STRING,
+      format: "enum",
       enum: ["metric_card", "status_warning", "quote_expander"],
     },
   },
@@ -124,7 +138,7 @@ async function invokeStructured<T>(
   systemPrompt: string,
   userPrompt: string,
   schema: Schema,
-  modelName = "gemini-2.0-flash"
+  modelName = "gemini-2.5-flash-lite"
 ): Promise<T> {
   const genAI = getGenAI();
   const model = genAI.getGenerativeModel({
@@ -448,11 +462,91 @@ function computeOverallSignal(insights: SectionalInsight[]): {
   return { score, signal };
 }
 
+// ── Stock price + market alignment ───────────────────────────────────────────
+
+/** Map Indian FY quarter string to calendar date range */
+function quarterToDateRange(quarter: string): { start: Date; end: Date } | null {
+  const m = quarter.match(/^Q(\d)_(\d{4})$/);
+  if (!m) return null;
+  const q = parseInt(m[1]);
+  const fy = parseInt(m[2]);
+  switch (q) {
+    case 1: return { start: new Date(`${fy - 1}-04-01`), end: new Date(`${fy - 1}-06-30`) };
+    case 2: return { start: new Date(`${fy - 1}-07-01`), end: new Date(`${fy - 1}-09-30`) };
+    case 3: return { start: new Date(`${fy - 1}-10-01`), end: new Date(`${fy - 1}-12-31`) };
+    case 4: return { start: new Date(`${fy}-01-01`), end: new Date(`${fy}-03-31`) };
+    default: return null;
+  }
+}
+
+/** Fetch quarter % price change from Yahoo Finance (NSE). Returns 0 on failure. */
+async function fetchStockPriceChange(ticker: string, quarter: string): Promise<number> {
+  const info = NIFTY50[ticker];
+  if (!info) return 0;
+  const range = quarterToDateRange(quarter);
+  if (!range) return 0;
+
+  const period1 = Math.floor(range.start.getTime() / 1000);
+  const period2 = Math.floor(range.end.getTime() / 1000);
+  const symbol = info.nse; // e.g. "BHARTIARTL.NS"
+
+  try {
+    const resp = await fetch(
+      `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&period1=${period1}&period2=${period2}`,
+      { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(8000) }
+    );
+    if (!resp.ok) return 0;
+    const data = await resp.json();
+    const closes: number[] = (
+      (data?.chart?.result?.[0]?.indicators?.quote?.[0]?.close ?? []) as (number | null)[]
+    ).filter((p): p is number => p !== null);
+    if (closes.length < 2) return 0;
+    const pct = ((closes[closes.length - 1] - closes[0]) / closes[0]) * 100;
+    return Math.round(pct * 100) / 100;
+  } catch {
+    return 0;
+  }
+}
+
+/** Update market_validation on each metric based on stock direction vs signal direction. */
+function computeMarketAlignment(
+  insights: SectionalInsight[],
+  stockPriceChange: number
+): { insights: SectionalInsight[]; marketAlignmentPct: number } {
+  let aligned = 0;
+  let nonNoise = 0;
+
+  const stockUp = stockPriceChange > 2;
+  const stockDown = stockPriceChange < -2;
+
+  for (const insight of insights) {
+    for (const m of insight.metrics) {
+      if (m.signal_classification === "Noise") continue;
+      nonNoise++;
+      const sigPos = m.signal_classification === "Positive";
+      const sigNeg = m.signal_classification === "Negative";
+
+      if ((stockUp && sigPos) || (stockDown && sigNeg)) {
+        m.market_validation = "aligned";
+        m.market_note = `Stock ${stockUp ? "gained" : "fell"} ${Math.abs(stockPriceChange).toFixed(1)}% — consistent with ${m.signal_classification.toLowerCase()} signal`;
+        aligned++;
+      } else if ((stockDown && sigPos) || (stockUp && sigNeg)) {
+        m.market_validation = "divergent";
+        m.market_note = `Stock ${stockUp ? "gained" : "fell"} ${Math.abs(stockPriceChange).toFixed(1)}% — diverges from ${m.signal_classification.toLowerCase()} signal`;
+      }
+    }
+  }
+
+  const pct = nonNoise > 0 ? Math.round((aligned / nonNoise) * 1000) / 10 : 0;
+  return { insights, marketAlignmentPct: pct };
+}
+
 // ── Main pipeline entry point ─────────────────────────────────────────────────
 
 export async function runPipeline(
   qPrevPath: string,
-  qCurrPath: string
+  qCurrPath: string,
+  onProgress?: ProgressCallback
 ): Promise<DashboardPayload> {
   const prevInfo = parseFilename(path.basename(qPrevPath));
   const currInfo = parseFilename(path.basename(qCurrPath));
@@ -474,10 +568,29 @@ export async function runPipeline(
 
   // Step 2: 8 thematic agents + evasiveness in parallel
   const sectionNames = Object.keys(AGENT_PROMPTS);
+  onProgress?.({ type: "start", sections: sectionNames });
+
   const [snapshotsPrevRaw, snapshotsCurrRaw, evasiveness] = await Promise.all([
-    Promise.all(sectionNames.map((s) => runThematicAgent(s, textPrev, company, qPrev))),
-    Promise.all(sectionNames.map((s) => runThematicAgent(s, textCurr, company, qCurr))),
-    runEvasivenessAgent(textCurr, company, qCurr),
+    Promise.all(
+      sectionNames.map((s) =>
+        runThematicAgent(s, textPrev, company, qPrev).then((r) => {
+          onProgress?.({ type: "thematic_done", section: s, which: "prev" });
+          return r;
+        })
+      )
+    ),
+    Promise.all(
+      sectionNames.map((s) =>
+        runThematicAgent(s, textCurr, company, qCurr).then((r) => {
+          onProgress?.({ type: "thematic_done", section: s, which: "curr" });
+          return r;
+        })
+      )
+    ),
+    runEvasivenessAgent(textCurr, company, qCurr).then((score) => {
+      onProgress?.({ type: "evasiveness_done", score });
+      return score;
+    }),
   ]);
 
   const snapshotsPrev = snapshotsPrevRaw.filter(
@@ -486,6 +599,7 @@ export async function runPipeline(
   const snapshotsCurr = snapshotsCurrRaw.filter(
     (s): s is QuarterSnapshot => s !== null
   );
+  console.log(`[Pipeline] Thematic agents done: prev=${snapshotsPrev.length}/4 curr=${snapshotsCurr.length}/4`);
 
   // Step 3: Temporal delta in parallel
   const prevMap = new Map(snapshotsPrev.map((s) => [s.section_name, s]));
@@ -499,17 +613,26 @@ export async function runPipeline(
           snapCurr,
           qPrev,
           qCurr
-        )
+        ).then((r) => {
+          onProgress?.({ type: "delta_done", section: snapCurr.section_name });
+          return r;
+        })
       )
   );
   const rawInsights = deltaResults.filter(
     (i): i is SectionalInsight => i !== null
   );
+  console.log(`[Pipeline] Delta agents done: ${rawInsights.length}/4 insights produced`);
 
   // Step 4: Local validation
-  const { insights, validationScore, flaggedCount } = localValidation(rawInsights);
+  const { insights: validatedInsights, validationScore, flaggedCount } = localValidation(rawInsights);
 
-  // Step 5: Assemble
+  // Step 5: Fetch stock price + compute market alignment in parallel with assembly
+  const stockPriceChange = await fetchStockPriceChange(company, qCurr);
+  onProgress?.({ type: "stock_done", stockPriceChange });
+  const { insights, marketAlignmentPct } = computeMarketAlignment(validatedInsights, stockPriceChange);
+
+  // Step 6: Assemble
   const { score: overallScore, signal: overallSignal } = computeOverallSignal(insights);
   const allTakeaways = insights.flatMap((i) => i.key_takeaways.slice(0, 2));
   const summary =
@@ -527,8 +650,8 @@ export async function runPipeline(
     summary,
     validation_score: validationScore,
     flagged_count: flaggedCount,
-    market_alignment_pct: 0,
-    stock_price_change: 0,
+    market_alignment_pct: marketAlignmentPct,
+    stock_price_change: stockPriceChange,
     market_sources: [],
   };
 }

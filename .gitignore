@@ -6,3 +6,4 @@ data/
 *.index
 .env
 .DS_Store
+.vercel
