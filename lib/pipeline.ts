@@ -62,6 +62,8 @@ export interface DashboardPayload {
   market_alignment_pct: number;
   stock_price_change: number;
   market_sources: string[];
+  earnings_delta: string[];      // "What Changed" bullets (8-10 directional shifts)
+  fcf_implications: string[];    // "What This Means Financially" bullets (5-6)
 }
 
 // ── Gemini response schemas ───────────────────────────────────────────────────
@@ -123,6 +125,14 @@ const EVASIVENESS_SCHEMA: Schema = {
     reasoning: { type: SchemaType.STRING },
   },
   required: ["score", "reasoning"],
+};
+
+const BULLETS_SCHEMA: Schema = {
+  type: SchemaType.OBJECT,
+  properties: {
+    bullets: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
+  },
+  required: ["bullets"],
 };
 
 // ── Gemini client helper ──────────────────────────────────────────────────────
@@ -313,6 +323,44 @@ RULES:
 - Provide 3-5 key takeaways summarizing the overall quarter-over-quarter shift
 - The section_name MUST match the domain exactly`;
 
+const EARNINGS_DELTA_SYSTEM = `You are a senior sell-side analyst writing the "What Changed This Quarter" block of an earnings flash note.
+
+You are given key delta signals from multiple analysis domains comparing the previous quarter to the current quarter.
+
+Write 8-10 tight bullets capturing the most important directional changes in management language, strategy, and financial posture.
+
+FORMAT: Each bullet = "Topic: From [prior stance] → [new stance]"
+Examples:
+- CapEx tone: From "elevated rollout phase" → "moderation into FY26"
+- Capital allocation: From growth-heavy → deleveraging + dividend intent
+
+RULES:
+- Focus on DIRECTION changes, not just facts
+- Only include bullets where something materially changed
+- Avoid repeating the same signal in different words
+- Each bullet must be under 20 words
+- If fewer than 8 meaningful changes exist, include fewer — quality over quantity
+- Do NOT fabricate shifts; if a domain shows no change, skip it`;
+
+const FCF_IMPLICATIONS_SYSTEM = `You are a fund manager writing the "What This Means Financially" section of an internal earnings brief.
+
+You are given the key delta signals from multiple analysis domains comparing the previous quarter to the current quarter.
+
+Write 5-6 tight bullets connecting the narrative shifts to cash flow and equity value implications.
+
+FORMAT: Each bullet = "[Narrative shift] → [Financial implication]"
+Examples:
+- Lower capex guidance → expanding FCF conversion in coming quarters
+- Accelerated deleveraging → equity value accretion as interest burden falls
+
+RULES:
+- Connect one narrative shift to one specific financial outcome per bullet
+- Do NOT quantify unless the transcript provides specific numbers
+- Focus on: FCF conversion, leverage trajectory, earnings quality, valuation framing, margin structure
+- If a signal's financial impact is genuinely unclear, omit it
+- Each bullet must be under 25 words
+- Do NOT include bullets that are obvious or tautological`;
+
 const EVASIVENESS_SYSTEM = `You are analyzing executive Q&A behavior in an earnings call.
 
 Score the executives' evasiveness from 0 to 10:
@@ -431,6 +479,61 @@ Identify all semantic shifts, classify signals, and assign UI components.`;
   } catch (e) {
     console.error(`[Temporal Delta] ${sectionName} failed:`, e);
     return null;
+  }
+}
+
+/** Build a compact multi-section delta summary to feed the synthesis agents. */
+function buildDeltaSummary(insights: SectionalInsight[], qPrev: string, qCurr: string): string {
+  return insights.map((ins) => {
+    const takeaways = ins.key_takeaways.map((t) => `  - ${t}`).join("\n");
+    const shifts = ins.metrics
+      .filter((m) => m.signal_classification !== "Noise")
+      .slice(0, 4)
+      .map((m) => `  [${m.signal_classification}] ${m.subtopic}: ${m.language_shift}`)
+      .join("\n");
+    return `=== ${ins.section_name} ===\nKey takeaways (${qPrev} → ${qCurr}):\n${takeaways || "  None"}\nTop signals:\n${shifts || "  None"}`;
+  }).join("\n\n");
+}
+
+async function runEarningsDeltaAgent(
+  insights: SectionalInsight[],
+  company: string,
+  qPrev: string,
+  qCurr: string
+): Promise<string[]> {
+  const summary = buildDeltaSummary(insights, qPrev, qCurr);
+  const userPrompt = `Company: ${company}\nComparing: ${qPrev} → ${qCurr}\n\n${summary}`;
+  try {
+    const result = await invokeStructured<{ bullets: string[] }>(
+      EARNINGS_DELTA_SYSTEM,
+      userPrompt,
+      BULLETS_SCHEMA
+    );
+    return result.bullets ?? [];
+  } catch (e) {
+    console.error("[EarningsDelta] Agent failed:", e);
+    return [];
+  }
+}
+
+async function runFCFImplicationsAgent(
+  insights: SectionalInsight[],
+  company: string,
+  qPrev: string,
+  qCurr: string
+): Promise<string[]> {
+  const summary = buildDeltaSummary(insights, qPrev, qCurr);
+  const userPrompt = `Company: ${company}\nComparing: ${qPrev} → ${qCurr}\n\n${summary}`;
+  try {
+    const result = await invokeStructured<{ bullets: string[] }>(
+      FCF_IMPLICATIONS_SYSTEM,
+      userPrompt,
+      BULLETS_SCHEMA
+    );
+    return result.bullets ?? [];
+  } catch (e) {
+    console.error("[FCFImplications] Agent failed:", e);
+    return [];
   }
 }
 
@@ -645,15 +748,21 @@ export async function runPipeline(
   );
   console.log(`[Pipeline] Delta agents done: ${rawInsights.length}/4 insights produced`);
 
-  // Step 4: Local validation
+  // Step 4: Local validation + synthesis agents in parallel
   const { insights: validatedInsights, validationScore, flaggedCount } = localValidation(rawInsights);
 
-  // Step 5: Fetch stock price + compute market alignment in parallel with assembly
-  const stockPriceChange = await fetchStockPriceChange(company, qCurr);
-  onProgress?.({ type: "stock_done", stockPriceChange });
+  const [stockPriceChange, earningsDelta, fcfImplications] = await Promise.all([
+    fetchStockPriceChange(company, qCurr).then((v) => {
+      onProgress?.({ type: "stock_done", stockPriceChange: v });
+      return v;
+    }),
+    runEarningsDeltaAgent(validatedInsights, company, qPrev, qCurr),
+    runFCFImplicationsAgent(validatedInsights, company, qPrev, qCurr),
+  ]);
+
   const { insights, marketAlignmentPct } = computeMarketAlignment(validatedInsights, stockPriceChange);
 
-  // Step 6: Assemble
+  // Step 5: Assemble
   const { score: overallScore, signal: overallSignal } = computeOverallSignal(insights);
   const allTakeaways = insights.flatMap((i) => i.key_takeaways.slice(0, 2));
   const summary =
@@ -674,5 +783,7 @@ export async function runPipeline(
     market_alignment_pct: marketAlignmentPct,
     stock_price_change: stockPriceChange,
     market_sources: [],
+    earnings_delta: earningsDelta,
+    fcf_implications: fcfImplications,
   };
 }

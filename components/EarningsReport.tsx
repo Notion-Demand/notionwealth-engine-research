@@ -39,6 +39,8 @@ interface DashboardPayload {
   market_alignment_pct: number;
   stock_price_change: number;
   market_sources: string[];
+  earnings_delta?: string[];
+  fcf_implications?: string[];
 }
 
 // ── Small helpers ──────────────────────────────────────────────────────────
@@ -254,6 +256,59 @@ function Section({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Earnings Delta panel ───────────────────────────────────────────────────
+
+function EarningsDeltaPanel({
+  bullets,
+  qPrev,
+  qCurr,
+}: {
+  bullets: string[];
+  qPrev: string;
+  qCurr: string;
+}) {
+  if (!bullets.length) return null;
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+      <div className="px-5 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+        <span className="text-sm font-semibold text-gray-800">What Changed This Quarter</span>
+        <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">
+          {quarterLabel(qPrev)} → {quarterLabel(qCurr)}
+        </span>
+      </div>
+      <ul className="px-5 py-4 space-y-2.5">
+        {bullets.map((b, i) => (
+          <li key={i} className="flex items-start gap-3 text-sm text-gray-700 leading-relaxed">
+            <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-brand-400 shrink-0" />
+            {b}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+// ── FCF Implications panel ─────────────────────────────────────────────────
+
+function FCFImplicationsPanel({ bullets }: { bullets: string[] }) {
+  if (!bullets.length) return null;
+  return (
+    <div className="rounded-xl border border-indigo-100 bg-indigo-50/40 overflow-hidden">
+      <div className="px-5 py-3 bg-indigo-50 border-b border-indigo-100">
+        <span className="text-sm font-semibold text-indigo-900">What This Means Financially</span>
+      </div>
+      <ul className="px-5 py-4 space-y-2.5">
+        {bullets.map((b, i) => (
+          <li key={i} className="flex items-start gap-3 text-sm text-indigo-800 leading-relaxed">
+            <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-indigo-400 shrink-0" />
+            {b}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -755,6 +810,18 @@ export default function EarningsReport({ payload }: EarningsReportProps) {
           ))
         )}
       </div>
+
+      {/* ── Institutional sections ───────────────────────────────────────── */}
+      {(d.earnings_delta?.length || d.fcf_implications?.length) ? (
+        <div className="space-y-3">
+          <EarningsDeltaPanel
+            bullets={d.earnings_delta ?? []}
+            qPrev={d.quarter_previous}
+            qCurr={d.quarter}
+          />
+          <FCFImplicationsPanel bullets={d.fcf_implications ?? []} />
+        </div>
+      ) : null}
 
       {/* ── Metrics panel ───────────────────────────────────────────────── */}
       <MetricsPanel
