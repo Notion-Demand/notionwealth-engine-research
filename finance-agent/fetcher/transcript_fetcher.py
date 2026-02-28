@@ -16,6 +16,7 @@ import pdfplumber
 
 from .bse_client import Announcement, BSEClient
 from .nifty50 import NIFTY50
+from . import storage_client
 
 logger = logging.getLogger(__name__)
 
@@ -149,9 +150,15 @@ def fetch_ticker(
     )
 
     output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
 
     new_files: list[Path] = []
+
+    # Fetch the set of files already in storage once (avoids per-file API calls)
+    try:
+        existing = storage_client.list_files()
+    except Exception as exc:
+        logger.warning("[%s] Could not list storage files: %s — will attempt uploads anyway", ticker, exc)
+        existing = set()
 
     with BSEClient() as client:
         try:
@@ -170,20 +177,20 @@ def fetch_ticker(
             ann_date = _parse_ann_date(ann.dt_tm)
 
             # ── Fast pre-check via date-based inference ───────────────────────
-            # Avoids a network round-trip when the file already exists or
-            # when we're in dry-run mode (no writes needed at all).
+            # Avoids a network round-trip when the file already exists in storage
+            # or when we're in dry-run mode (no uploads needed at all).
             date_quarter = _infer_quarter_from_date(ann_date) if ann_date else None
 
             if date_quarter is not None:
                 q_fast, year_fast = date_quarter
                 dest_fast = _output_path(ticker, q_fast, year_fast, output_dir)
-                if dest_fast.exists():
-                    logger.info("[%s] Skipping %s — already exists", ticker, dest_fast.name)
+                if dest_fast.name in existing:
+                    logger.info("[%s] Skipping %s — already in storage", ticker, dest_fast.name)
                     continue
 
                 if dry_run:
                     logger.info(
-                        "[%s] DRY RUN — would save %s (inferred from announcement date)",
+                        "[%s] DRY RUN — would upload %s (inferred from announcement date)",
                         ticker, dest_fast.name,
                     )
                     continue
@@ -222,14 +229,21 @@ def fetch_ticker(
             q, year = quarter_info
             dest = _output_path(ticker, q, year, output_dir)
 
-            if dest.exists():
-                logger.info("[%s] Skipping %s — already exists", ticker, dest.name)
+            if dest.name in existing:
+                logger.info("[%s] Skipping %s — already in storage", ticker, dest.name)
                 continue
 
-            dest.write_bytes(pdf_bytes)
+            # ── Upload to Supabase Storage ─────────────────────────────────────
+            try:
+                storage_client.upload(dest.name, pdf_bytes)
+            except Exception as exc:
+                logger.warning("[%s] Upload failed for %s: %s", ticker, dest.name, exc)
+                continue
+
+            existing.add(dest.name)  # update local set so duplicates within the run are also skipped
             size_kb = len(pdf_bytes) // 1024
             logger.info(
-                "[%s] ✓ Saved: %s (%d KB, inferred from %s)",
+                "[%s] ✓ Uploaded: %s (%d KB, inferred from %s)",
                 ticker, dest.name, size_kb, infer_source,
             )
             new_files.append(dest)

@@ -6,9 +6,8 @@
 import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
 import type { Schema } from "@google/generative-ai";
 import pdfParse from "pdf-parse";
-import path from "path";
-import fs from "fs";
 import { NIFTY50 } from "./nifty50";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 
 // ── Progress events (streamed back to client during pipeline execution) ───────
 
@@ -134,6 +133,10 @@ function getGenAI(): GoogleGenerativeAI {
   return new GoogleGenerativeAI(apiKey);
 }
 
+// Each Gemini call must complete within this window. If it doesn't, the agent
+// returns null and the pipeline continues with whatever other agents produced.
+const AGENT_TIMEOUT_MS = 25_000;
+
 async function invokeStructured<T>(
   systemPrompt: string,
   userPrompt: string,
@@ -151,37 +154,55 @@ async function invokeStructured<T>(
       temperature: 0,
     } as any,
   });
-  const result = await model.generateContent(userPrompt);
+
+  const timeout = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error("Gemini agent timed out")), AGENT_TIMEOUT_MS)
+  );
+  const result = await Promise.race([model.generateContent(userPrompt), timeout]);
   return JSON.parse(result.response.text()) as T;
 }
 
 // ── PDF helpers ───────────────────────────────────────────────────────────────
 
-const PDF_DIR = path.join(
-  process.cwd(),
-  "finance-agent",
-  "multiagent_analysis",
-  "all-pdfs"
-);
+const STORAGE_BUCKET = "transcripts";
 
-export function resolvePdfPath(ticker: string, quarter: string): string {
+/**
+ * Returns the storage key (filename) for a given ticker + quarter.
+ * Lists the bucket to handle case-insensitive matches (e.g. Bharti vs BHARTI).
+ */
+export async function resolvePdfKey(ticker: string, quarter: string): Promise<string> {
   const target = `${ticker}_${quarter}.pdf`.toLowerCase();
-  const files = fs.readdirSync(PDF_DIR);
-  for (const f of files) {
-    if (f.toLowerCase() === target) return path.join(PDF_DIR, f);
-  }
-  const available = files
-    .filter((f) => f.toUpperCase().startsWith(ticker.toUpperCase() + "_"))
-    .sort();
-  const hint =
-    available.length > 0 ? ` Available for ${ticker}: ${available.join(", ")}` : "";
+  const { data, error } = await supabaseAdmin()
+    .storage.from(STORAGE_BUCKET)
+    .list("", { limit: 1000 });
+  if (error) throw new Error(`Storage list failed: ${error.message}`);
+  const file = data?.find((f) => f.name.toLowerCase() === target);
+  if (file) return file.name;
+  const available =
+    data
+      ?.filter((f) => f.name.toUpperCase().startsWith(ticker.toUpperCase() + "_"))
+      .map((f) => f.name)
+      .sort() ?? [];
+  const hint = available.length > 0 ? ` Available for ${ticker}: ${available.join(", ")}` : "";
   throw new Error(`PDF not found: ${ticker} ${quarter}.${hint}`);
 }
 
-async function extractPdfText(pdfPath: string): Promise<string> {
-  const buffer = fs.readFileSync(pdfPath);
+// Earnings call transcripts rarely need more than the first ~80 K characters.
+// Capping here keeps prompt sizes sane and prevents timeouts on verbose PDFs.
+const MAX_TRANSCRIPT_CHARS = 80_000;
+
+async function extractPdfText(storageKey: string): Promise<string> {
+  const { data: blob, error } = await supabaseAdmin()
+    .storage.from(STORAGE_BUCKET)
+    .download(storageKey);
+  if (error || !blob) throw new Error(`Storage download failed for ${storageKey}: ${error?.message}`);
+  const buffer = Buffer.from(await blob.arrayBuffer());
   const data = await pdfParse(buffer);
-  return data.text;
+  const text = data.text;
+  if (text.length > MAX_TRANSCRIPT_CHARS) {
+    console.log(`[Pipeline] ${storageKey}: ${text.length} chars → truncated to ${MAX_TRANSCRIPT_CHARS}`);
+  }
+  return text.slice(0, MAX_TRANSCRIPT_CHARS);
 }
 
 export function parseFilename(
@@ -544,12 +565,12 @@ function computeMarketAlignment(
 // ── Main pipeline entry point ─────────────────────────────────────────────────
 
 export async function runPipeline(
-  qPrevPath: string,
-  qCurrPath: string,
+  qPrevKey: string,
+  qCurrKey: string,
   onProgress?: ProgressCallback
 ): Promise<DashboardPayload> {
-  const prevInfo = parseFilename(path.basename(qPrevPath));
-  const currInfo = parseFilename(path.basename(qCurrPath));
+  const prevInfo = parseFilename(qPrevKey);
+  const currInfo = parseFilename(qCurrKey);
   if (!prevInfo || !currInfo) {
     throw new Error("PDF filenames must match format: CompanyTicker_Q#_Year.pdf");
   }
@@ -562,8 +583,8 @@ export async function runPipeline(
 
   // Step 1: Extract PDF text
   const [textPrev, textCurr] = await Promise.all([
-    extractPdfText(qPrevPath),
-    extractPdfText(qCurrPath),
+    extractPdfText(qPrevKey),
+    extractPdfText(qCurrKey),
   ]);
 
   // Step 2: 8 thematic agents + evasiveness in parallel

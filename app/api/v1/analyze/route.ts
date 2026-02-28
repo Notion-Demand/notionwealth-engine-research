@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUserId } from "@/lib/auth";
-import { runPipeline, resolvePdfPath } from "@/lib/pipeline";
+import { runPipeline, resolvePdfKey } from "@/lib/pipeline";
 import { getCachedAnalysis, saveAnalysis } from "@/lib/analysis-cache";
 
 // Allow up to 60 seconds (Vercel Hobby limit; set to 300 on Pro)
@@ -38,11 +38,13 @@ export async function POST(req: NextRequest) {
 
   const tickerUp = ticker.toUpperCase();
 
-  // Resolve PDF paths (validates files exist before opening stream)
-  let qPrevPath: string, qCurrPath: string;
+  // Resolve storage keys (validates files exist before opening stream)
+  let qPrevKey: string, qCurrKey: string;
   try {
-    qPrevPath = resolvePdfPath(tickerUp, q_prev);
-    qCurrPath = resolvePdfPath(tickerUp, q_curr);
+    [qPrevKey, qCurrKey] = await Promise.all([
+      resolvePdfKey(tickerUp, q_prev),
+      resolvePdfKey(tickerUp, q_curr),
+    ]);
   } catch (e) {
     return NextResponse.json({ detail: String(e) }, { status: 422 });
   }
@@ -81,7 +83,7 @@ export async function POST(req: NextRequest) {
       };
 
       try {
-        const payload = await runPipeline(qPrevPath, qCurrPath, send);
+        const payload = await runPipeline(qPrevKey, qCurrKey, send);
 
         // Save to cache (non-blocking — DB failure must not block the client)
         const savedId = await saveAnalysis(userId, tickerUp, q_prev, q_curr, payload);

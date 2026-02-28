@@ -7,7 +7,7 @@ PDF magic-byte validation is applied on every download.
 import time
 import logging
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 
 import httpx
 
@@ -84,16 +84,13 @@ class BSEClient:
             raise RuntimeError("BSEClient must be used as a context manager")
         return self._client
 
-    def fetch_announcements(
+    def _fetch_window(
         self,
         bse_scrip_code: int,
         from_date: date,
         to_date: date,
     ) -> list[Announcement]:
-        """
-        Fetch all company announcements from BSE for a date range.
-        Returns announcements newest-first (BSE's natural order).
-        """
+        """Single BSE API call for one date window. Returns up to ~50 announcements."""
         self._wait()
         params = {
             "strCat": "-1",
@@ -112,9 +109,7 @@ class BSEClient:
             logger.error("BSE API error for scrip %s: %s", bse_scrip_code, exc)
             raise
 
-        data = resp.json()
-        rows = data.get("Table", [])
-
+        rows = resp.json().get("Table", [])
         announcements = []
         for row in rows:
             att = (row.get("ATTACHMENTNAME") or "").strip()
@@ -122,19 +117,48 @@ class BSEClient:
                 continue
             announcements.append(
                 Announcement(
-                    dt_tm=row.get("DT_TM", ""),
-                    headline=row.get("HEADLINE", ""),
+                    dt_tm=row.get("DT_TM") or "",
+                    headline=row.get("HEADLINE") or "",
                     attachment_name=att,
-                    subcategory=row.get("SUBCATNAME", ""),
+                    subcategory=row.get("SUBCATNAME") or "",
                 )
             )
-
         logger.debug(
             "Fetched %d announcements for scrip %s (%s → %s)",
             len(announcements), bse_scrip_code,
             from_date.isoformat(), to_date.isoformat(),
         )
         return announcements
+
+    def fetch_announcements(
+        self,
+        bse_scrip_code: int,
+        from_date: date,
+        to_date: date,
+        chunk_days: int = 92,
+    ) -> list[Announcement]:
+        """
+        Fetch all announcements across a date range, splitting into chunk_days windows.
+
+        BSE caps each response at ~50 rows. Chunking into ~3-month windows ensures
+        transcript filings are never pushed out of a busy company's result set.
+        Returns deduplicated announcements, newest-first.
+        """
+        seen: set[str] = set()
+        all_announcements: list[Announcement] = []
+
+        # Walk backwards in time: newest chunk first
+        chunk_end = to_date
+        while chunk_end > from_date:
+            chunk_start = max(from_date, chunk_end - timedelta(days=chunk_days))
+            window = self._fetch_window(bse_scrip_code, chunk_start, chunk_end)
+            for ann in window:
+                if ann.attachment_name not in seen:
+                    seen.add(ann.attachment_name)
+                    all_announcements.append(ann)
+            chunk_end = chunk_start - timedelta(days=1)
+
+        return all_announcements
 
     def filter_transcripts(self, announcements: list[Announcement]) -> list[Announcement]:
         """

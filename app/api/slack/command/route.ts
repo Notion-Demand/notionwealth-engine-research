@@ -6,7 +6,7 @@ import {
   formatSlackBlocks,
   postToSlack,
 } from "@/lib/slack";
-import { runPipeline, resolvePdfPath } from "@/lib/pipeline";
+import { runPipeline, resolvePdfKey } from "@/lib/pipeline";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCachedAnalysis, saveAnalysis } from "@/lib/analysis-cache";
 
@@ -51,11 +51,13 @@ export async function POST(req: NextRequest) {
 
   const { ticker, qCurr, qPrev } = parsed;
 
-  // Verify PDFs exist before ACKing (fast, local FS check)
-  let qPrevPath: string, qCurrPath: string;
+  // Verify PDFs exist in storage before ACKing
+  let qPrevKey: string, qCurrKey: string;
   try {
-    qPrevPath = resolvePdfPath(ticker, qPrev);
-    qCurrPath = resolvePdfPath(ticker, qCurr);
+    [qPrevKey, qCurrKey] = await Promise.all([
+      resolvePdfKey(ticker, qPrev),
+      resolvePdfKey(ticker, qCurr),
+    ]);
   } catch (e) {
     return NextResponse.json({
       response_type: "ephemeral",
@@ -80,7 +82,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Cache miss — kick off analysis in background
-  waitUntil(runAndPost(ticker, qPrev, qCurr, qPrevPath, qCurrPath, conn.user_id, responseUrl));
+  waitUntil(runAndPost(ticker, qPrev, qCurr, qPrevKey, qCurrKey, conn.user_id, responseUrl));
 
   // Immediately ACK to Slack (must respond within 3 s)
   return NextResponse.json({
@@ -93,14 +95,14 @@ async function runAndPost(
   ticker: string,
   qPrev: string,
   qCurr: string,
-  qPrevPath: string,
-  qCurrPath: string,
+  qPrevKey: string,
+  qCurrKey: string,
   userId: string,
   responseUrl: string
 ) {
   console.log("[Slack] runAndPost started", { ticker, qPrev, qCurr });
   try {
-    const payload = await runPipeline(qPrevPath, qCurrPath);
+    const payload = await runPipeline(qPrevKey, qCurrKey);
     console.log("[Slack] Pipeline done, insights:", payload.insights.length, "signal:", payload.overall_signal);
 
     // Save to cache so next request (web or Slack) is instant
