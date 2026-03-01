@@ -21,7 +21,8 @@ const BUCKET = "transcripts";
 
 function inferQuarterFromText(text: string): [number, number] | null {
   const regex = /Q([1-4])\s*[-\u2013]?\s*FY\s*['"]?(\d{2,4})/gi;
-  for (const m of text.matchAll(regex)) {
+  let m: RegExpExecArray | null;
+  while ((m = regex.exec(text)) !== null) {
     const q = parseInt(m[1]);
     let year = parseInt(m[2]);
     if (year < 100) year += 2000;
