@@ -188,7 +188,7 @@ export async function resolvePdfKey(ticker: string, quarter: string): Promise<st
   while (true) {
     const { data, error } = await supabaseAdmin()
       .storage.from(STORAGE_BUCKET)
-      .list("", { limit: 1000, offset });
+      .list("", { limit: 100, offset });
     if (error) throw new Error(`Storage list failed: ${error.message}`);
     if (!data || data.length === 0) break;
     allFiles.push(...data);

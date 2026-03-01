@@ -8,13 +8,12 @@ const BUCKET = "transcripts";
 /** GET /api/v1/available — returns { TICKER: ["Q3_2026", "Q2_2026", ...] } */
 export async function GET(req: Request) {
   const debug = new URL(req.url).searchParams.has("debug");
-  // Paginate through all files — bucket may have >1000 entries
-  const PAGE = 1000;
+  // Use a small page size — Supabase Storage has a quirk where large limit
+  // values (e.g. 1000) cap results at ~350 even when more files exist, and
+  // subsequent offset calls return 0. Smaller pages paginate correctly.
+  const PAGE = 100;
   const allFiles: { name: string }[] = [];
   let offset = 0;
-  // Supabase storage list may return fewer than `limit` items even mid-pagination
-  // (known quirk — e.g. 352 items for limit=1000 when 355 exist).
-  // Advance offset by actual items returned so we don't skip the tail.
   while (true) {
     const { data, error } = await supabaseAdmin()
       .storage.from(BUCKET)
@@ -23,6 +22,7 @@ export async function GET(req: Request) {
     allFiles.push(...data);
     offset += data.length;
   }
+  console.log(`[available] totalFiles=${allFiles.length}`);
 
   const available: Record<string, string[]> = {};
   for (const file of allFiles) {
@@ -39,16 +39,13 @@ export async function GET(req: Request) {
   }
 
   if (debug) {
-    const zomatoFiles = allFiles.filter((f) => f.name.toLowerCase().includes("zomato"));
-    // Raw first-page re-fetch to confirm offset=0 result
-    const { data: rawPage0 } = await supabaseAdmin().storage.from(BUCKET).list("", { limit: 10, offset: 346 });
     return NextResponse.json({
       ts: new Date().toISOString(),
       totalFiles: allFiles.length,
-      zomatoFiles: zomatoFiles.map((f) => f.name),
-      lastTenFiles: allFiles.slice(-10).map((f) => f.name),
-      filesAround350: rawPage0?.map((f) => f.name),
       matchedTickers: Object.keys(available).length,
+      lastTwentyFiles: allFiles.slice(-20).map((f) => f.name),
+      iobFiles: allFiles.filter((f) => f.name.toLowerCase().startsWith("iob")).map((f) => f.name),
+      zomatoFiles: allFiles.filter((f) => f.name.toLowerCase().startsWith("zomato")).map((f) => f.name),
     }, { headers: { "Cache-Control": "no-store" } });
   }
 

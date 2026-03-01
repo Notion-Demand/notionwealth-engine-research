@@ -186,7 +186,7 @@ export async function POST(req: NextRequest) {
   {
     let off = 0;
     while (true) {
-      const { data: page } = await supabaseAdmin().storage.from(BUCKET).list("", { limit: 1000, offset: off });
+      const { data: page } = await supabaseAdmin().storage.from(BUCKET).list("", { limit: 100, offset: off });
       if (!page || page.length === 0) break;
       allExisting.push(...page);
       off += page.length;
