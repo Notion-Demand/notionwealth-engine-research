@@ -39,13 +39,20 @@ export async function GET(req: Request) {
   }
 
   if (debug) {
+    const search = new URL(req.url).searchParams.get("ticker")?.toLowerCase() ?? "";
+    const unmatchedFiles = allFiles
+      .filter((f) => !f.name.match(/^([A-Za-z]+)_Q(\d)_(\d{4})\.pdf$/i))
+      .map((f) => f.name);
     return NextResponse.json({
       ts: new Date().toISOString(),
       totalFiles: allFiles.length,
       matchedTickers: Object.keys(available).length,
+      allMatchedTickers: available,
       lastTwentyFiles: allFiles.slice(-20).map((f) => f.name),
-      iobFiles: allFiles.filter((f) => f.name.toLowerCase().startsWith("iob")).map((f) => f.name),
-      zomatoFiles: allFiles.filter((f) => f.name.toLowerCase().startsWith("zomato")).map((f) => f.name),
+      unmatchedFiles: unmatchedFiles.slice(0, 20),
+      searchFiles: search
+        ? allFiles.filter((f) => f.name.toLowerCase().startsWith(search)).map((f) => f.name)
+        : [],
     }, { headers: { "Cache-Control": "no-store" } });
   }
 
