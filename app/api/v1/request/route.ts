@@ -5,35 +5,110 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const maxDuration = 60;
 
+const SCREENER_HEADERS = {
+  "User-Agent":
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+  Referer: "https://www.screener.in/",
+  Accept: "text/html,application/json,*/*",
+  "Accept-Language": "en-US,en;q=0.9",
+  "X-Requested-With": "XMLHttpRequest",
+};
+
+const NSE_HEADERS = {
+  "User-Agent":
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+  Referer: "https://nsearchives.nseindia.com/",
+  Accept: "application/pdf,*/*",
+};
+
 const BSE_HEADERS = {
   "User-Agent":
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
   Referer: "https://www.bseindia.com/",
-  Accept: "application/json, text/plain, */*",
-  "Accept-Language": "en-US,en;q=0.9",
+  Accept: "application/pdf,*/*",
 };
 
-const TRANSCRIPT_KEYWORDS = ["transcript", "conference call", "earnings call", "analyst meet", "concall"];
 const BUCKET = "transcripts";
 
-// ── Company lookup ────────────────────────────────────────────────────────────
+// ── Screener.in lookup ────────────────────────────────────────────────────────
 
-async function resolveBseCode(query: string): Promise<number | null> {
+interface ScreenerResult {
+  id?: number;
+  name?: string;
+  url?: string;
+}
+
+async function getCompanyPageUrl(ticker: string): Promise<string | null> {
   try {
-    const url = `https://api.bseindia.com/BseIndiaAPI/api/AutoCompletelist/w?Type=0&text=${encodeURIComponent(query)}`;
-    const resp = await fetch(url, { headers: BSE_HEADERS, signal: AbortSignal.timeout(10_000) });
+    const url = `https://www.screener.in/api/company/search/?q=${encodeURIComponent(ticker)}&field=name&limit=5`;
+    const resp = await fetch(url, {
+      headers: SCREENER_HEADERS,
+      signal: AbortSignal.timeout(10_000),
+    });
     if (!resp.ok) return null;
-    const items: Array<{ SCRIP_CD?: string | number; Status?: string }> = await resp.json();
-    if (!Array.isArray(items) || !items.length) return null;
-    // Prefer active listings; fall back to first result
-    const active = items.find((i) => i.Status === "Active" && i.SCRIP_CD) ?? items[0];
-    return active?.SCRIP_CD ? parseInt(String(active.SCRIP_CD), 10) : null;
+    const items: ScreenerResult[] = await resp.json();
+    if (!Array.isArray(items) || !items.length || !items[0].url) return null;
+    return `https://www.screener.in${items[0].url}`;
   } catch {
     return null;
   }
 }
 
+// Extract hrefs tagged title="Raw Transcript" on Screener company pages.
+// Screener links to either NSE archives or BSE AttachHis depending on the company.
+// HTML structure: href="..." \n title="Raw Transcript">Transcript</a>
+// Split on the title marker and look backwards for the nearest transcript href.
+const TRANSCRIPT_PREFIXES = [
+  'href="https://nsearchives.nseindia.com/corporate/',
+  'href="https://www.bseindia.com/xml-data/corpfiling/AttachHis/',
+];
+
+function extractRawTranscriptUrls(html: string): string[] {
+  const urls: string[] = [];
+  const marker = 'title="Raw Transcript"';
+  const segments = html.split(marker);
+  for (const seg of segments.slice(0, -1)) {
+    let bestPos = -1;
+    for (const prefix of TRANSCRIPT_PREFIXES) {
+      const pos = seg.lastIndexOf(prefix);
+      if (pos > bestPos) bestPos = pos;
+    }
+    if (bestPos === -1) continue;
+    const start = bestPos + 6; // skip 'href="'
+    const end = seg.indexOf('"', start);
+    if (end === -1) continue;
+    const url = seg.slice(start, end);
+    if (url.endsWith(".pdf")) urls.push(url);
+  }
+  return urls;
+}
+
+async function fetchTranscriptUrls(companyPageUrl: string): Promise<string[]> {
+  try {
+    const resp = await fetch(companyPageUrl, {
+      headers: SCREENER_HEADERS,
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!resp.ok) return [];
+    const html = await resp.text();
+    return extractRawTranscriptUrls(html);
+  } catch {
+    return [];
+  }
+}
+
 // ── Quarter inference ─────────────────────────────────────────────────────────
+
+// NSE filenames embed a DDMMYYYYHHMMSS timestamp, e.g. ALPEXSOLAR_12022026180147_...pdf
+function inferQuarterFromNseUrl(url: string): [number, number] | null {
+  const filename = url.split("/").pop() ?? "";
+  const m = /[_](\d{14})[_]/.exec(filename);
+  if (!m) return null;
+  const ts = m[1];
+  const mo = parseInt(ts.slice(2, 4));
+  const y = parseInt(ts.slice(4, 8));
+  return quarterFromMonthYear(mo, y);
+}
 
 function inferQuarterFromText(text: string): [number, number] | null {
   const regex = /Q([1-4])\s*[-\u2013]?\s*FY\s*['"]?(\d{2,4})/gi;
@@ -47,70 +122,21 @@ function inferQuarterFromText(text: string): [number, number] | null {
   return null;
 }
 
-function inferQuarterFromDateStr(dtTm: string): [number, number] | null {
-  if (!dtTm) return null;
-  const d = new Date(dtTm.slice(0, 10));
-  if (isNaN(d.getTime())) return null;
-  const mo = d.getMonth() + 1;
-  const y = d.getFullYear();
-  if (mo >= 4 && mo <= 7) return [4, y];
-  if (mo >= 8 && mo <= 10) return [1, y + 1];
-  if (mo >= 11) return [2, y + 1];
-  if (mo === 1) return [2, y];
-  return [3, y];
+// Indian FY quarter inferred from the month results are announced
+function quarterFromMonthYear(mo: number, y: number): [number, number] | null {
+  if (mo < 1 || mo > 12 || y < 2020 || y > 2035) return null;
+  if (mo >= 4 && mo <= 7) return [4, y];      // Apr-Jul  → Q4 results
+  if (mo >= 8 && mo <= 10) return [1, y + 1]; // Aug-Oct  → Q1 results
+  if (mo >= 11) return [2, y + 1];            // Nov-Dec  → Q2 results
+  if (mo === 1) return [2, y];                // Jan      → Q2 results (late)
+  return [3, y];                              // Feb-Mar  → Q3 results
 }
 
-// ── Announcement fetch ────────────────────────────────────────────────────────
+// ── PDF download ──────────────────────────────────────────────────────────────
 
-function fmtDate(d: Date): string {
-  return d.toISOString().slice(0, 10).replace(/-/g, "");
-}
-
-interface Announcement {
-  dt_tm: string;
-  attachment_name: string;
-}
-
-async function fetchAnnouncements(bseCode: number): Promise<Announcement[]> {
-  const toDate = new Date();
-  const fromDate = new Date();
-  fromDate.setMonth(fromDate.getMonth() - 18);
-
-  const url = new URL("https://api.bseindia.com/BseIndiaAPI/api/AnnSubCategoryGetData/w");
-  url.searchParams.set("strCat", "-1");
-  url.searchParams.set("strPrevDate", fmtDate(fromDate));
-  url.searchParams.set("strScrip", String(bseCode));
-  url.searchParams.set("strSearch", "P");
-  url.searchParams.set("strToDate", fmtDate(toDate));
-  url.searchParams.set("strType", "C");
-  url.searchParams.set("subcategory", "-1");
-
-  const resp = await fetch(url.toString(), {
-    headers: BSE_HEADERS,
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (!resp.ok) throw new Error(`Lookup returned ${resp.status}`);
-
-  const json = await resp.json();
-  const rows: Record<string, string>[] = json?.Table ?? [];
-
-  return rows
-    .filter((r) => (r.ATTACHMENTNAME || "").trim())
-    .map((r) => ({
-      dt_tm: r.DT_TM || "",
-      attachment_name: (r.ATTACHMENTNAME || "").trim(),
-      headline: r.HEADLINE || "",
-      subcategory: r.SUBCATNAME || "",
-    }))
-    .filter((a) => {
-      const hay = ((a as Record<string, string>).headline + " " + (a as Record<string, string>).subcategory).toLowerCase();
-      return TRANSCRIPT_KEYWORDS.some((kw) => hay.includes(kw));
-    });
-}
-
-async function downloadPdf(attachmentName: string): Promise<Buffer> {
-  const url = `https://www.bseindia.com/xml-data/corpfiling/AttachHis/${attachmentName}`;
-  const resp = await fetch(url, { headers: BSE_HEADERS, signal: AbortSignal.timeout(20_000) });
+async function downloadPdf(url: string): Promise<Buffer> {
+  const headers = url.includes("bseindia.com") ? BSE_HEADERS : NSE_HEADERS;
+  const resp = await fetch(url, { headers, signal: AbortSignal.timeout(20_000) });
   if (!resp.ok) throw new Error(`Download returned ${resp.status}`);
   const buf = Buffer.from(await resp.arrayBuffer());
   if (!buf.slice(0, 4).toString().startsWith("%PDF")) throw new Error("Not a valid PDF");
@@ -143,41 +169,32 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ detail: "ticker must contain letters or numbers" }, { status: 422 });
   }
 
-  // Resolve company code in the background
-  const bseCode = await resolveBseCode(tickerClean);
-  if (!bseCode) {
+  // 1. Resolve company page via Screener.in
+  const companyPageUrl = await getCompanyPageUrl(tickerClean);
+  if (!companyPageUrl) {
     return NextResponse.json({ ok: false, reason: "not_found" }, { status: 200 });
   }
 
-  // Get already-uploaded files to skip duplicates
-  const { data: existing } = await supabaseAdmin().storage.from(BUCKET).list("", { limit: 2000 });
-  const existingNames = new Set((existing ?? []).map((f) => f.name.toLowerCase()));
-
-  // Query for transcripts
-  let announcements: Announcement[];
-  try {
-    announcements = await fetchAnnouncements(bseCode);
-  } catch (e) {
-    return NextResponse.json(
-      { ok: false, reason: `lookup_failed: ${e instanceof Error ? e.message : String(e)}` },
-      { status: 200 }
-    );
-  }
-
-  if (!announcements.length) {
+  // 2. Extract transcript links from the company page
+  const transcriptUrls = await fetchTranscriptUrls(companyPageUrl);
+  if (!transcriptUrls.length) {
     return NextResponse.json({ ok: false, reason: "no_transcripts" }, { status: 200 });
   }
 
-  // Try up to 4 most recent transcripts (4 quarters)
+  // 3. Get already-uploaded files to skip duplicates
+  const { data: existing } = await supabaseAdmin().storage.from(BUCKET).list("", { limit: 2000 });
+  const existingNames = new Set((existing ?? []).map((f) => f.name.toLowerCase()));
+
+  // 4. Download up to 4 most recent transcripts
   const uploaded: string[] = [];
   const skipped: string[] = [];
 
-  for (const ann of announcements.slice(0, 4)) {
+  for (const url of transcriptUrls.slice(0, 4)) {
     try {
-      // Fast pre-check: skip if date-inferred filename already exists
-      const quarterFromDate = inferQuarterFromDateStr(ann.dt_tm);
-      if (quarterFromDate) {
-        const [q, y] = quarterFromDate;
+      // Fast pre-check using filename-inferred quarter (works for NSE URLs, not BSE UUIDs)
+      const quarterFromUrl = inferQuarterFromNseUrl(url);
+      if (quarterFromUrl) {
+        const [q, y] = quarterFromUrl;
         const candidateName = `${tickerClean}_Q${q}_${y}.pdf`;
         if (existingNames.has(candidateName.toLowerCase())) {
           skipped.push(candidateName);
@@ -185,15 +202,15 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      const pdf = await downloadPdf(ann.attachment_name);
+      const pdf = await downloadPdf(url);
 
-      // Infer quarter from PDF text, fall back to announcement date
+      // Prefer quarter from PDF text; fall back to URL timestamp (NSE only)
       let quarterInfo: [number, number] | null = null;
       try {
         const parsed = await pdfParse(pdf, { max: 3 });
         quarterInfo = inferQuarterFromText(parsed.text);
       } catch {}
-      if (!quarterInfo) quarterInfo = inferQuarterFromDateStr(ann.dt_tm);
+      if (!quarterInfo) quarterInfo = inferQuarterFromNseUrl(url);
       if (!quarterInfo) continue;
 
       const [q, y] = quarterInfo;
