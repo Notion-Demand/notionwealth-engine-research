@@ -415,16 +415,18 @@ export async function POST(req: NextRequest) {
       if (!quarterInfo) quarterInfo = inferQuarterFromHtml(htmlContext, url.split("/").pop());
       if (!quarterInfo) { errors.push(`no_quarter:${url.split("/").pop()}`); continue; }
 
-      // Validate the PDF is actually parseable before storing it.
-      // If pdfParse failed above and we only have a URL-inferred quarter,
-      // do a full parse now to confirm the file is usable.
+      // If the quick parse (max:3) didn't yield text, attempt a full parse.
+      // If that also fails, warn but still upload — the file passed the %PDF
+      // header check and may be readable by other means (e.g. image PDF).
+      // Blocking the upload here silently prevents the file from appearing in
+      // the dashboard at all, which is worse than letting analysis surface the error.
       if (!pdfText) {
         try {
           const validated = await pdfParse(pdf);
           pdfText = validated.text;
         } catch (e) {
-          errors.push(`unparseable:${url.split("/").pop()}:${e instanceof Error ? e.message : String(e)}`);
-          continue;
+          errors.push(`parse_warning:${url.split("/").pop()}:${e instanceof Error ? e.message : String(e)}`);
+          // Fall through — still upload so it appears in the dashboard
         }
       }
 
