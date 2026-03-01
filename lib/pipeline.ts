@@ -235,7 +235,7 @@ async function extractPdfText(storageKey: string): Promise<string> {
     );
   }
   const genAI = getGenAI();
-  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
   const result = await model.generateContent([
     { inlineData: { mimeType: "application/pdf", data: buffer.toString("base64") } },
     "Extract and return the complete transcript text from this earnings call PDF. Include all speaker names, questions, and answers verbatim. Output only the transcript text.",
