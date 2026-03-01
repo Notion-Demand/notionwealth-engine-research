@@ -188,6 +188,7 @@ export async function POST(req: NextRequest) {
   // 4. Download up to 4 most recent transcripts
   const uploaded: string[] = [];
   const skipped: string[] = [];
+  const errors: string[] = [];
 
   for (const url of transcriptUrls.slice(0, 4)) {
     try {
@@ -211,7 +212,7 @@ export async function POST(req: NextRequest) {
         quarterInfo = inferQuarterFromText(parsed.text);
       } catch {}
       if (!quarterInfo) quarterInfo = inferQuarterFromNseUrl(url);
-      if (!quarterInfo) continue;
+      if (!quarterInfo) { errors.push(`no_quarter:${url.split("/").pop()}`); continue; }
 
       const [q, y] = quarterInfo;
       const filename = `${tickerClean}_Q${q}_${y}.pdf`;
@@ -221,16 +222,18 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      await supabaseAdmin()
+      const { error: uploadError } = await supabaseAdmin()
         .storage.from(BUCKET)
         .upload(filename, pdf, { contentType: "application/pdf", upsert: true });
 
+      if (uploadError) { errors.push(`upload_failed:${filename}:${uploadError.message}`); continue; }
+
       existingNames.add(filename.toLowerCase());
       uploaded.push(filename);
-    } catch {
-      // Skip this PDF and continue to next
+    } catch (e) {
+      errors.push(`error:${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
-  return NextResponse.json({ ok: true, uploaded, skipped });
+  return NextResponse.json({ ok: true, uploaded, skipped, errors });
 }

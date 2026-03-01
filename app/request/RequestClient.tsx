@@ -12,6 +12,7 @@ export default function RequestClient() {
   const [status, setStatus] = useState<Status>("idle");
   const [uploaded, setUploaded] = useState<string[]>([]);
   const [skipped, setSkipped] = useState<string[]>([]);
+  const [uploadErrors, setUploadErrors] = useState<string[]>([]);
   const [errorMsg, setErrorMsg] = useState("");
   const [submittedTicker, setSubmittedTicker] = useState("");
 
@@ -24,6 +25,7 @@ export default function RequestClient() {
     setSubmittedTicker(tick);
     setUploaded([]);
     setSkipped([]);
+    setUploadErrors([]);
     setErrorMsg("");
 
     try {
@@ -60,6 +62,7 @@ export default function RequestClient() {
 
       setUploaded(json.uploaded ?? []);
       setSkipped(json.skipped ?? []);
+      setUploadErrors(json.errors ?? []);
       setStatus("success");
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : "Unexpected error");
@@ -143,6 +146,14 @@ export default function RequestClient() {
               <p className="text-xs text-emerald-600">
                 {skipped.length} quarter{skipped.length > 1 ? "s" : ""} already in system — skipped.
               </p>
+            )}
+            {uploadErrors.length > 0 && (
+              <details className="text-xs text-emerald-700 opacity-70">
+                <summary className="cursor-pointer">Debug info</summary>
+                <ul className="mt-1 space-y-0.5 font-mono">
+                  {uploadErrors.map((e, i) => <li key={i}>{e}</li>)}
+                </ul>
+              </details>
             )}
             <p className="text-sm text-emerald-700 pt-1">
               <a
