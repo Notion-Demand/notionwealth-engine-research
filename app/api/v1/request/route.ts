@@ -73,6 +73,10 @@ function extractRawTranscriptUrls(html: string): TranscriptLink[] {
   const links: TranscriptLink[] = [];
   const marker = 'title="Raw Transcript"';
   const segments = html.split(marker);
+  // When a quarter has both NSE and BSE raw links, the segment between them is
+  // nearly empty (just `>Transcript</a>  <a href="..."`). Carry the last rich
+  // context forward so the BSE link can inherit the quarter label from the NSE entry.
+  let lastRichContext = "";
   for (const seg of segments.slice(0, -1)) {
     let bestPos = -1;
     for (const prefix of TRANSCRIPT_PREFIXES) {
@@ -85,7 +89,12 @@ function extractRawTranscriptUrls(html: string): TranscriptLink[] {
     if (end === -1) continue;
     const url = seg.slice(start, end);
     if (url.endsWith(".pdf")) {
-      links.push({ url, htmlContext: seg.slice(-800) });
+      const rawCtx = seg.slice(-800);
+      // Consider a context "rich" if it has substantial text after stripping tags
+      const stripped = rawCtx.replace(/<[^>]*>/g, " ").trim();
+      const htmlContext = stripped.length > 40 ? rawCtx : lastRichContext;
+      if (stripped.length > 40) lastRichContext = rawCtx;
+      links.push({ url, htmlContext });
     }
   }
   return links;
