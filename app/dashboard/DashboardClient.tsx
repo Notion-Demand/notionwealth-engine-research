@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import Nav from "@/components/Nav";
 import EarningsReport from "@/components/EarningsReport";
 import AgentPanel, {
@@ -162,10 +162,16 @@ export default function DashboardClient() {
       .catch(() => {});
   }, []);
 
-  const filteredList =
-    Object.keys(available).length > 0
-      ? NIFTY50_LIST.filter(({ ticker }) => available[ticker])
-      : NIFTY50_LIST;
+  const filteredList = useMemo(() => {
+    if (Object.keys(available).length === 0) return NIFTY50_LIST;
+    const niftyTickers = new Set(NIFTY50_LIST.map((c) => c.ticker));
+    const niftyInStorage = NIFTY50_LIST.filter(({ ticker }) => available[ticker]);
+    const extras = Object.keys(available)
+      .filter((t) => !niftyTickers.has(t))
+      .sort()
+      .map((t) => ({ ticker: t, bse: 0, nse: t, name: t }));
+    return [...niftyInStorage, ...extras];
+  }, [available]);
 
   // ── Picker state ────────────────────────────────────────────────────────────
   const [ticker, setTicker] = useState("BHARTI");

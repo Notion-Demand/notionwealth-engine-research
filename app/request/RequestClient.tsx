@@ -3,25 +3,25 @@
 import { useState } from "react";
 import Nav from "@/components/Nav";
 import { createClient } from "@/lib/supabase/client";
-import { Inbox, CheckCircle, XCircle, Loader2, ExternalLink } from "lucide-react";
+import { Inbox, CheckCircle, XCircle, Loader2 } from "lucide-react";
 
 type Status = "idle" | "loading" | "success" | "not_found" | "error";
 
 export default function RequestClient() {
-  const [bseCode, setBseCode] = useState("");
   const [ticker, setTicker] = useState("");
   const [status, setStatus] = useState<Status>("idle");
   const [uploaded, setUploaded] = useState<string[]>([]);
   const [skipped, setSkipped] = useState<string[]>([]);
   const [errorMsg, setErrorMsg] = useState("");
+  const [submittedTicker, setSubmittedTicker] = useState("");
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const code = parseInt(bseCode.trim());
     const tick = ticker.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
-    if (!code || !tick) return;
+    if (!tick) return;
 
     setStatus("loading");
+    setSubmittedTicker(tick);
     setUploaded([]);
     setSkipped([]);
     setErrorMsg("");
@@ -37,7 +37,7 @@ export default function RequestClient() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ bse_code: code, ticker: tick }),
+        body: JSON.stringify({ ticker: tick }),
       });
 
       const json = await resp.json();
@@ -49,10 +49,10 @@ export default function RequestClient() {
       }
 
       if (!json.ok) {
-        if (json.reason === "no_transcripts") {
+        if (json.reason === "no_transcripts" || json.reason === "not_found") {
           setStatus("not_found");
         } else {
-          setErrorMsg(json.reason ?? "BSE lookup failed");
+          setErrorMsg(json.reason ?? "Could not fetch transcripts");
           setStatus("error");
         }
         return;
@@ -69,7 +69,6 @@ export default function RequestClient() {
 
   function reset() {
     setStatus("idle");
-    setBseCode("");
     setTicker("");
   }
 
@@ -83,8 +82,8 @@ export default function RequestClient() {
             Request Transcript
           </h2>
           <p className="mt-1 text-sm text-gray-500">
-            Request earnings call transcripts for companies outside Nifty 50. We&apos;ll try to
-            fetch the PDF directly from BSE.
+            Enter a company ticker to fetch the last 4 quarters of earnings call transcripts.
+            Once added, the company will appear in your Dashboard search.
           </p>
         </div>
 
@@ -92,33 +91,7 @@ export default function RequestClient() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1">
               <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">
-                BSE Scrip Code
-              </label>
-              <input
-                type="number"
-                value={bseCode}
-                onChange={(e) => setBseCode(e.target.value)}
-                placeholder="e.g. 543320"
-                required
-                disabled={status === "loading"}
-                className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:opacity-50"
-              />
-              <p className="text-xs text-gray-400">
-                Find it at{" "}
-                <a
-                  href="https://www.bseindia.com/corporates/List_Scrips.html"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-brand-500 hover:underline inline-flex items-center gap-0.5"
-                >
-                  bseindia.com <ExternalLink size={10} />
-                </a>
-              </p>
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">
-                Ticker / Short Name
+                Ticker Symbol
               </label>
               <input
                 type="text"
@@ -130,20 +103,17 @@ export default function RequestClient() {
                 disabled={status === "loading"}
                 className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:opacity-50"
               />
-              <p className="text-xs text-gray-400">
-                Used as the filename prefix — letters and numbers only.
-              </p>
             </div>
 
             <button
               type="submit"
-              disabled={status === "loading" || !bseCode || !ticker}
+              disabled={status === "loading" || !ticker.trim()}
               className="w-full rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50 flex items-center justify-center gap-2"
             >
               {status === "loading" ? (
                 <>
                   <Loader2 size={15} className="animate-spin" />
-                  Searching BSE…
+                  Fetching transcripts…
                 </>
               ) : (
                 "Fetch Transcripts"
@@ -156,8 +126,8 @@ export default function RequestClient() {
               <CheckCircle size={18} />
               <span className="font-semibold">
                 {uploaded.length > 0
-                  ? `${uploaded.length} transcript${uploaded.length > 1 ? "s" : ""} uploaded`
-                  : "Already up to date"}
+                  ? `${uploaded.length} transcript${uploaded.length > 1 ? "s" : ""} added for ${submittedTicker}`
+                  : `${submittedTicker} is already up to date`}
               </span>
             </div>
             {uploaded.length > 0 && (
@@ -171,17 +141,19 @@ export default function RequestClient() {
             )}
             {skipped.length > 0 && (
               <p className="text-xs text-emerald-600">
-                {skipped.length} already in storage — skipped.
+                {skipped.length} quarter{skipped.length > 1 ? "s" : ""} already in system — skipped.
               </p>
             )}
             <p className="text-sm text-emerald-700 pt-1">
-              Head to the{" "}
-              <a href="/dashboard" className="font-medium underline">
-                Dashboard
+              <a
+                href="/dashboard"
+                className="font-semibold underline"
+              >
+                Go to Dashboard
               </a>{" "}
               to run the analysis.
             </p>
-            <button onClick={reset} className="text-xs text-emerald-600 hover:underline mt-1">
+            <button onClick={reset} className="text-xs text-emerald-600 hover:underline">
               Request another
             </button>
           </div>
@@ -189,25 +161,23 @@ export default function RequestClient() {
           <div className="rounded-xl border border-amber-200 bg-amber-50 px-6 py-5 space-y-3">
             <div className="flex items-center gap-2 text-amber-700">
               <XCircle size={18} />
-              <span className="font-semibold">No transcripts found on BSE</span>
+              <span className="font-semibold">No transcripts found for {submittedTicker}</span>
             </div>
             <p className="text-sm text-amber-700">
-              We couldn&apos;t find any earnings call transcripts for scrip{" "}
-              <span className="font-mono font-medium">{bseCode}</span> in the last 18 months.
-              This company may file under a different category or not publish transcripts publicly.
+              We couldn&apos;t find any publicly available earnings call transcripts for this company.
+              Drop us an email and we&apos;ll source it manually.
             </p>
-            <p className="text-sm text-amber-700">
-              Drop us an email and we&apos;ll source it manually:{" "}
-              <a
-                href="mailto:team@notiondemand.com"
-                className="font-medium underline"
-              >
-                team@notiondemand.com
-              </a>
-            </p>
-            <button onClick={reset} className="text-xs text-amber-600 hover:underline">
-              Try another
-            </button>
+            <a
+              href={`mailto:team@notiondemand.com?subject=Transcript request: ${submittedTicker}&body=Please add earnings transcripts for ${submittedTicker}.`}
+              className="inline-block rounded-md bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700"
+            >
+              Email team@notiondemand.com
+            </a>
+            <div>
+              <button onClick={reset} className="text-xs text-amber-600 hover:underline">
+                Try another ticker
+              </button>
+            </div>
           </div>
         ) : (
           <div className="rounded-xl border border-red-200 bg-red-50 px-6 py-5 space-y-3">
@@ -215,19 +185,18 @@ export default function RequestClient() {
               <XCircle size={18} />
               <span className="font-semibold">Something went wrong</span>
             </div>
-            <p className="text-sm text-red-700">{errorMsg}</p>
-            <p className="text-sm text-red-700">
-              Please email us and we&apos;ll handle it:{" "}
-              <a
-                href="mailto:team@notiondemand.com"
-                className="font-medium underline"
-              >
-                team@notiondemand.com
-              </a>
-            </p>
-            <button onClick={reset} className="text-xs text-red-600 hover:underline">
-              Try again
-            </button>
+            <p className="text-sm text-red-700">{errorMsg || "We couldn't complete the request."}</p>
+            <a
+              href={`mailto:team@notiondemand.com?subject=Transcript request: ${submittedTicker}&body=Please add earnings transcripts for ${submittedTicker}.`}
+              className="inline-block rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
+            >
+              Email team@notiondemand.com
+            </a>
+            <div>
+              <button onClick={reset} className="text-xs text-red-600 hover:underline">
+                Try again
+              </button>
+            </div>
           </div>
         )}
       </main>

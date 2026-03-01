@@ -14,8 +14,24 @@ const BSE_HEADERS = {
 };
 
 const TRANSCRIPT_KEYWORDS = ["transcript", "conference call", "earnings call", "analyst meet", "concall"];
-
 const BUCKET = "transcripts";
+
+// ── Company lookup ────────────────────────────────────────────────────────────
+
+async function resolveBseCode(query: string): Promise<number | null> {
+  try {
+    const url = `https://api.bseindia.com/BseIndiaAPI/api/AutoCompletelist/w?Type=0&text=${encodeURIComponent(query)}`;
+    const resp = await fetch(url, { headers: BSE_HEADERS, signal: AbortSignal.timeout(10_000) });
+    if (!resp.ok) return null;
+    const items: Array<{ SCRIP_CD?: string | number; Status?: string }> = await resp.json();
+    if (!Array.isArray(items) || !items.length) return null;
+    // Prefer active listings; fall back to first result
+    const active = items.find((i) => i.Status === "Active" && i.SCRIP_CD) ?? items[0];
+    return active?.SCRIP_CD ? parseInt(String(active.SCRIP_CD), 10) : null;
+  } catch {
+    return null;
+  }
+}
 
 // ── Quarter inference ─────────────────────────────────────────────────────────
 
@@ -35,16 +51,16 @@ function inferQuarterFromDateStr(dtTm: string): [number, number] | null {
   if (!dtTm) return null;
   const d = new Date(dtTm.slice(0, 10));
   if (isNaN(d.getTime())) return null;
-  const m = d.getMonth() + 1;
+  const mo = d.getMonth() + 1;
   const y = d.getFullYear();
-  if (m >= 4 && m <= 7) return [4, y];
-  if (m >= 8 && m <= 10) return [1, y + 1];
-  if (m >= 11) return [2, y + 1];
-  if (m === 1) return [2, y];
+  if (mo >= 4 && mo <= 7) return [4, y];
+  if (mo >= 8 && mo <= 10) return [1, y + 1];
+  if (mo >= 11) return [2, y + 1];
+  if (mo === 1) return [2, y];
   return [3, y];
 }
 
-// ── BSE helpers ───────────────────────────────────────────────────────────────
+// ── Announcement fetch ────────────────────────────────────────────────────────
 
 function fmtDate(d: Date): string {
   return d.toISOString().slice(0, 10).replace(/-/g, "");
@@ -52,15 +68,13 @@ function fmtDate(d: Date): string {
 
 interface Announcement {
   dt_tm: string;
-  headline: string;
   attachment_name: string;
-  subcategory: string;
 }
 
-async function fetchAnnouncements(bseCode: number, months = 18): Promise<Announcement[]> {
+async function fetchAnnouncements(bseCode: number): Promise<Announcement[]> {
   const toDate = new Date();
   const fromDate = new Date();
-  fromDate.setMonth(fromDate.getMonth() - months);
+  fromDate.setMonth(fromDate.getMonth() - 18);
 
   const url = new URL("https://api.bseindia.com/BseIndiaAPI/api/AnnSubCategoryGetData/w");
   url.searchParams.set("strCat", "-1");
@@ -75,7 +89,7 @@ async function fetchAnnouncements(bseCode: number, months = 18): Promise<Announc
     headers: BSE_HEADERS,
     signal: AbortSignal.timeout(15_000),
   });
-  if (!resp.ok) throw new Error(`BSE API returned ${resp.status}`);
+  if (!resp.ok) throw new Error(`Lookup returned ${resp.status}`);
 
   const json = await resp.json();
   const rows: Record<string, string>[] = json?.Table ?? [];
@@ -84,26 +98,22 @@ async function fetchAnnouncements(bseCode: number, months = 18): Promise<Announc
     .filter((r) => (r.ATTACHMENTNAME || "").trim())
     .map((r) => ({
       dt_tm: r.DT_TM || "",
-      headline: r.HEADLINE || "",
       attachment_name: (r.ATTACHMENTNAME || "").trim(),
+      headline: r.HEADLINE || "",
       subcategory: r.SUBCATNAME || "",
     }))
     .filter((a) => {
-      const hay = (a.headline + " " + a.subcategory).toLowerCase();
+      const hay = ((a as Record<string, string>).headline + " " + (a as Record<string, string>).subcategory).toLowerCase();
       return TRANSCRIPT_KEYWORDS.some((kw) => hay.includes(kw));
     });
 }
 
 async function downloadPdf(attachmentName: string): Promise<Buffer> {
   const url = `https://www.bseindia.com/xml-data/corpfiling/AttachHis/${attachmentName}`;
-  const resp = await fetch(url, {
-    headers: BSE_HEADERS,
-    signal: AbortSignal.timeout(20_000),
-  });
-  if (!resp.ok) throw new Error(`PDF download returned ${resp.status}`);
+  const resp = await fetch(url, { headers: BSE_HEADERS, signal: AbortSignal.timeout(20_000) });
+  if (!resp.ok) throw new Error(`Download returned ${resp.status}`);
   const buf = Buffer.from(await resp.arrayBuffer());
-  if (!buf.slice(0, 4).toString().startsWith("%PDF"))
-    throw new Error("Downloaded file is not a valid PDF");
+  if (!buf.slice(0, 4).toString().startsWith("%PDF")) throw new Error("Not a valid PDF");
   return buf;
 }
 
@@ -116,34 +126,40 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ detail: "Unauthorized" }, { status: 401 });
   }
 
-  let body: { bse_code?: number; ticker?: string };
+  let body: { ticker?: string };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ detail: "Invalid JSON" }, { status: 400 });
   }
 
-  const { bse_code, ticker } = body;
-  if (!bse_code || !ticker) {
-    return NextResponse.json({ detail: "bse_code and ticker are required" }, { status: 422 });
+  const { ticker } = body;
+  if (!ticker?.trim()) {
+    return NextResponse.json({ detail: "ticker is required" }, { status: 422 });
   }
 
-  const tickerClean = ticker.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const tickerClean = ticker.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
   if (!tickerClean) {
-    return NextResponse.json({ detail: "ticker must contain at least one letter" }, { status: 422 });
+    return NextResponse.json({ detail: "ticker must contain letters or numbers" }, { status: 422 });
   }
 
-  // Fetch already-uploaded files so we can skip duplicates
+  // Resolve company code in the background
+  const bseCode = await resolveBseCode(tickerClean);
+  if (!bseCode) {
+    return NextResponse.json({ ok: false, reason: "not_found" }, { status: 200 });
+  }
+
+  // Get already-uploaded files to skip duplicates
   const { data: existing } = await supabaseAdmin().storage.from(BUCKET).list("", { limit: 2000 });
   const existingNames = new Set((existing ?? []).map((f) => f.name.toLowerCase()));
 
-  // Query BSE
+  // Query for transcripts
   let announcements: Announcement[];
   try {
-    announcements = await fetchAnnouncements(bse_code);
+    announcements = await fetchAnnouncements(bseCode);
   } catch (e) {
     return NextResponse.json(
-      { ok: false, reason: `BSE lookup failed: ${e instanceof Error ? e.message : String(e)}` },
+      { ok: false, reason: `lookup_failed: ${e instanceof Error ? e.message : String(e)}` },
       { status: 200 }
     );
   }
@@ -152,12 +168,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, reason: "no_transcripts" }, { status: 200 });
   }
 
-  // Try up to 3 most recent transcripts
+  // Try up to 4 most recent transcripts (4 quarters)
   const uploaded: string[] = [];
   const skipped: string[] = [];
 
-  for (const ann of announcements.slice(0, 3)) {
+  for (const ann of announcements.slice(0, 4)) {
     try {
+      // Fast pre-check: skip if date-inferred filename already exists
       const quarterFromDate = inferQuarterFromDateStr(ann.dt_tm);
       if (quarterFromDate) {
         const [q, y] = quarterFromDate;
@@ -170,7 +187,7 @@ export async function POST(req: NextRequest) {
 
       const pdf = await downloadPdf(ann.attachment_name);
 
-      // Infer quarter from PDF text (first 3 pages worth of text)
+      // Infer quarter from PDF text, fall back to announcement date
       let quarterInfo: [number, number] | null = null;
       try {
         const parsed = await pdfParse(pdf, { max: 3 });
@@ -194,7 +211,7 @@ export async function POST(req: NextRequest) {
       existingNames.add(filename.toLowerCase());
       uploaded.push(filename);
     } catch {
-      // Skip this PDF and continue
+      // Skip this PDF and continue to next
     }
   }
 
