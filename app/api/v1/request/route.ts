@@ -63,8 +63,14 @@ const TRANSCRIPT_PREFIXES = [
   'href="https://www.bseindia.com/xml-data/corpfiling/AttachHis/',
 ];
 
-function extractRawTranscriptUrls(html: string): string[] {
-  const urls: string[] = [];
+interface TranscriptLink {
+  url: string;
+  /** Up to 800 chars of HTML before the link — often contains the quarter label */
+  htmlContext: string;
+}
+
+function extractRawTranscriptUrls(html: string): TranscriptLink[] {
+  const links: TranscriptLink[] = [];
   const marker = 'title="Raw Transcript"';
   const segments = html.split(marker);
   for (const seg of segments.slice(0, -1)) {
@@ -78,12 +84,14 @@ function extractRawTranscriptUrls(html: string): string[] {
     const end = seg.indexOf('"', start);
     if (end === -1) continue;
     const url = seg.slice(start, end);
-    if (url.endsWith(".pdf")) urls.push(url);
+    if (url.endsWith(".pdf")) {
+      links.push({ url, htmlContext: seg.slice(-800) });
+    }
   }
-  return urls;
+  return links;
 }
 
-async function fetchTranscriptUrls(companyPageUrl: string): Promise<string[]> {
+async function fetchTranscriptUrls(companyPageUrl: string): Promise<TranscriptLink[]> {
   try {
     const resp = await fetch(companyPageUrl, {
       headers: SCREENER_HEADERS,
@@ -111,7 +119,7 @@ function inferQuarterFromNseUrl(url: string): [number, number] | null {
 }
 
 function inferQuarterFromText(text: string): [number, number] | null {
-  const regex = /Q([1-4])\s*[-\u2013]?\s*FY\s*['"]?(\d{2,4})/gi;
+  const regex = /Q([1-4])\s*[-\u2013]?\s*FY\s*['"]?\s*(\d{2,4})/gi;
   let m: RegExpExecArray | null;
   while ((m = regex.exec(text)) !== null) {
     const q = parseInt(m[1]);
@@ -119,6 +127,43 @@ function inferQuarterFromText(text: string): [number, number] | null {
     if (year < 100) year += 2000;
     if (year >= 2020 && year <= 2035) return [q, year];
   }
+  return null;
+}
+
+// Infer quarter from Screener.in HTML context surrounding a transcript link.
+// Handles "Q3 FY2026", "Q3 2025-26", "quarter ended December 2025" patterns.
+function inferQuarterFromHtml(html: string): [number, number] | null {
+  // Strip HTML tags for cleaner text matching
+  const text = html.replace(/<[^>]*>/g, " ");
+
+  // Try standard "Q# FY##" pattern first (reuses existing logic)
+  const fromText = inferQuarterFromText(text);
+  if (fromText) return fromText;
+
+  // Try "Q# YYYY-YY" Indian FY range format, e.g. "Q3 2025-26" → Q3 FY2026
+  const fyRangeRe = /Q([1-4])\s+(\d{4})-(\d{2})/gi;
+  let m: RegExpExecArray | null;
+  while ((m = fyRangeRe.exec(text)) !== null) {
+    const q = parseInt(m[1]);
+    const startYear = parseInt(m[2]);
+    const fyEndYear = startYear + 1; // 2025-26 → FY end = 2026
+    if (fyEndYear >= 2020 && fyEndYear <= 2035) return [q, fyEndYear];
+  }
+
+  // Try "quarter ended [Month] [Year]" — e.g. "quarter ended December 2025"
+  const MONTH: Record<string, number> = {
+    jan: 1, january: 1, feb: 2, february: 2, mar: 3, march: 3,
+    apr: 4, april: 4, may: 5, jun: 6, june: 6, jul: 7, july: 7,
+    aug: 8, august: 8, sep: 9, sept: 9, september: 9,
+    oct: 10, october: 10, nov: 11, november: 11, dec: 12, december: 12,
+  };
+  const monthRe = /quarter\s+ended\s+(\w+)\s+(\d{4})/gi;
+  while ((m = monthRe.exec(text)) !== null) {
+    const mo = MONTH[m[1].toLowerCase()];
+    const year = parseInt(m[2]);
+    if (mo && year >= 2020 && year <= 2035) return quarterFromMonthYear(mo, year);
+  }
+
   return null;
 }
 
@@ -199,7 +244,7 @@ export async function POST(req: NextRequest) {
   const skipped: string[] = [];
   const errors: string[] = [];
 
-  for (const url of transcriptUrls.slice(0, 4)) {
+  for (const { url, htmlContext } of transcriptUrls.slice(0, 4)) {
     try {
       // Fast pre-check using filename-inferred quarter (works for NSE URLs, not BSE UUIDs)
       const quarterFromUrl = inferQuarterFromNseUrl(url);
@@ -214,7 +259,7 @@ export async function POST(req: NextRequest) {
 
       const pdf = await downloadPdf(url);
 
-      // Prefer quarter from PDF text; fall back to URL timestamp (NSE only)
+      // Prefer quarter from PDF text; fall back to NSE URL timestamp; then Screener HTML context
       let quarterInfo: [number, number] | null = null;
       let pdfText = "";
       try {
@@ -223,6 +268,7 @@ export async function POST(req: NextRequest) {
         quarterInfo = inferQuarterFromText(pdfText);
       } catch {}
       if (!quarterInfo) quarterInfo = inferQuarterFromNseUrl(url);
+      if (!quarterInfo) quarterInfo = inferQuarterFromHtml(htmlContext);
       if (!quarterInfo) { errors.push(`no_quarter:${url.split("/").pop()}`); continue; }
 
       // Validate the PDF is actually parseable before storing it.
