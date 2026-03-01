@@ -178,21 +178,28 @@ const STORAGE_BUCKET = "transcripts";
 
 /**
  * Returns the storage key (filename) for a given ticker + quarter.
- * Lists the bucket to handle case-insensitive matches (e.g. Bharti vs BHARTI).
+ * Paginates the bucket list to handle >1000 files and Supabase's
+ * quirk of returning fewer than `limit` items even when more exist.
  */
 export async function resolvePdfKey(ticker: string, quarter: string): Promise<string> {
   const target = `${ticker}_${quarter}.pdf`.toLowerCase();
-  const { data, error } = await supabaseAdmin()
-    .storage.from(STORAGE_BUCKET)
-    .list("", { limit: 1000 });
-  if (error) throw new Error(`Storage list failed: ${error.message}`);
-  const file = data?.find((f) => f.name.toLowerCase() === target);
+  const allFiles: { name: string }[] = [];
+  let offset = 0;
+  while (true) {
+    const { data, error } = await supabaseAdmin()
+      .storage.from(STORAGE_BUCKET)
+      .list("", { limit: 1000, offset });
+    if (error) throw new Error(`Storage list failed: ${error.message}`);
+    if (!data || data.length === 0) break;
+    allFiles.push(...data);
+    offset += data.length;
+  }
+  const file = allFiles.find((f) => f.name.toLowerCase() === target);
   if (file) return file.name;
-  const available =
-    data
-      ?.filter((f) => f.name.toUpperCase().startsWith(ticker.toUpperCase() + "_"))
-      .map((f) => f.name)
-      .sort() ?? [];
+  const available = allFiles
+    .filter((f) => f.name.toUpperCase().startsWith(ticker.toUpperCase() + "_"))
+    .map((f) => f.name)
+    .sort();
   const hint = available.length > 0 ? ` Available for ${ticker}: ${available.join(", ")}` : "";
   throw new Error(`PDF not found: ${ticker} ${quarter}.${hint}`);
 }
@@ -207,11 +214,35 @@ async function extractPdfText(storageKey: string): Promise<string> {
     .download(storageKey);
   if (error || !blob) throw new Error(`Storage download failed for ${storageKey}: ${error?.message}`);
   const buffer = Buffer.from(await blob.arrayBuffer());
-  const data = await pdfParse(buffer);
-  const text = data.text;
-  if (text.length > MAX_TRANSCRIPT_CHARS) {
-    console.log(`[Pipeline] ${storageKey}: ${text.length} chars → truncated to ${MAX_TRANSCRIPT_CHARS}`);
+
+  // Primary: pdfParse (fast, no LLM cost)
+  try {
+    const parsed = await pdfParse(buffer);
+    const text = parsed.text;
+    if (text.length > MAX_TRANSCRIPT_CHARS) {
+      console.log(`[Pipeline] ${storageKey}: ${text.length} chars → truncated to ${MAX_TRANSCRIPT_CHARS}`);
+    }
+    return text.slice(0, MAX_TRANSCRIPT_CHARS);
+  } catch (e) {
+    console.warn(`[Pipeline] ${storageKey}: pdfParse failed (${e instanceof Error ? e.message : e}) — trying Gemini fallback`);
   }
+
+  // Fallback: Gemini native PDF reading (handles non-standard xref tables, linearized PDFs, etc.)
+  // Inline data has a ~4 MB base64 limit, so cap at 3 MB raw.
+  if (buffer.length > 3 * 1024 * 1024) {
+    throw new Error(
+      `Cannot parse ${storageKey}: pdfParse failed and file is too large for fallback (${(buffer.length / 1024 / 1024).toFixed(1)} MB)`
+    );
+  }
+  const genAI = getGenAI();
+  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+  const result = await model.generateContent([
+    { inlineData: { mimeType: "application/pdf", data: buffer.toString("base64") } },
+    "Extract and return the complete transcript text from this earnings call PDF. Include all speaker names, questions, and answers verbatim. Output only the transcript text.",
+  ]);
+  const text = result.response.text();
+  if (!text.trim()) throw new Error(`Cannot extract text from ${storageKey}: PDF may be encrypted or image-only`);
+  console.log(`[Pipeline] ${storageKey}: Gemini fallback extracted ${text.length} chars`);
   return text.slice(0, MAX_TRANSCRIPT_CHARS);
 }
 
