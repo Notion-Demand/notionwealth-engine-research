@@ -28,6 +28,14 @@ const BSE_HEADERS = {
   Accept: "application/pdf,*/*",
 };
 
+const BSE_API_HEADERS = {
+  "User-Agent":
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+  Referer: "https://www.bseindia.com/",
+  Origin: "https://www.bseindia.com",
+  Accept: "application/json, */*",
+};
+
 const BUCKET = "transcripts";
 
 // ── Screener.in lookup ────────────────────────────────────────────────────────
@@ -102,15 +110,85 @@ function extractRawTranscriptUrls(html: string): TranscriptLink[] {
   return links;
 }
 
-async function fetchTranscriptUrls(companyPageUrl: string): Promise<TranscriptLink[]> {
+// Extract BSE scrip code from Screener company page HTML.
+// The page contains a link like:
+//   href="https://www.bseindia.com/stock-share-price/company-name/TICKER/513599/"
+function extractBseCode(html: string): string | null {
+  const m = /bseindia\.com\/stock-share-price\/[^"]*?\/(\d{4,6})\//i.exec(html);
+  return m ? m[1] : null;
+}
+
+interface CompanyPageResult {
+  transcriptLinks: TranscriptLink[];
+  bseCode: string | null;
+}
+
+async function fetchCompanyPage(companyPageUrl: string): Promise<CompanyPageResult> {
   try {
     const resp = await fetch(companyPageUrl, {
       headers: SCREENER_HEADERS,
       signal: AbortSignal.timeout(15_000),
     });
-    if (!resp.ok) return [];
+    if (!resp.ok) return { transcriptLinks: [], bseCode: null };
     const html = await resp.text();
-    return extractRawTranscriptUrls(html);
+    return {
+      transcriptLinks: extractRawTranscriptUrls(html),
+      bseCode: extractBseCode(html),
+    };
+  } catch {
+    return { transcriptLinks: [], bseCode: null };
+  }
+}
+
+// ── BSE announcement API ──────────────────────────────────────────────────────
+
+interface BseAnnouncement {
+  DT_TM: string;          // "2025-09-15 00:00:00"
+  HEADLINE: string;
+  ATTACHMENTNAME: string; // "uuid.pdf"
+  SUBCATNAME: string;
+}
+
+const BSE_TRANSCRIPT_KEYWORDS = [
+  "transcript", "concall", "conference call", "earnings call",
+  "analyst meet", "investor meet",
+];
+
+const BSE_MONTH_LABELS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+async function fetchBseTranscripts(bseCode: string): Promise<TranscriptLink[]> {
+  const toDate = new Date();
+  const fromDate = new Date();
+  fromDate.setDate(fromDate.getDate() - 548); // ~18 months back
+  const fmt = (d: Date) => d.toISOString().slice(0, 10).replace(/-/g, "");
+  const apiUrl =
+    `https://api.bseindia.com/BseIndiaAPI/api/AnnSubCategoryGetData/w` +
+    `?strCat=-1&strPrevDate=${fmt(fromDate)}&strScrip=${bseCode}` +
+    `&strSearch=P&strToDate=${fmt(toDate)}&strType=C&subcategory=-1`;
+  try {
+    const resp = await fetch(apiUrl, {
+      headers: BSE_API_HEADERS,
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!resp.ok) return [];
+    const data = await resp.json();
+    const rows: BseAnnouncement[] = data?.Table ?? [];
+    return rows
+      .filter((r) => {
+        const text = `${r.HEADLINE} ${r.SUBCATNAME}`.toLowerCase();
+        return BSE_TRANSCRIPT_KEYWORDS.some((k) => text.includes(k));
+      })
+      .filter((r) => r.ATTACHMENTNAME?.toLowerCase().endsWith(".pdf"))
+      .map((r) => {
+        const pdfUrl = `https://www.bseindia.com/xml-data/corpfiling/AttachHis/${r.ATTACHMENTNAME}`;
+        // Build a context string our existing inferQuarterFromHtml can parse.
+        // DT_TM format: "2025-09-15 00:00:00" → "Sep 2025 <headline>"
+        const parts = r.DT_TM.split(/[-\s]/);
+        const mo = parseInt(parts[1]);
+        const yr = parseInt(parts[0]);
+        const monthLabel = mo >= 1 && mo <= 12 ? `${BSE_MONTH_LABELS[mo - 1]} ${yr}` : "";
+        return { url: pdfUrl, htmlContext: `${monthLabel} ${r.HEADLINE}` };
+      });
   } catch {
     return [];
   }
@@ -272,9 +350,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, reason: "not_found" }, { status: 200 });
   }
 
-  // 2. Extract transcript links from the company page
-  const transcriptUrls = await fetchTranscriptUrls(companyPageUrl);
-  if (!transcriptUrls.length) {
+  // 2. Fetch Screener company page (transcript links + BSE code)
+  const { transcriptLinks: screenerLinks, bseCode } = await fetchCompanyPage(companyPageUrl);
+
+  // 3. Always query BSE API for additional transcripts (covers companies with
+  //    few/no Screener-indexed transcripts, and supplements with older quarters)
+  const bseApiLinks = bseCode ? await fetchBseTranscripts(bseCode) : [];
+  console.log(`[request] ${tickerClean}: screener=${screenerLinks.length} bse=${bseApiLinks.length} bseCode=${bseCode}`);
+
+  // Merge: Screener results first (they're pre-validated by Screener),
+  // then BSE API results not already present by URL.
+  const screenerUrls = new Set(screenerLinks.map((l) => l.url));
+  const allLinks = [
+    ...screenerLinks,
+    ...bseApiLinks.filter((l) => !screenerUrls.has(l.url)),
+  ];
+
+  if (!allLinks.length) {
     return NextResponse.json({ ok: false, reason: "no_transcripts" }, { status: 200 });
   }
 
@@ -296,7 +388,7 @@ export async function POST(req: NextRequest) {
   const skipped: string[] = [];
   const errors: string[] = [];
 
-  for (const { url, htmlContext } of transcriptUrls.slice(0, 4)) {
+  for (const { url, htmlContext } of allLinks.slice(0, 4)) {
     try {
       // Fast pre-check using filename-inferred quarter (works for NSE URLs, not BSE UUIDs)
       const quarterFromUrl = inferQuarterFromNseUrl(url);
