@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useMemo } from "react";
+import { useSearchParams } from "next/navigation";
 import Nav from "@/components/Nav";
 import EarningsReport from "@/components/EarningsReport";
 import AgentPanel, {
@@ -140,6 +141,9 @@ function CompanySearch({
 }
 
 export default function DashboardClient() {
+  const searchParams = useSearchParams();
+  const tickerParam = searchParams.get("ticker")?.toUpperCase() ?? null;
+
   // ── Available PDFs ──────────────────────────────────────────────────────────
   const [available, setAvailable] = useState<Record<string, string[]>>({});
 
@@ -148,18 +152,24 @@ export default function DashboardClient() {
       .then((r) => r.json())
       .then((data: Record<string, string[]>) => {
         setAvailable(data);
+        // Prefer ticker from URL query param (e.g. after Request upload)
+        const preferred = tickerParam && data[tickerParam] ? tickerParam : null;
         const tickers = Object.keys(data);
-        if (tickers.length > 0) {
-          const first = tickers[0];
-          const quarters = data[first];
-          setTicker(first);
+        const selected = preferred ?? (tickers.length > 0 ? tickers[0] : null);
+        if (selected) {
+          const quarters = data[selected] ?? [];
+          setTicker(selected);
           if (quarters.length >= 2) {
             setQCurr(quarters[0]);
             setQPrev(quarters[1]);
+          } else if (quarters.length === 1) {
+            setQCurr(quarters[0]);
+            setQPrev(quarters[0]);
           }
         }
       })
       .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const filteredList = useMemo(() => {

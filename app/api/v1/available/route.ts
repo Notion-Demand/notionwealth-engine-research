@@ -27,5 +27,7 @@ export async function GET() {
     available[ticker].sort((a, b) => b.localeCompare(a));
   }
 
-  return NextResponse.json(available);
+  return NextResponse.json(available, {
+    headers: { "Cache-Control": "no-store" },
+  });
 }

@@ -146,7 +146,7 @@ export default function RequestClient() {
             )}
             <p className="text-sm text-emerald-700 pt-1">
               <a
-                href="/dashboard"
+                href={`/dashboard?ticker=${submittedTicker}`}
                 className="font-semibold underline"
               >
                 Go to Dashboard
