@@ -181,9 +181,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, reason: "no_transcripts" }, { status: 200 });
   }
 
-  // 3. Get already-uploaded files to skip duplicates
-  const { data: existing } = await supabaseAdmin().storage.from(BUCKET).list("", { limit: 2000 });
-  const existingNames = new Set((existing ?? []).map((f) => f.name.toLowerCase()));
+  // 3. Get already-uploaded files to skip duplicates (paginate to catch all)
+  const allExisting: { name: string }[] = [];
+  {
+    let off = 0;
+    while (true) {
+      const { data: page } = await supabaseAdmin().storage.from(BUCKET).list("", { limit: 1000, offset: off });
+      if (!page || page.length === 0) break;
+      allExisting.push(...page);
+      if (page.length < 1000) break;
+      off += 1000;
+    }
+  }
+  const existingNames = new Set(allExisting.map((f) => f.name.toLowerCase()));
 
   // 4. Download up to 4 most recent transcripts
   const uploaded: string[] = [];
