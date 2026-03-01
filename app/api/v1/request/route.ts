@@ -216,12 +216,27 @@ export async function POST(req: NextRequest) {
 
       // Prefer quarter from PDF text; fall back to URL timestamp (NSE only)
       let quarterInfo: [number, number] | null = null;
+      let pdfText = "";
       try {
         const parsed = await pdfParse(pdf, { max: 3 });
-        quarterInfo = inferQuarterFromText(parsed.text);
+        pdfText = parsed.text;
+        quarterInfo = inferQuarterFromText(pdfText);
       } catch {}
       if (!quarterInfo) quarterInfo = inferQuarterFromNseUrl(url);
       if (!quarterInfo) { errors.push(`no_quarter:${url.split("/").pop()}`); continue; }
+
+      // Validate the PDF is actually parseable before storing it.
+      // If pdfParse failed above and we only have a URL-inferred quarter,
+      // do a full parse now to confirm the file is usable.
+      if (!pdfText) {
+        try {
+          const validated = await pdfParse(pdf);
+          pdfText = validated.text;
+        } catch (e) {
+          errors.push(`unparseable:${url.split("/").pop()}:${e instanceof Error ? e.message : String(e)}`);
+          continue;
+        }
+      }
 
       const [q, y] = quarterInfo;
       const filename = `${tickerClean}_Q${q}_${y}.pdf`;

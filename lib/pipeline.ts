@@ -215,7 +215,16 @@ async function extractPdfText(storageKey: string): Promise<string> {
   if (error || !blob) throw new Error(`Storage download failed for ${storageKey}: ${error?.message}`);
   const buffer = Buffer.from(await blob.arrayBuffer());
 
-  // Primary: pdfParse (fast, no LLM cost)
+  const header = buffer.slice(0, 5).toString("ascii");
+  console.log(`[Pipeline] ${storageKey}: ${buffer.length} bytes, header="${header}"`);
+
+  if (buffer.length === 0) {
+    throw new Error(`${storageKey} is empty — delete it from storage and re-request the ticker`);
+  }
+  if (!header.startsWith("%PDF")) {
+    throw new Error(`${storageKey} is not a valid PDF (header: "${header}") — delete it from storage and re-request the ticker`);
+  }
+
   try {
     const parsed = await pdfParse(buffer);
     const text = parsed.text;
@@ -224,26 +233,11 @@ async function extractPdfText(storageKey: string): Promise<string> {
     }
     return text.slice(0, MAX_TRANSCRIPT_CHARS);
   } catch (e) {
-    console.warn(`[Pipeline] ${storageKey}: pdfParse failed (${e instanceof Error ? e.message : e}) — trying Gemini fallback`);
-  }
-
-  // Fallback: Gemini native PDF reading (handles non-standard xref tables, linearized PDFs, etc.)
-  // Inline data has a ~4 MB base64 limit, so cap at 3 MB raw.
-  if (buffer.length > 3 * 1024 * 1024) {
     throw new Error(
-      `Cannot parse ${storageKey}: pdfParse failed and file is too large for fallback (${(buffer.length / 1024 / 1024).toFixed(1)} MB)`
+      `${storageKey} could not be parsed (${e instanceof Error ? e.message : e}). ` +
+      `The stored PDF appears to be corrupted. Delete it from Supabase storage and re-request the ticker.`
     );
   }
-  const genAI = getGenAI();
-  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-lite" });
-  const result = await model.generateContent([
-    { inlineData: { mimeType: "application/pdf", data: buffer.toString("base64") } },
-    "Extract and return the complete transcript text from this earnings call PDF. Include all speaker names, questions, and answers verbatim. Output only the transcript text.",
-  ]);
-  const text = result.response.text();
-  if (!text.trim()) throw new Error(`Cannot extract text from ${storageKey}: PDF may be encrypted or image-only`);
-  console.log(`[Pipeline] ${storageKey}: Gemini fallback extracted ${text.length} chars`);
-  return text.slice(0, MAX_TRANSCRIPT_CHARS);
 }
 
 export function parseFilename(
