@@ -12,15 +12,16 @@ export async function GET(req: Request) {
   const PAGE = 1000;
   const allFiles: { name: string }[] = [];
   let offset = 0;
-  // Supabase storage list may return fewer than `limit` items mid-pagination (known quirk),
-  // so we stop only when we get zero items rather than fewer-than-limit items.
+  // Supabase storage list may return fewer than `limit` items even mid-pagination
+  // (known quirk — e.g. 352 items for limit=1000 when 355 exist).
+  // Advance offset by actual items returned so we don't skip the tail.
   while (true) {
     const { data, error } = await supabaseAdmin()
       .storage.from(BUCKET)
       .list("", { limit: PAGE, offset });
     if (error || !data || data.length === 0) break;
     allFiles.push(...data);
-    offset += PAGE;
+    offset += data.length;
   }
 
   const available: Record<string, string[]> = {};

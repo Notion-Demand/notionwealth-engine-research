@@ -189,8 +189,7 @@ export async function POST(req: NextRequest) {
       const { data: page } = await supabaseAdmin().storage.from(BUCKET).list("", { limit: 1000, offset: off });
       if (!page || page.length === 0) break;
       allExisting.push(...page);
-      if (page.length < 1000) break;
-      off += 1000;
+      off += page.length;
     }
   }
   const existingNames = new Set(allExisting.map((f) => f.name.toLowerCase()));
