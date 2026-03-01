@@ -89,8 +89,10 @@ function extractRawTranscriptUrls(html: string): TranscriptLink[] {
     if (end === -1) continue;
     const url = seg.slice(start, end);
     if (url.endsWith(".pdf")) {
-      const rawCtx = seg.slice(-800);
-      // Consider a context "rich" if it has substantial text after stripping tags
+      // Slice from BEFORE the <a href="..."> — the URL itself sits inside an
+      // unclosed tag so tag-stripping won't remove it, making the context look
+      // "rich" when it's actually just the URL with no quarter/date info.
+      const rawCtx = seg.slice(0, bestPos).slice(-800);
       const stripped = rawCtx.replace(/<[^>]*>/g, " ").trim();
       const htmlContext = stripped.length > 40 ? rawCtx : lastRichContext;
       if (stripped.length > 40) lastRichContext = rawCtx;
