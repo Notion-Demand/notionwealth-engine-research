@@ -6,7 +6,8 @@ export const dynamic = "force-dynamic";
 const BUCKET = "transcripts";
 
 /** GET /api/v1/available — returns { TICKER: ["Q3_2026", "Q2_2026", ...] } */
-export async function GET() {
+export async function GET(req: Request) {
+  const debug = new URL(req.url).searchParams.has("debug");
   // Paginate through all files — bucket may have >1000 entries
   const PAGE = 1000;
   const allFiles: { name: string }[] = [];
@@ -33,6 +34,16 @@ export async function GET() {
 
   for (const ticker in available) {
     available[ticker].sort((a, b) => b.localeCompare(a));
+  }
+
+  if (debug) {
+    const zomatoFiles = allFiles.filter((f) => f.name.toLowerCase().includes("zomato"));
+    return NextResponse.json({
+      totalFiles: allFiles.length,
+      zomatoFiles: zomatoFiles.map((f) => f.name),
+      lastTenFiles: allFiles.slice(-10).map((f) => f.name),
+      matchedTickers: Object.keys(available).length,
+    }, { headers: { "Cache-Control": "no-store" } });
   }
 
   return NextResponse.json(available, {
