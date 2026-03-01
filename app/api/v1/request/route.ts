@@ -130,9 +130,17 @@ function inferQuarterFromText(text: string): [number, number] | null {
   return null;
 }
 
+const MONTH_NUM: Record<string, number> = {
+  jan: 1, january: 1, feb: 2, february: 2, mar: 3, march: 3,
+  apr: 4, april: 4, may: 5, jun: 6, june: 6, jul: 7, july: 7,
+  aug: 8, august: 8, sep: 9, sept: 9, september: 9,
+  oct: 10, october: 10, nov: 11, november: 11, dec: 12, december: 12,
+};
+
 // Infer quarter from Screener.in HTML context surrounding a transcript link.
-// Handles "Q3 FY2026", "Q3 2025-26", "quarter ended December 2025" patterns.
-function inferQuarterFromHtml(html: string): [number, number] | null {
+// Handles "Q3 FY2026", "Q3 2025-26", "quarter ended December 2025",
+// and date formats like "14 Feb, 2026" or "14-02-2026" (Indian DD/MM/YYYY).
+function inferQuarterFromHtml(html: string, debugLabel = ""): [number, number] | null {
   // Strip HTML tags for cleaner text matching
   const text = html.replace(/<[^>]*>/g, " ");
 
@@ -151,19 +159,44 @@ function inferQuarterFromHtml(html: string): [number, number] | null {
   }
 
   // Try "quarter ended [Month] [Year]" — e.g. "quarter ended December 2025"
-  const MONTH: Record<string, number> = {
-    jan: 1, january: 1, feb: 2, february: 2, mar: 3, march: 3,
-    apr: 4, april: 4, may: 5, jun: 6, june: 6, jul: 7, july: 7,
-    aug: 8, august: 8, sep: 9, sept: 9, september: 9,
-    oct: 10, october: 10, nov: 11, november: 11, dec: 12, december: 12,
-  };
-  const monthRe = /quarter\s+ended\s+(\w+)\s+(\d{4})/gi;
-  while ((m = monthRe.exec(text)) !== null) {
-    const mo = MONTH[m[1].toLowerCase()];
+  const monthWordRe = /quarter\s+ended\s+(\w+)\s+(\d{4})/gi;
+  while ((m = monthWordRe.exec(text)) !== null) {
+    const mo = MONTH_NUM[m[1].toLowerCase()];
     const year = parseInt(m[2]);
     if (mo && year >= 2020 && year <= 2035) return quarterFromMonthYear(mo, year);
   }
 
+  // Try date with month name: "14 Feb, 2026" or "Feb 14, 2026" or "14 February 2026"
+  // Screener.in shows the BSE filing date, from which we infer the quarter.
+  const monthNames = Object.keys(MONTH_NUM).join("|");
+  const dateMonthRe = new RegExp(
+    `(?:(\\d{1,2})\\s+(${monthNames}),?\\s+(\\d{4})|(${monthNames})\\s+(\\d{1,2}),?\\s+(\\d{4}))`,
+    "gi"
+  );
+  while ((m = dateMonthRe.exec(text)) !== null) {
+    // Group 1+2+3: DD Mon YYYY; Group 4+5+6: Mon DD YYYY
+    const monthStr = (m[2] ?? m[4]).toLowerCase();
+    const year = parseInt(m[3] ?? m[6]);
+    const mo = MONTH_NUM[monthStr];
+    if (mo && year >= 2020 && year <= 2035) return quarterFromMonthYear(mo, year);
+  }
+
+  // Try numeric date: DD/MM/YYYY or DD-MM-YYYY (Indian convention)
+  const numDateRe = /(\d{1,2})[/\-](\d{1,2})[/\-](20\d{2})/g;
+  while ((m = numDateRe.exec(text)) !== null) {
+    const dd = parseInt(m[1]);
+    const mm = parseInt(m[2]);
+    const yyyy = parseInt(m[3]);
+    // Indian DD/MM/YYYY: day ≤ 31, month ≤ 12
+    if (dd <= 31 && mm >= 1 && mm <= 12) {
+      const result = quarterFromMonthYear(mm, yyyy);
+      if (result) return result;
+    }
+  }
+
+  if (debugLabel) {
+    console.log(`[request] inferQuarterFromHtml(${debugLabel}): no match in: ${text.slice(-300)}`);
+  }
   return null;
 }
 
@@ -268,7 +301,7 @@ export async function POST(req: NextRequest) {
         quarterInfo = inferQuarterFromText(pdfText);
       } catch {}
       if (!quarterInfo) quarterInfo = inferQuarterFromNseUrl(url);
-      if (!quarterInfo) quarterInfo = inferQuarterFromHtml(htmlContext);
+      if (!quarterInfo) quarterInfo = inferQuarterFromHtml(htmlContext, url.split("/").pop());
       if (!quarterInfo) { errors.push(`no_quarter:${url.split("/").pop()}`); continue; }
 
       // Validate the PDF is actually parseable before storing it.
