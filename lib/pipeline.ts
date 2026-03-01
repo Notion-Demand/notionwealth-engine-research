@@ -784,6 +784,7 @@ export async function runPipeline(
     runEarningsDeltaAgent(validatedInsights, company, qPrev, qCurr),
     runFCFImplicationsAgent(validatedInsights, company, qPrev, qCurr),
   ]);
+  console.log(`[Pipeline] Synthesis done: earningsDelta=${earningsDelta.length} bullets, fcfImplications=${fcfImplications.length} bullets`);
 
   const { insights, marketAlignmentPct } = computeMarketAlignment(validatedInsights, stockPriceChange);
 

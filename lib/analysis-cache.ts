@@ -41,6 +41,11 @@ export async function getCachedAnalysis(
   if (!Array.isArray(parsed.insights) || parsed.insights.length === 0) {
     return null;
   }
+  // Don't serve results missing synthesis fields added in a later pipeline version.
+  // Old cached results won't have earnings_delta/fcf_implications, so re-run to populate them.
+  if (!Array.isArray(parsed.earnings_delta)) {
+    return null;
+  }
   return parsed;
 }
 
