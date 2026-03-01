@@ -205,6 +205,14 @@ function inferQuarterFromHtml(html: string, debugLabel = ""): [number, number] |
     }
   }
 
+  // Last resort: bare "Month YYYY" — e.g. "Sep 2025" as Screener.in shows in concall list
+  const bareMonthRe = new RegExp(`\\b(${monthNames})\\b[,\\s]+(\\d{4})\\b`, "gi");
+  while ((m = bareMonthRe.exec(text)) !== null) {
+    const mo = MONTH_NUM[m[1].toLowerCase()];
+    const year = parseInt(m[2]);
+    if (mo && year >= 2020 && year <= 2035) return quarterFromMonthYear(mo, year);
+  }
+
   if (debugLabel) {
     console.log(`[request] inferQuarterFromHtml(${debugLabel}): no match in: ${text.slice(-300)}`);
   }
