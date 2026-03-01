@@ -146,14 +146,17 @@ export default function DashboardClient() {
 
   // ── Available PDFs ──────────────────────────────────────────────────────────
   const [available, setAvailable] = useState<Record<string, string[]>>({});
+  const [availableLoading, setAvailableLoading] = useState(true);
 
-  useEffect(() => {
+  const fetchAvailable = useRef<(selectTicker?: string | null) => void>();
+  fetchAvailable.current = (selectTicker?: string | null) => {
+    setAvailableLoading(true);
     fetch("/api/v1/available")
       .then((r) => r.json())
       .then((data: Record<string, string[]>) => {
         setAvailable(data);
         // Prefer ticker from URL query param (e.g. after Request upload)
-        const preferred = tickerParam && data[tickerParam] ? tickerParam : null;
+        const preferred = selectTicker && data[selectTicker] ? selectTicker : null;
         const tickers = Object.keys(data);
         const selected = preferred ?? (tickers.length > 0 ? tickers[0] : null);
         if (selected) {
@@ -168,7 +171,12 @@ export default function DashboardClient() {
           }
         }
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setAvailableLoading(false));
+  };
+
+  useEffect(() => {
+    fetchAvailable.current?.(tickerParam);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -328,9 +336,26 @@ export default function DashboardClient() {
         >
           {/* Company */}
           <div className="flex flex-col gap-1 min-w-[200px] flex-1">
-            <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">
-              Company
-            </label>
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                Company
+              </label>
+              <button
+                type="button"
+                onClick={() => fetchAvailable.current?.(tickerParam)}
+                disabled={availableLoading || loading}
+                className="flex items-center gap-1 text-[11px] text-gray-400 hover:text-gray-600 disabled:opacity-40"
+                title="Refresh company list"
+              >
+                <RefreshCw size={11} className={availableLoading ? "animate-spin" : ""} />
+                Refresh
+              </button>
+            </div>
+            {tickerParam && !available[tickerParam] && !availableLoading && (
+              <p className="text-[11px] text-amber-600">
+                {tickerParam} not found — try refreshing or wait a moment after uploading.
+              </p>
+            )}
             <CompanySearch
               options={filteredList}
               value={ticker}
