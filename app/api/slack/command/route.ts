@@ -43,77 +43,73 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  // Parse the command text
-  const parsed = await parseEarningsCommand(text);
-  if (!parsed.ok) {
-    return NextResponse.json({ response_type: "ephemeral", text: parsed.error });
-  }
+  // ACK immediately — Slack requires a response within 3 seconds.
+  // All slow work (command parsing, PDF resolution, cache check, pipeline)
+  // runs in the background and posts results via response_url.
+  waitUntil(resolveAndRun(text, conn.user_id, responseUrl));
 
-  const { ticker, qCurr, qPrev } = parsed;
-
-  // Verify PDFs exist in storage before ACKing
-  let qPrevKey: string, qCurrKey: string;
-  try {
-    [qPrevKey, qCurrKey] = await Promise.all([
-      resolvePdfKey(ticker, qPrev),
-      resolvePdfKey(ticker, qCurr),
-    ]);
-  } catch (e) {
-    return NextResponse.json({
-      response_type: "ephemeral",
-      text: `❌ ${String(e).replace("Error: ", "")}`,
-    });
-  }
-
-  // Check cache before ACKing — if cached, post result immediately
-  const cached = await getCachedAnalysis(ticker, qPrev, qCurr);
-  if (cached) {
-    console.log(`[Slack] Cache HIT for ${ticker} ${qPrev}→${qCurr}`);
-    waitUntil(
-      postToSlack(responseUrl, {
-        response_type: "in_channel",
-        blocks: formatSlackBlocks(cached),
-      })
-    );
-    return NextResponse.json({
-      response_type: "ephemeral",
-      text: `⚡ Results for *${ticker}* (${qPrev} → ${qCurr}) — served from cache.`,
-    });
-  }
-
-  // Cache miss — kick off analysis in background
-  waitUntil(runAndPost(ticker, qPrev, qCurr, qPrevKey, qCurrKey, conn.user_id, responseUrl));
-
-  // Immediately ACK to Slack (must respond within 3 s)
   return NextResponse.json({
     response_type: "ephemeral",
-    text: `🔍 Analyzing *${ticker}* (${qPrev} → ${qCurr})… results will appear here shortly.`,
+    text: `🔍 Processing your request… results will appear here shortly.`,
   });
 }
 
-async function runAndPost(
-  ticker: string,
-  qPrev: string,
-  qCurr: string,
-  qPrevKey: string,
-  qCurrKey: string,
+async function resolveAndRun(
+  text: string,
   userId: string,
   responseUrl: string
 ) {
-  console.log("[Slack] runAndPost started", { ticker, qPrev, qCurr });
   try {
+    // 1. Parse the command text
+    const parsed = await parseEarningsCommand(text);
+    if (!parsed.ok) {
+      await postToSlack(responseUrl, { response_type: "ephemeral", text: parsed.error });
+      return;
+    }
+
+    const { ticker, qCurr, qPrev } = parsed;
+
+    // 2. Resolve PDF storage keys
+    let qPrevKey: string, qCurrKey: string;
+    try {
+      [qPrevKey, qCurrKey] = await Promise.all([
+        resolvePdfKey(ticker, qPrev),
+        resolvePdfKey(ticker, qCurr),
+      ]);
+    } catch (e) {
+      await postToSlack(responseUrl, {
+        response_type: "ephemeral",
+        text: `❌ ${String(e).replace("Error: ", "")}`,
+      });
+      return;
+    }
+
+    // 3. Check cache — if hit, post result immediately
+    const cached = await getCachedAnalysis(ticker, qPrev, qCurr);
+    if (cached) {
+      console.log(`[Slack] Cache HIT for ${ticker} ${qPrev}→${qCurr}`);
+      await postToSlack(responseUrl, {
+        response_type: "in_channel",
+        blocks: formatSlackBlocks(cached),
+      });
+      return;
+    }
+
+    // 4. Cache miss — run the full pipeline
+    console.log(`[Slack] Cache MISS for ${ticker} ${qPrev}→${qCurr} — running pipeline`);
     const payload = await runPipeline(qPrevKey, qCurrKey);
     console.log("[Slack] Pipeline done, insights:", payload.insights.length, "signal:", payload.overall_signal);
 
-    // Save to cache so next request (web or Slack) is instant
+    // 5. Save to cache
     await saveAnalysis(userId, ticker, qPrev, qCurr, payload);
 
+    // 6. Post result to Slack
     const blocks = formatSlackBlocks(payload);
     console.log("[Slack] Posting to Slack response_url...");
     await postToSlack(responseUrl, { response_type: "in_channel", blocks });
     console.log("[Slack] Posted successfully");
   } catch (e) {
-    console.error("[Slack] runAndPost error:", e);
+    console.error("[Slack] resolveAndRun error:", e);
     try {
       await postToSlack(responseUrl, {
         response_type: "ephemeral",
@@ -124,3 +120,4 @@ async function runAndPost(
     }
   }
 }
+
