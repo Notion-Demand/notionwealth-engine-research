@@ -10,9 +10,10 @@ interface ConnectionsClientProps {
 }
 
 function buildGoogleOAuthUrl(userId: string): string {
+  const origin = process.env.NEXT_PUBLIC_APP_URL ?? window.location.origin;
   const params = new URLSearchParams({
     client_id: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ?? "",
-    redirect_uri: `${window.location.origin}/api/auth/google/callback`,
+    redirect_uri: `${origin}/api/auth/google/callback`,
     response_type: "code",
     scope: [
       "https://www.googleapis.com/auth/gmail.send",
@@ -27,10 +28,11 @@ function buildGoogleOAuthUrl(userId: string): string {
 }
 
 function buildSlackOAuthUrl(userId: string): string {
+  const origin = process.env.NEXT_PUBLIC_APP_URL ?? window.location.origin;
   const params = new URLSearchParams({
     client_id: process.env.NEXT_PUBLIC_SLACK_CLIENT_ID ?? "",
     scope: "commands,chat:write,channels:history",
-    redirect_uri: `${window.location.origin}/api/auth/slack/callback`,
+    redirect_uri: `${origin}/api/auth/slack/callback`,
     state: userId,
   });
   return `https://slack.com/oauth/v2/authorize?${params}`;
