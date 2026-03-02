@@ -17,7 +17,7 @@ export async function GET(req: Request) {
   while (true) {
     const { data, error } = await supabaseAdmin()
       .storage.from(BUCKET)
-      .list("", { limit: PAGE, offset, sortBy: { column: "name", order: "asc" } });
+      .list("", { limit: PAGE, offset });
     // Don't break on error — Supabase sometimes returns a non-fatal error alongside
     // valid data (e.g. on later pages). Breaking early causes files to be silently missed.
     if (!data || data.length === 0) break;
