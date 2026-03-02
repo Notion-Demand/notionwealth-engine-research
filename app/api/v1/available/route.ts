@@ -8,22 +8,19 @@ const BUCKET = "transcripts";
 /** GET /api/v1/available — returns { TICKER: ["Q3_2026", "Q2_2026", ...] } */
 export async function GET(req: Request) {
   const debug = new URL(req.url).searchParams.has("debug");
-  // Use a small page size — Supabase Storage has a quirk where large limit
-  // values (e.g. 1000) cap results at ~350 even when more files exist, and
-  // subsequent offset calls return 0. Smaller pages paginate correctly.
-  const PAGE = 100;
-  const allFiles: { name: string }[] = [];
-  let offset = 0;
-  while (true) {
-    const { data, error } = await supabaseAdmin()
-      .storage.from(BUCKET)
-      .list("", { limit: PAGE, offset });
-    // Don't break on error — Supabase sometimes returns a non-fatal error alongside
-    // valid data (e.g. on later pages). Breaking early causes files to be silently missed.
-    if (!data || data.length === 0) break;
-    allFiles.push(...data);
-    offset += data.length;
-  }
+  // Supabase Storage offset-based pagination has a hard cap (~359 files) and
+  // silently stops returning results beyond it. Work around this by doing 26
+  // parallel prefix searches (one per letter A–Z): the search param uses a
+  // different code path that isn't affected by the cap.
+  const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
+  const pages = await Promise.all(
+    LETTERS.map((letter) =>
+      supabaseAdmin()
+        .storage.from(BUCKET)
+        .list("", { limit: 500, search: letter })
+    )
+  );
+  const allFiles: { name: string }[] = pages.flatMap(({ data }) => data ?? []);
   console.log(`[available] totalFiles=${allFiles.length}`);
 
   const available: Record<string, string[]> = {};
