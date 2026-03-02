@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import Nav from "@/components/Nav";
-import { createClient } from "@/lib/supabase/client";
 import { Inbox, CheckCircle, XCircle, Loader2 } from "lucide-react";
 
 type Status = "idle" | "loading" | "success" | "not_found" | "error";
@@ -29,8 +28,12 @@ export default function RequestClient() {
     setErrorMsg("");
 
     try {
-      const supabase = createClient();
-      const { data: { session } } = await supabase.auth.getSession();
+      const sessionRes = await fetch("/api/v1/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "session" }),
+      });
+      const { session } = await sessionRes.json();
       if (!session) throw new Error("Not authenticated");
 
       const resp = await fetch("/api/v1/request", {

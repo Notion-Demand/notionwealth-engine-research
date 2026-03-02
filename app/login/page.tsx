@@ -2,13 +2,22 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
 
 type Mode = "signin" | "signup" | "forgot";
 
+async function authProxy(body: Record<string, string>) {
+  const res = await fetch("/api/v1/auth", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error ?? "Authentication failed");
+  return json;
+}
+
 export default function LoginPage() {
   const router = useRouter();
-  const supabase = createClient();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -31,23 +40,22 @@ export default function LoginPage() {
 
     try {
       if (mode === "signup") {
-        const { data, error } = await supabase.auth.signUp({ email, password });
-        if (error) throw error;
-        if (data.session) {
+        const data = await authProxy({ action: "signup", email, password });
+        if (data.needsConfirmation) {
+          setMessage("Check your email to confirm your account.");
+        } else {
           router.push("/dashboard");
           router.refresh();
-        } else {
-          setMessage("Check your email to confirm your account.");
         }
       } else if (mode === "forgot") {
-        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        await authProxy({
+          action: "reset",
+          email,
           redirectTo: `${window.location.origin}/auth/reset-callback`,
         });
-        if (error) throw error;
         setMessage("Password reset link sent — check your email.");
       } else {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw error;
+        await authProxy({ action: "signin", email, password });
         router.push("/dashboard");
         router.refresh();
       }
@@ -58,14 +66,10 @@ export default function LoginPage() {
     }
   }
 
-  async function handleGoogleSignIn() {
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
-      },
-    });
-    if (error) setError(error.message);
+  function handleGoogleSignIn() {
+    // Route through our server-side OAuth proxy so the browser never contacts
+    // *.supabase.co — required for Indian ISPs (Jio/Airtel) that block supabase.co.
+    window.location.href = "/api/v1/auth/google-start";
   }
 
   const submitLabel = loading
