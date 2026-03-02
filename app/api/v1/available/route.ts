@@ -23,7 +23,6 @@ export async function GET(req: Request) {
     if (!data || data.length === 0) break;
     allFiles.push(...data);
     offset += data.length;
-    if (error) console.warn(`[available] list page offset=${offset - data.length} had error: ${error.message}`);
   }
   console.log(`[available] totalFiles=${allFiles.length}`);
 
