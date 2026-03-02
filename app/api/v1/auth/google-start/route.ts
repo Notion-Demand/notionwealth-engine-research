@@ -15,7 +15,10 @@ import crypto from "crypto";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  const { origin } = new URL(req.url);
+  const { origin: reqOrigin } = new URL(req.url);
+  // NEXT_PUBLIC_APP_URL pins the canonical domain so the redirect_uri is
+  // always predictable regardless of which Vercel URL the request arrives on.
+  const origin = process.env.NEXT_PUBLIC_APP_URL ?? reqOrigin;
 
   const clientId = process.env.GOOGLE_CLIENT_ID;
   if (!clientId) {

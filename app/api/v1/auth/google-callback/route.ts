@@ -15,7 +15,8 @@ import { createServerClient } from "@supabase/ssr";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
-  const { searchParams, origin } = new URL(req.url);
+  const { searchParams, origin: reqOrigin } = new URL(req.url);
+  const origin = process.env.NEXT_PUBLIC_APP_URL ?? reqOrigin;
   const code = searchParams.get("code");
   const state = searchParams.get("state");
   const oauthError = searchParams.get("error");
