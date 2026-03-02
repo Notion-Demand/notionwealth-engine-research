@@ -45,6 +45,14 @@ export async function GET(req: Request) {
     const unmatchedFiles = allFiles
       .filter((f) => !f.name.match(/^([A-Za-z]+)_Q(\d)_(\d{4})\.pdf$/i))
       .map((f) => f.name);
+
+    // Also do a direct prefix search via Supabase (independent of pagination)
+    let directSearchFiles: string[] = [];
+    if (search) {
+      const { data: sd } = await supabaseAdmin().storage.from(BUCKET).list("", { search, limit: 20 });
+      directSearchFiles = sd?.map((f) => f.name) ?? [];
+    }
+
     return NextResponse.json({
       ts: new Date().toISOString(),
       totalFiles: allFiles.length,
@@ -55,6 +63,7 @@ export async function GET(req: Request) {
       searchFiles: search
         ? allFiles.filter((f) => f.name.toLowerCase().startsWith(search)).map((f) => f.name)
         : [],
+      directSearchFiles,
     }, { headers: { "Cache-Control": "no-store" } });
   }
 
