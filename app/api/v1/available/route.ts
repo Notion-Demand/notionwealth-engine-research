@@ -17,10 +17,13 @@ export async function GET(req: Request) {
   while (true) {
     const { data, error } = await supabaseAdmin()
       .storage.from(BUCKET)
-      .list("", { limit: PAGE, offset });
-    if (error || !data || data.length === 0) break;
+      .list("", { limit: PAGE, offset, sortBy: { column: "name", order: "asc" } });
+    // Don't break on error — Supabase sometimes returns a non-fatal error alongside
+    // valid data (e.g. on later pages). Breaking early causes files to be silently missed.
+    if (!data || data.length === 0) break;
     allFiles.push(...data);
     offset += data.length;
+    if (error) console.warn(`[available] list page offset=${offset - data.length} had error: ${error.message}`);
   }
   console.log(`[available] totalFiles=${allFiles.length}`);
 

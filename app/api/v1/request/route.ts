@@ -366,6 +366,8 @@ export async function POST(req: NextRequest) {
     ...bseApiLinks.filter((l) => !screenerUrls.has(l.url)),
   ];
 
+  console.log(`[request] ${tickerClean}: allLinks=${allLinks.length}`, allLinks.map((l) => ({ url: l.url.split("/").pop(), ctx: l.htmlContext.slice(-100).replace(/<[^>]*>/g, " ").trim() })));
+
   if (!allLinks.length) {
     return NextResponse.json({ ok: false, reason: "no_transcripts" }, { status: 200 });
   }
@@ -375,13 +377,15 @@ export async function POST(req: NextRequest) {
   {
     let off = 0;
     while (true) {
-      const { data: page } = await supabaseAdmin().storage.from(BUCKET).list("", { limit: 100, offset: off });
+      const { data: page } = await supabaseAdmin().storage.from(BUCKET).list("", { limit: 100, offset: off, sortBy: { column: "name", order: "asc" } });
       if (!page || page.length === 0) break;
       allExisting.push(...page);
       off += page.length;
     }
   }
   const existingNames = new Set(allExisting.map((f) => f.name.toLowerCase()));
+  const existingForTicker = allExisting.map((f) => f.name).filter((n) => n.toLowerCase().startsWith(tickerClean.toLowerCase()));
+  console.log(`[request] ${tickerClean}: existingNames=${existingNames.size} existingForTicker=${JSON.stringify(existingForTicker)}`);
 
   // 4. Download up to 4 most recent transcripts
   const uploaded: string[] = [];
@@ -389,6 +393,7 @@ export async function POST(req: NextRequest) {
   const errors: string[] = [];
 
   for (const { url, htmlContext } of allLinks.slice(0, 4)) {
+    const urlFile = url.split("/").pop() ?? url;
     try {
       // Fast pre-check using filename-inferred quarter (works for NSE URLs, not BSE UUIDs)
       const quarterFromUrl = inferQuarterFromNseUrl(url);
@@ -396,12 +401,15 @@ export async function POST(req: NextRequest) {
         const [q, y] = quarterFromUrl;
         const candidateName = `${tickerClean}_Q${q}_${y}.pdf`;
         if (existingNames.has(candidateName.toLowerCase())) {
+          console.log(`[request] ${tickerClean}: SKIP(url-precheck) ${candidateName} for ${urlFile}`);
           skipped.push(candidateName);
           continue;
         }
       }
 
+      console.log(`[request] ${tickerClean}: downloading ${urlFile}`);
       const pdf = await downloadPdf(url);
+      console.log(`[request] ${tickerClean}: downloaded ${urlFile} size=${pdf.length}`);
 
       // Prefer quarter from PDF text; fall back to NSE URL timestamp; then Screener HTML context
       let quarterInfo: [number, number] | null = null;
@@ -410,10 +418,22 @@ export async function POST(req: NextRequest) {
         const parsed = await pdfParse(pdf, { max: 3 });
         pdfText = parsed.text;
         quarterInfo = inferQuarterFromText(pdfText);
-      } catch {}
-      if (!quarterInfo) quarterInfo = inferQuarterFromNseUrl(url);
-      if (!quarterInfo) quarterInfo = inferQuarterFromHtml(htmlContext, url.split("/").pop());
-      if (!quarterInfo) { errors.push(`no_quarter:${url.split("/").pop()}`); continue; }
+        console.log(`[request] ${tickerClean}: quarterFromPdfText(${urlFile})=${JSON.stringify(quarterInfo)}`);
+      } catch (e) {
+        console.log(`[request] ${tickerClean}: pdfParse failed for ${urlFile}: ${e}`);
+      }
+      if (!quarterInfo) {
+        quarterInfo = inferQuarterFromNseUrl(url);
+        if (quarterInfo) console.log(`[request] ${tickerClean}: quarterFromNseUrl(${urlFile})=${JSON.stringify(quarterInfo)}`);
+      }
+      if (!quarterInfo) {
+        quarterInfo = inferQuarterFromHtml(htmlContext, urlFile);
+        if (quarterInfo) console.log(`[request] ${tickerClean}: quarterFromHtml(${urlFile})=${JSON.stringify(quarterInfo)} ctx="${htmlContext.slice(-100).replace(/<[^>]*>/g, " ").trim()}"`);
+      }
+      if (!quarterInfo) {
+        console.log(`[request] ${tickerClean}: NO_QUARTER for ${urlFile}`);
+        errors.push(`no_quarter:${urlFile}`); continue;
+      }
 
       // If the quick parse (max:3) didn't yield text, attempt a full parse.
       // If that also fails, warn but still upload — the file passed the %PDF
@@ -425,7 +445,7 @@ export async function POST(req: NextRequest) {
           const validated = await pdfParse(pdf);
           pdfText = validated.text;
         } catch (e) {
-          errors.push(`parse_warning:${url.split("/").pop()}:${e instanceof Error ? e.message : String(e)}`);
+          errors.push(`parse_warning:${urlFile}:${e instanceof Error ? e.message : String(e)}`);
           // Fall through — still upload so it appears in the dashboard
         }
       }
@@ -434,22 +454,30 @@ export async function POST(req: NextRequest) {
       const filename = `${tickerClean}_Q${q}_${y}.pdf`;
 
       if (existingNames.has(filename.toLowerCase())) {
+        console.log(`[request] ${tickerClean}: SKIP(existingNames) ${filename} for ${urlFile}`);
         skipped.push(filename);
         continue;
       }
 
+      console.log(`[request] ${tickerClean}: uploading ${filename} (${pdf.length} bytes)`);
       const { error: uploadError } = await supabaseAdmin()
         .storage.from(BUCKET)
         .upload(filename, pdf, { contentType: "application/pdf", upsert: true });
 
-      if (uploadError) { errors.push(`upload_failed:${filename}:${uploadError.message}`); continue; }
+      if (uploadError) {
+        console.log(`[request] ${tickerClean}: UPLOAD_FAILED ${filename}: ${uploadError.message}`);
+        errors.push(`upload_failed:${filename}:${uploadError.message}`); continue;
+      }
 
+      console.log(`[request] ${tickerClean}: UPLOADED ${filename}`);
       existingNames.add(filename.toLowerCase());
       uploaded.push(filename);
     } catch (e) {
+      console.log(`[request] ${tickerClean}: EXCEPTION for ${urlFile}: ${e}`);
       errors.push(`error:${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
-  return NextResponse.json({ ok: true, uploaded, skipped, errors });
+  console.log(`[request] ${tickerClean}: DONE uploaded=${JSON.stringify(uploaded)} skipped=${JSON.stringify(skipped)} errors=${JSON.stringify(errors)}`);
+  return NextResponse.json({ ok: true, uploaded, skipped, errors, _debug: { existingForTicker, allLinksCount: allLinks.length, allLinksUrls: allLinks.slice(0, 4).map((l) => ({ file: l.url.split("/").pop(), ctx: l.htmlContext.slice(-120).replace(/<[^>]*>/g, " ").trim() })) } });
 }
