@@ -8,10 +8,30 @@ const BUCKET = "transcripts";
 /** GET /api/v1/available — returns { TICKER: ["Q3_2026", "Q2_2026", ...] } */
 export async function GET(req: Request) {
   const debug = new URL(req.url).searchParams.has("debug");
-  // Supabase Storage offset-based pagination has a hard cap (~359 files) and
-  // silently stops returning results beyond it. Work around this by doing 26
-  // parallel prefix searches (one per letter A–Z): the search param uses a
-  // different code path that isn't affected by the cap.
+
+  // Strategy: combine two approaches to guarantee all files are discovered.
+  //
+  // 1. Offset pagination — fast, but Supabase silently caps at ~359 files.
+  // 2. A–Z prefix searches — catches files beyond the offset cap.
+  //
+  // Deduplicate by filename to merge both result sets.
+
+  // Pass 1: offset-based pagination (covers up to ~359 files reliably)
+  const offsetFiles: { name: string }[] = [];
+  {
+    let offset = 0;
+    while (true) {
+      const { data } = await supabaseAdmin()
+        .storage.from(BUCKET)
+        .list("", { limit: 100, offset, sortBy: { column: "name", order: "asc" } });
+      if (!data || data.length === 0) break;
+      offsetFiles.push(...data);
+      if (data.length < 100) break; // last page
+      offset += data.length;
+    }
+  }
+
+  // Pass 2: A–Z prefix searches (catches files beyond offset cap)
   const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
   const pages = await Promise.all(
     LETTERS.map((letter) =>
@@ -20,8 +40,18 @@ export async function GET(req: Request) {
         .list("", { limit: 500, search: letter })
     )
   );
-  const allFiles: { name: string }[] = pages.flatMap(({ data }) => data ?? []);
-  console.log(`[available] totalFiles=${allFiles.length}`);
+  const letterFiles: { name: string }[] = pages.flatMap(({ data }) => data ?? []);
+
+  // Merge + deduplicate by filename
+  const seen = new Set<string>();
+  const allFiles: { name: string }[] = [];
+  for (const f of [...offsetFiles, ...letterFiles]) {
+    if (!seen.has(f.name)) {
+      seen.add(f.name);
+      allFiles.push(f);
+    }
+  }
+  console.log(`[available] offsetFiles=${offsetFiles.length} letterFiles=${letterFiles.length} merged=${allFiles.length}`);
 
   const available: Record<string, string[]> = {};
   for (const file of allFiles) {
@@ -34,7 +64,7 @@ export async function GET(req: Request) {
   }
 
   for (const ticker in available) {
-    available[ticker].sort((a, b) => b.localeCompare(a));
+    available[ticker] = Array.from(new Set(available[ticker])).sort((a, b) => b.localeCompare(a));
   }
 
   if (debug) {
