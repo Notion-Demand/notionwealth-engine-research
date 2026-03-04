@@ -39,10 +39,10 @@ function CompanySearch({
 
   const filtered = query.trim()
     ? options.filter(
-        (o) =>
-          o.name.toLowerCase().includes(query.toLowerCase()) ||
-          o.ticker.toLowerCase().includes(query.toLowerCase())
-      )
+      (o) =>
+        o.name.toLowerCase().includes(query.toLowerCase()) ||
+        o.ticker.toLowerCase().includes(query.toLowerCase())
+    )
     : options;
 
   // Close on outside click
@@ -151,7 +151,7 @@ export default function DashboardClient() {
   const fetchAvailable = useRef<(selectTicker?: string | null) => void>();
   fetchAvailable.current = (selectTicker?: string | null) => {
     setAvailableLoading(true);
-    fetch("/api/v1/available")
+    fetch(`/api/v1/available${selectTicker ? `?ticker=${selectTicker}` : ""}`)
       .then((r) => r.json())
       .then((data: Record<string, string[]>) => {
         setAvailable(data);
@@ -171,13 +171,13 @@ export default function DashboardClient() {
           }
         }
       })
-      .catch(() => {})
+      .catch(() => { })
       .finally(() => setAvailableLoading(false));
   };
 
   useEffect(() => {
     fetchAvailable.current?.(tickerParam);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const filteredList = useMemo(() => {

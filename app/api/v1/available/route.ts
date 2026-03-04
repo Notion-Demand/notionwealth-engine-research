@@ -7,72 +7,71 @@ const BUCKET = "transcripts";
 
 /** GET /api/v1/available — returns { TICKER: ["Q3_2026", "Q2_2026", ...] } */
 export async function GET(req: Request) {
-  const debug = new URL(req.url).searchParams.has("debug");
+  const url = new URL(req.url);
+  const debug = url.searchParams.has("debug");
+  const hintTicker = url.searchParams.get("ticker")?.toUpperCase() ?? null;
 
-  // Strategy: three passes to guarantee ALL files are discovered.
-  //
-  // Supabase Storage offset pagination silently caps at ~359 files.
-  // Single-letter search also misses files at the boundary.
-  //
-  // 1. Offset pagination A→Z (catches first ~359 alphabetically)
-  // 2. Offset pagination Z→A (catches last ~359 alphabetically)
-  // 3. A–Z letter searches (safety net for anything still missed)
-  //
-  // Together the two offset passes overlap in the middle, covering all files.
-  // Deduplicate by filename to merge.
-
-  async function paginateAll(order: "asc" | "desc"): Promise<{ name: string }[]> {
-    const files: { name: string }[] = [];
-    let offset = 0;
-    while (true) {
-      const { data } = await supabaseAdmin()
-        .storage.from(BUCKET)
-        .list("", { limit: 100, offset, sortBy: { column: "name", order } });
-      if (!data || data.length === 0) break;
-      files.push(...data);
-      if (data.length < 100) break;
-      offset += data.length;
-    }
-    return files;
+  // ── Step 1: Offset pagination to discover most files (~359 cap) ────────
+  const offsetFiles: { name: string }[] = [];
+  let offset = 0;
+  while (true) {
+    const { data } = await supabaseAdmin()
+      .storage.from(BUCKET)
+      .list("", { limit: 100, offset, sortBy: { column: "name", order: "asc" } });
+    if (!data || data.length === 0) break;
+    offsetFiles.push(...data);
+    if (data.length < 100) break;
+    offset += data.length;
   }
 
-  // Passes 1+2 run in parallel (asc + desc offset pagination)
-  const [ascFiles, descFiles] = await Promise.all([
-    paginateAll("asc"),
-    paginateAll("desc"),
-  ]);
-
-  // Pass 3: A-Z letter searches (safety net)
-  const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
-  const letterPages = await Promise.all(
-    LETTERS.map((letter) =>
-      supabaseAdmin()
-        .storage.from(BUCKET)
-        .list("", { limit: 500, search: letter })
-    )
-  );
-  const letterFiles: { name: string }[] = letterPages.flatMap(({ data }) => data ?? []);
-
-  // Merge + deduplicate by filename
-  const seen = new Set<string>();
-  const allFiles: { name: string }[] = [];
-  for (const f of [...ascFiles, ...descFiles, ...letterFiles]) {
-    if (!seen.has(f.name)) {
-      seen.add(f.name);
-      allFiles.push(f);
-    }
-  }
-  console.log(`[available] asc=${ascFiles.length} desc=${descFiles.length} letters=${letterFiles.length} merged=${allFiles.length}`);
-
+  // Build initial available map + collect known ticker prefixes
   const available: Record<string, string[]> = {};
-  for (const file of allFiles) {
-    const match = file.name.match(/^([A-Za-z]+)_Q(\d)_(\d{4})\.pdf$/i);
+  const FILE_RE = /^([A-Za-z]+)_Q(\d)_(\d{4})\.pdf$/i;
+  const knownTickers = new Set<string>();
+
+  for (const file of offsetFiles) {
+    const match = file.name.match(FILE_RE);
     if (!match) continue;
     const ticker = match[1].toUpperCase();
     const quarter = `Q${match[2]}_${match[3]}`;
+    knownTickers.add(ticker);
     if (!available[ticker]) available[ticker] = [];
     available[ticker].push(quarter);
   }
+
+  // Add the hint ticker (from ?ticker= param) so we always search for it
+  if (hintTicker) knownTickers.add(hintTicker);
+
+  // ── Step 2: Targeted per-ticker searches to catch files beyond the cap ──
+  // Supabase `search: "TICKER"` reliably finds files regardless of bucket size.
+  // This is cheap (~50 parallel requests) and guarantees completeness.
+  const tickerSearches = await Promise.all(
+    Array.from(knownTickers).map(async (ticker) => {
+      const { data } = await supabaseAdmin()
+        .storage.from(BUCKET)
+        .list("", { limit: 50, search: ticker });
+      return { ticker, files: data ?? [] };
+    })
+  );
+
+  // Merge any newly discovered files into the available map
+  const seen = new Set(offsetFiles.map((f) => f.name));
+  const allFiles = [...offsetFiles];
+  for (const { files } of tickerSearches) {
+    for (const file of files) {
+      if (seen.has(file.name)) continue;
+      seen.add(file.name);
+      allFiles.push(file);
+      const match = file.name.match(FILE_RE);
+      if (!match) continue;
+      const ticker = match[1].toUpperCase();
+      const quarter = `Q${match[2]}_${match[3]}`;
+      if (!available[ticker]) available[ticker] = [];
+      available[ticker].push(quarter);
+    }
+  }
+
+  console.log(`[available] offset=${offsetFiles.length} tickers=${knownTickers.size} merged=${allFiles.length}`);
 
   for (const ticker in available) {
     available[ticker] = Array.from(new Set(available[ticker])).sort((a, b) => b.localeCompare(a));
