@@ -9,49 +9,60 @@ const BUCKET = "transcripts";
 export async function GET(req: Request) {
   const debug = new URL(req.url).searchParams.has("debug");
 
-  // Strategy: combine two approaches to guarantee all files are discovered.
+  // Strategy: three passes to guarantee ALL files are discovered.
   //
-  // 1. Offset pagination — fast, but Supabase silently caps at ~359 files.
-  // 2. A–Z prefix searches — catches files beyond the offset cap.
+  // Supabase Storage offset pagination silently caps at ~359 files.
+  // Single-letter search also misses files at the boundary.
   //
-  // Deduplicate by filename to merge both result sets.
+  // 1. Offset pagination A→Z (catches first ~359 alphabetically)
+  // 2. Offset pagination Z→A (catches last ~359 alphabetically)
+  // 3. A–Z letter searches (safety net for anything still missed)
+  //
+  // Together the two offset passes overlap in the middle, covering all files.
+  // Deduplicate by filename to merge.
 
-  // Pass 1: offset-based pagination (covers up to ~359 files reliably)
-  const offsetFiles: { name: string }[] = [];
-  {
+  async function paginateAll(order: "asc" | "desc"): Promise<{ name: string }[]> {
+    const files: { name: string }[] = [];
     let offset = 0;
     while (true) {
       const { data } = await supabaseAdmin()
         .storage.from(BUCKET)
-        .list("", { limit: 100, offset, sortBy: { column: "name", order: "asc" } });
+        .list("", { limit: 100, offset, sortBy: { column: "name", order } });
       if (!data || data.length === 0) break;
-      offsetFiles.push(...data);
-      if (data.length < 100) break; // last page
+      files.push(...data);
+      if (data.length < 100) break;
       offset += data.length;
     }
+    return files;
   }
 
-  // Pass 2: A–Z prefix searches (catches files beyond offset cap)
+  // Passes 1+2 run in parallel (asc + desc offset pagination)
+  const [ascFiles, descFiles] = await Promise.all([
+    paginateAll("asc"),
+    paginateAll("desc"),
+  ]);
+
+  // Pass 3: A-Z letter searches (safety net)
   const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
-  const pages = await Promise.all(
+  const letterPages = await Promise.all(
     LETTERS.map((letter) =>
       supabaseAdmin()
         .storage.from(BUCKET)
         .list("", { limit: 500, search: letter })
     )
   );
-  const letterFiles: { name: string }[] = pages.flatMap(({ data }) => data ?? []);
+  const letterFiles: { name: string }[] = letterPages.flatMap(({ data }) => data ?? []);
 
   // Merge + deduplicate by filename
   const seen = new Set<string>();
   const allFiles: { name: string }[] = [];
-  for (const f of [...offsetFiles, ...letterFiles]) {
+  for (const f of [...ascFiles, ...descFiles, ...letterFiles]) {
     if (!seen.has(f.name)) {
       seen.add(f.name);
       allFiles.push(f);
     }
   }
-  console.log(`[available] offsetFiles=${offsetFiles.length} letterFiles=${letterFiles.length} merged=${allFiles.length}`);
+  console.log(`[available] asc=${ascFiles.length} desc=${descFiles.length} letters=${letterFiles.length} merged=${allFiles.length}`);
 
   const available: Record<string, string[]> = {};
   for (const file of allFiles) {
