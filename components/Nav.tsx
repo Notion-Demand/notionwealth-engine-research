@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { LogOut, BarChart2, Settings, Inbox } from "lucide-react";
+import { LogOut, BarChart2, TrendingUp, Settings, Inbox } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
 export default function Nav() {
@@ -26,6 +26,13 @@ export default function Nav() {
         >
           <BarChart2 size={15} />
           Dashboard
+        </Link>
+        <Link
+          href="/screener"
+          className="flex items-center gap-1.5 text-sm text-gray-600 hover:text-gray-900"
+        >
+          <TrendingUp size={15} />
+          Screener
         </Link>
         <Link
           href="/request"
