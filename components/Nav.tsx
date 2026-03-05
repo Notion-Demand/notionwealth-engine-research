@@ -1,12 +1,21 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { LogOut, BarChart2, TrendingUp, Settings, Inbox } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import clsx from "clsx";
+
+const NAV_ITEMS = [
+  { href: "/dashboard", label: "Dashboard", icon: BarChart2 },
+  { href: "/screener", label: "Screener", icon: TrendingUp },
+  { href: "/request", label: "Request", icon: Inbox },
+  { href: "/settings/connections", label: "Connections", icon: Settings },
+];
 
 export default function Nav() {
   const router = useRouter();
+  const pathname = usePathname();
   const supabase = createClient();
 
   async function signOut() {
@@ -20,34 +29,24 @@ export default function Nav() {
         <Link href="/dashboard" className="font-semibold text-gray-900 text-sm">
           Quantalyze
         </Link>
-        <Link
-          href="/dashboard"
-          className="flex items-center gap-1.5 text-sm text-gray-600 hover:text-gray-900"
-        >
-          <BarChart2 size={15} />
-          Dashboard
-        </Link>
-        <Link
-          href="/screener"
-          className="flex items-center gap-1.5 text-sm text-gray-600 hover:text-gray-900"
-        >
-          <TrendingUp size={15} />
-          Screener
-        </Link>
-        <Link
-          href="/request"
-          className="flex items-center gap-1.5 text-sm text-gray-600 hover:text-gray-900"
-        >
-          <Inbox size={15} />
-          Request
-        </Link>
-        <Link
-          href="/settings/connections"
-          className="flex items-center gap-1.5 text-sm text-gray-600 hover:text-gray-900"
-        >
-          <Settings size={15} />
-          Connections
-        </Link>
+        {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
+          const active = pathname.startsWith(href);
+          return (
+            <Link
+              key={href}
+              href={href}
+              className={clsx(
+                "flex items-center gap-1.5 text-sm transition-colors",
+                active
+                  ? "text-gray-900 font-medium border-b-2 border-gray-900 pb-[1px]"
+                  : "text-gray-500 hover:text-gray-900"
+              )}
+            >
+              <Icon size={15} />
+              {label}
+            </Link>
+          );
+        })}
       </div>
       <button
         onClick={signOut}
