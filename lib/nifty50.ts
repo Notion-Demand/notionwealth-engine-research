@@ -75,6 +75,44 @@ export const QUARTERS = [
   "Q1_2025",
 ];
 
+/** Top 10 sectors with their top 5-6 companies by market cap — used for sector intelligence */
+export const SECTOR_UNIVERSE: Record<string, { tickers: string[]; label: string }> = {
+  Banking: { tickers: ["HDFC", "ICICI", "SBI", "KOTAKBANK", "AXISBANK", "INDUSINDBK"], label: "Banking" },
+  IT: { tickers: ["TCS", "INFOSYS", "HCLTECH", "WIPRO", "TECHM", "LTIM"], label: "IT Services" },
+  Auto: { tickers: ["MARUTI", "TATAMOTORS", "MM", "BAJAJAUTO", "EICHERMOT", "HEROMOTOCO"], label: "Automobiles" },
+  FMCG: { tickers: ["HUL", "ITC", "NESTLEIND", "TATACONSUM", "BRITANNIA"], label: "FMCG" },
+  Pharma: { tickers: ["SUNPHARMA", "DRREDDY", "CIPLA", "DIVISLAB"], label: "Pharmaceuticals" },
+  "Oil & Gas": { tickers: ["RELIANCE", "ONGC", "BPCL"], label: "Oil & Gas" },
+  Metals: { tickers: ["TATASTEEL", "JSWSTEEL", "HINDALCO"], label: "Metals & Mining" },
+  Infra: { tickers: ["LT", "ADANIPORTS"], label: "Infrastructure" },
+  Insurance: { tickers: ["SBILIFE", "HDFCLIFE", "ICICIPRULI"], label: "Insurance" },
+  Telecom: { tickers: ["BHARTI"], label: "Telecom" },
+};
+
+/** Approximate market caps in ₹ Lakh Cr — used for weighted signal aggregation */
+export const MARKET_CAPS: Record<string, number> = {
+  // Banking
+  HDFC: 13.5, ICICI: 9.5, SBI: 7.5, KOTAKBANK: 4.0, AXISBANK: 3.8, INDUSINDBK: 1.0,
+  // IT
+  TCS: 15.0, INFOSYS: 7.5, HCLTECH: 4.5, WIPRO: 2.8, TECHM: 1.5, LTIM: 1.8,
+  // Auto
+  MARUTI: 4.2, TATAMOTORS: 3.0, MM: 3.8, BAJAJAUTO: 2.5, EICHERMOT: 1.2, HEROMOTOCO: 1.0,
+  // FMCG
+  HUL: 5.8, ITC: 5.5, NESTLEIND: 1.8, TATACONSUM: 1.0, BRITANNIA: 1.2,
+  // Pharma
+  SUNPHARMA: 4.0, DRREDDY: 1.1, CIPLA: 1.2, DIVISLAB: 0.9,
+  // Oil & Gas
+  RELIANCE: 17.0, ONGC: 3.5, BPCL: 1.5,
+  // Metals
+  TATASTEEL: 1.8, JSWSTEEL: 2.3, HINDALCO: 1.5,
+  // Infra
+  LT: 5.0, ADANIPORTS: 3.2,
+  // Insurance
+  SBILIFE: 1.5, HDFCLIFE: 1.4, ICICIPRULI: 0.8,
+  // Telecom
+  BHARTI: 9.5,
+};
+
 /** The 4 thematic analysis sections — exported for both pipeline and UI */
 export const SECTION_NAMES = [
   "Capital & Liquidity",

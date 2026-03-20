@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
-import { LogOut, BarChart2, BarChart3, TrendingUp, Settings, Inbox } from "lucide-react";
+import { LogOut, BarChart2, BarChart3, TrendingUp, Settings, Inbox, Layers } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import clsx from "clsx";
 
@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: BarChart2 },
   { href: "/screener", label: "Screener", icon: TrendingUp },
   { href: "/kpis", label: "KPIs", icon: BarChart3 },
+  { href: "/sectors", label: "Sector Intelligence", icon: Layers },
   { href: "/request", label: "Request", icon: Inbox },
   { href: "/settings/connections", label: "Connections", icon: Settings },
 ];
