@@ -129,3 +129,19 @@ export async function GET(req: Request) {
         { status: 400 }
     );
 }
+
+/**
+ * DELETE /api/v1/kpis — clear all cached KPI snapshots
+ */
+export async function DELETE() {
+    const { error } = await supabaseAdmin()
+        .from("kpi_snapshots")
+        .delete()
+        .neq("id", "00000000-0000-0000-0000-000000000000"); // delete all rows
+
+    if (error) {
+        return NextResponse.json({ detail: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ ok: true, message: "All KPI snapshots deleted" });
+}

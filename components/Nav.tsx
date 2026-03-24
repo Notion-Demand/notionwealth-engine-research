@@ -9,7 +9,7 @@ import clsx from "clsx";
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: BarChart2 },
   { href: "/screener", label: "Screener", icon: TrendingUp },
-  { href: "/kpis", label: "KPIs", icon: BarChart3 },
+  // { href: "/kpis", label: "KPIs", icon: BarChart3 }, // Hidden: KPI data not yet accurate
   { href: "/sectors", label: "Sector Intelligence", icon: Layers },
   { href: "/request", label: "Request", icon: Inbox },
   { href: "/settings/connections", label: "Connections", icon: Settings },

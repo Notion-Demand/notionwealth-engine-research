@@ -4,7 +4,8 @@
  */
 import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
 import type { Schema } from "@google/generative-ai";
-import { NIFTY50 } from "./nifty50";
+import { parse as parseHTML } from "node-html-parser";
+import { NIFTY50, SCREENER_SLUGS } from "./nifty50";
 
 // ── Screener.in headers (same as request/route.ts) ────────────────────────────
 
@@ -155,43 +156,48 @@ async function fetchScreenerFinancials(
         if (!resp.ok) return null;
         const html = await resp.text();
 
-        // Find the quarterly results section
-        const quarterlyMatch = html.match(
-            /id="quarters"[\s\S]*?<table[\s\S]*?<\/table>/i
-        );
-        if (!quarterlyMatch) return null;
-        const tableHtml = quarterlyMatch[0];
+        const root = parseHTML(html, {
+            comment: false,
+            blockTextElements: { script: false, noscript: false, style: false },
+        });
 
-        // Parse headers (quarter labels)
-        const headerMatch = tableHtml.match(/<thead[\s\S]*?<\/thead>/i);
-        const headers: string[] = [];
-        if (headerMatch) {
-            const thMatches = Array.from(headerMatch[0].matchAll(/<th[^>]*>([\s\S]*?)<\/th>/gi));
-            for (const m of thMatches) {
-                const text = m[1].replace(/<[^>]*>/g, "").trim();
-                if (text) headers.push(text);
-            }
+        const section = root.querySelector("#quarters");
+        if (!section) {
+            console.warn("[KPI] #quarters section not found");
+            return null;
+        }
+        const table = section.querySelector("[data-result-table] table");
+        if (!table) {
+            console.warn("[KPI] quarterly table not found");
+            return null;
         }
 
-        // Parse rows
-        const rows: { label: string; values: (number | null)[] }[] = [];
-        const rowMatches = Array.from(tableHtml.matchAll(/<tr[\s\S]*?<\/tr>/gi));
-        for (const rowMatch of rowMatches) {
-            const row = rowMatch[0];
-            // Skip header rows
-            if (row.includes("<th")) continue;
-            const cells = Array.from(row.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi));
-            if (cells.length < 2) continue;
+        // Read ISO dates from data-date-key attributes on <th> elements
+        const headers: string[] = [];
+        for (const th of table.querySelectorAll("thead tr th")) {
+            const key = th.getAttribute("data-date-key");
+            if (key) headers.push(key); // e.g. "2024-12-31"
+        }
 
-            const rawLabel = (cells[0][1] ?? "").replace(/<[^>]*>/g, "").trim();
-            // Strip screener.in artifacts: "Sales\u00a0+" → "Sales", "Net Profit +" → "Net Profit"
+        // Parse data rows — node-html-parser's innerText auto-decodes entities (&nbsp; etc.)
+        const rows: { label: string; values: (number | null)[] }[] = [];
+        for (const tr of table.querySelectorAll("tbody tr")) {
+            const tds = tr.querySelectorAll("td");
+            if (tds.length < 2) continue;
+
+            const rawLabel = tds[0].innerText.trim();
+            if (!rawLabel || /raw\s*pdf/i.test(rawLabel)) continue;
+
+            // Strip trailing " +" artifact (e.g. "Sales +" → "Sales")
             const label = rawLabel.replace(/[\s\u00a0]*\+\s*$/, "").trim();
-            const values = cells.slice(1).map((c: RegExpExecArray) => {
-                const text = (c[1] ?? "").replace(/<[^>]*>/g, "").replace(/,/g, "").trim();
+
+            const values = tds.slice(1).map((td) => {
+                const text = td.innerText.trim().replace(/,/g, "");
                 const num = parseFloat(text);
                 return isNaN(num) ? null : num;
             });
-            if (label) rows.push({ label, values });
+
+            rows.push({ label, values });
         }
 
         return { headers, rows };
@@ -275,30 +281,26 @@ function computeChange(current: number | null, previous: number | null, isMargin
 function extractStandardKPIs(
     data: { headers: string[]; rows: { label: string; values: (number | null)[] }[] }
 ): { quarter: string; quarterPrev: string; kpis: KPIEntry[] } {
-    // Screener headers are ordered oldest→newest: ["", "Dec 2022", "Mar 2023", ..., "Dec 2025"]
-    // We want the last two date headers (most recent quarters)
-    const qHeaders = data.headers.filter((h) => /\w{3}\s+\d{4}/.test(h));
-    const latestQ = qHeaders[qHeaders.length - 1] || "Latest";
-    const prevQ = qHeaders[qHeaders.length - 2] || "Previous";
+    // Convert ISO "YYYY-MM-DD" → "Q2_FY26" (Indian FY: Apr–Jun=Q1, Jul–Sep=Q2, Oct–Dec=Q3, Jan–Mar=Q4)
+    const toFYQuarter = (isoDate: string): string => {
+        const parts = isoDate.split("-");
+        if (parts.length < 2) return isoDate;
+        const year = parseInt(parts[0], 10);
+        const month = parseInt(parts[1], 10); // 1–12
 
-    // Convert "Sep 2025" → "Q2_FY26" (Indian FY)
-    const toFYQuarter = (label: string): string => {
-        const m = label.match(/(\w{3})\s+(\d{4})/);
-        if (!m) return label;
-        const monthMap: Record<string, { q: number; fyOffset: number }> = {
-            Jan: { q: 3, fyOffset: 0 }, Feb: { q: 3, fyOffset: 0 }, Mar: { q: 4, fyOffset: 0 },
-            Apr: { q: 1, fyOffset: 1 }, May: { q: 1, fyOffset: 1 }, Jun: { q: 1, fyOffset: 1 },
-            Jul: { q: 2, fyOffset: 1 }, Aug: { q: 2, fyOffset: 1 }, Sep: { q: 2, fyOffset: 1 },
-            Oct: { q: 3, fyOffset: 1 }, Nov: { q: 3, fyOffset: 1 }, Dec: { q: 3, fyOffset: 1 },
-        };
-        const info = monthMap[m[1]];
-        if (!info) return label;
-        const fy = parseInt(m[2]) + info.fyOffset;
-        return `Q${info.q}_FY${String(fy).slice(-2)}`;
+        if (month >= 4 && month <= 6)   return `Q1_FY${String(year + 1).slice(-2)}`;
+        if (month >= 7 && month <= 9)   return `Q2_FY${String(year + 1).slice(-2)}`;
+        if (month >= 10 && month <= 12) return `Q3_FY${String(year + 1).slice(-2)}`;
+        return `Q4_FY${String(year).slice(-2)}`; // Jan–Mar
     };
 
-    const quarter = toFYQuarter(latestQ);
-    const quarterPrev = toFYQuarter(prevQ);
+    // headers is already oldest→newest from DOM order; ISO strings sort lexicographically = chronologically
+    const qHeaders = data.headers.filter((h) => /^\d{4}-\d{2}-\d{2}$/.test(h));
+    const latestIso = qHeaders[qHeaders.length - 1] ?? "";
+    const prevIso   = qHeaders[qHeaders.length - 2] ?? "";
+
+    const quarter     = latestIso ? toFYQuarter(latestIso) : "Latest";
+    const quarterPrev = prevIso   ? toFYQuarter(prevIso)   : "Previous";
 
     const kpis: KPIEntry[] = [];
     for (const metric of METRIC_MAP) {
@@ -412,12 +414,13 @@ export async function extractKPIs(ticker: string): Promise<KPISnapshot | null> {
 
     console.log(`[KPI] Extracting KPIs for ${ticker} (${companyName}, ${sector})`);
 
-    // Step 1: Get company page from screener.in
-    const slug = await getScreenerSlug(ticker);
+    // Step 1: Get company page from screener.in — use hardcoded slug or fall back to search
+    const slug = SCREENER_SLUGS[ticker.toUpperCase()] ?? await getScreenerSlug(ticker);
     if (!slug) {
         console.error(`[KPI] Could not find ${ticker} on screener.in`);
         return null;
     }
+    console.log(`[KPI] Using screener slug for ${ticker}: ${slug}`);
 
     // Step 2: Fetch quarterly financials
     const data = await fetchScreenerFinancials(slug);

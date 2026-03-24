@@ -113,6 +113,82 @@ export const MARKET_CAPS: Record<string, number> = {
   BHARTI: 9.5,
 };
 
+/**
+ * Hardcoded screener.in URL slugs for all Nifty 50 tickers.
+ * Bypasses the unreliable search API which mis-resolves several tickers
+ * (e.g. "MM" → MMTC, "SBI" → SBI Life, "LT" → LTIMindtree).
+ * Non-Nifty50 tickers fall back to the search API.
+ */
+export const SCREENER_SLUGS: Record<string, string> = {
+  // Banking
+  HDFC: "/company/HDFCBANK/consolidated/",
+  ICICI: "/company/ICICIBANK/consolidated/",
+  SBI: "/company/SBIN/consolidated/",
+  KOTAKBANK: "/company/KOTAKBANK/consolidated/",
+  AXISBANK: "/company/AXISBANK/consolidated/",
+  INDUSINDBK: "/company/INDUSINDBK/consolidated/",
+  // IT
+  TCS: "/company/TCS/consolidated/",
+  INFOSYS: "/company/INFY/consolidated/",
+  HCLTECH: "/company/HCLTECH/consolidated/",
+  WIPRO: "/company/WIPRO/consolidated/",
+  TECHM: "/company/TECHM/consolidated/",
+  LTIM: "/company/LTM/consolidated/",
+  // Auto
+  MARUTI: "/company/MARUTI/consolidated/",
+  TATAMOTORS: "/company/TMCV/consolidated/",
+  MM: "/company/M&M/consolidated/",
+  BAJAJAUTO: "/company/BAJAJ-AUTO/consolidated/",
+  EICHERMOT: "/company/EICHERMOT/consolidated/",
+  HEROMOTOCO: "/company/HEROMOTOCO/consolidated/",
+  // FMCG
+  HUL: "/company/HINDUNILVR/consolidated/",
+  ITC: "/company/ITC/consolidated/",
+  NESTLEIND: "/company/NESTLEIND/consolidated/",
+  TATACONSUM: "/company/TATACONSUM/consolidated/",
+  BRITANNIA: "/company/BRITANNIA/consolidated/",
+  // Pharma
+  SUNPHARMA: "/company/SUNPHARMA/consolidated/",
+  DRREDDY: "/company/DRREDDY/consolidated/",
+  CIPLA: "/company/CIPLA/consolidated/",
+  DIVISLAB: "/company/DIVISLAB/consolidated/",
+  // Oil & Gas
+  RELIANCE: "/company/RELIANCE/consolidated/",
+  ONGC: "/company/ONGC/consolidated/",
+  BPCL: "/company/BPCL/consolidated/",
+  // Metals
+  TATASTEEL: "/company/TATASTEEL/consolidated/",
+  JSWSTEEL: "/company/JSWSTEEL/consolidated/",
+  HINDALCO: "/company/HINDALCO/consolidated/",
+  // Infra
+  LT: "/company/LT/consolidated/",
+  ADANIPORTS: "/company/ADANIPORTS/consolidated/",
+  // Insurance
+  SBILIFE: "/company/SBILIFE/consolidated/",
+  HDFCLIFE: "/company/HDFCLIFE/consolidated/",
+  ICICIPRULI: "/company/ICICIPRULI/consolidated/",
+  // Telecom
+  BHARTI: "/company/BHARTIARTL/consolidated/",
+  // NBFC
+  BAJAJ: "/company/BAJFINANCE/consolidated/",
+  BAJAJFINSV: "/company/BAJAJFINSV/consolidated/",
+  // Conglomerate
+  ADANIENT: "/company/ADANIENT/consolidated/",
+  // Consumer
+  TITAN: "/company/TITAN/consolidated/",
+  ASIANPAINT: "/company/ASIANPAINT/consolidated/",
+  // Power
+  NTPC: "/company/NTPC/consolidated/",
+  POWERGRID: "/company/POWERGRID/consolidated/",
+  // Mining
+  COALINDIA: "/company/COALINDIA/consolidated/",
+  // Cement
+  ULTRACEMCO: "/company/ULTRACEMCO/consolidated/",
+  GRASIM: "/company/GRASIM/consolidated/",
+  // Healthcare
+  APOLLOHOSP: "/company/APOLLOHOSP/consolidated/",
+};
+
 /** The 4 thematic analysis sections — exported for both pipeline and UI */
 export const SECTION_NAMES = [
   "Capital & Liquidity",
