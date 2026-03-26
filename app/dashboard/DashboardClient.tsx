@@ -10,7 +10,8 @@ import AgentPanel, {
   type AgentStatus,
 } from "@/components/AgentPanel";
 import { runAnalysisStream } from "@/lib/api";
-import { NIFTY50_LIST, quarterLabel, SECTION_NAMES } from "@/lib/nifty50";
+import { quarterLabel, SECTION_NAMES } from "@/lib/nifty50";
+import { NIFTY200_LIST } from "@/lib/nifty200";
 import { BarChart2, ChevronDown, RefreshCw } from "lucide-react";
 import clsx from "clsx";
 
@@ -181,9 +182,9 @@ export default function DashboardClient() {
   }, []);
 
   const filteredList = useMemo(() => {
-    if (Object.keys(available).length === 0) return NIFTY50_LIST;
-    const niftyTickers = new Set(NIFTY50_LIST.map((c) => c.ticker));
-    const niftyInStorage = NIFTY50_LIST.filter(({ ticker }) => available[ticker]);
+    if (Object.keys(available).length === 0) return NIFTY200_LIST;
+    const niftyTickers = new Set(NIFTY200_LIST.map((c) => c.ticker));
+    const niftyInStorage = NIFTY200_LIST.filter(({ ticker }) => available[ticker]);
     const extras = Object.keys(available)
       .filter((t) => !niftyTickers.has(t))
       .sort()
@@ -324,7 +325,18 @@ export default function DashboardClient() {
             Earnings Disclosure Analysis
           </h2>
           <p className="mt-1 text-sm text-gray-500">
-            Compare management language shift quarter-over-quarter for any Nifty 50 company.
+            Compare management language shift quarter-over-quarter for any Nifty 200 company and much more.
+          </p>
+          <p className="mt-2 text-xs text-gray-400 flex items-center gap-1.5">
+            <span className="inline-block h-1 w-1 rounded-full bg-gray-300" />
+            Can&apos;t find a company?{" "}
+            <a
+              href="/request"
+              className="text-brand-500 hover:text-brand-600 font-medium underline underline-offset-2 transition-colors"
+            >
+              Request transcripts
+            </a>{" "}
+            to add it to the dashboard.
           </p>
         </div>
 

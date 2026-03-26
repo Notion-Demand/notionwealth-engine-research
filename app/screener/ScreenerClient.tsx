@@ -249,12 +249,11 @@ function SignalRow({
 
 export default function ScreenerClient() {
     const [signals, setSignals] = useState<ScreenerSignal[]>([]);
-    const [quarters, setQuarters] = useState<string[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
     // Filters
-    const [selectedQuarter, setSelectedQuarter] = useState<string>("all");
+
     const [selectedCategory, setSelectedCategory] = useState<string>("All");
 
     // Fetch on mount
@@ -263,7 +262,6 @@ export default function ScreenerClient() {
             .then((r) => r.json())
             .then((data) => {
                 setSignals(data.signals ?? []);
-                setQuarters(data.quarters ?? []);
             })
             .catch((e) => setError(e.message))
             .finally(() => setLoading(false));
@@ -272,14 +270,13 @@ export default function ScreenerClient() {
     // Filtered signals
     const filtered = useMemo(() => {
         return signals.filter((s) => {
-            if (selectedQuarter !== "all" && s.quarter !== selectedQuarter) return false;
             if (selectedCategory !== "All") {
                 const cat = CATEGORY_MAP[s.section] || s.section;
                 if (cat !== selectedCategory) return false;
             }
             return true;
         });
-    }, [signals, selectedQuarter, selectedCategory]);
+    }, [signals, selectedCategory]);
 
     // Stats
     const negativeCount = filtered.filter((s) => s.signal === "Negative").length;
@@ -293,11 +290,11 @@ export default function ScreenerClient() {
                 {/* ── Header ──────────────────────────────────────────────────── */}
                 <div className="mb-8">
                     <h1 className="text-2xl font-bold text-gray-900 tracking-tight">
-                        Narrative Change Screener
+                        Narrative Change Screener (NIFTY 200 Universe)
                     </h1>
                     <p className="text-sm text-gray-500 mt-1 max-w-xl">
                         Ranked cross-company view of the biggest management narrative shifts
-                        this earnings season. Click any row to explore details.
+                        this earnings season for NIFTY 200 universe and much more. Click any row to explore details.
                     </p>
                 </div>
 
@@ -337,18 +334,6 @@ export default function ScreenerClient() {
                 {!loading && signals.length > 0 && (
                     <div className="flex items-center gap-3 mb-4">
                         <Filter size={14} className="text-gray-400" />
-
-                        {/* Quarter filter */}
-                        <select
-                            value={selectedQuarter}
-                            onChange={(e) => setSelectedQuarter(e.target.value)}
-                            className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-300"
-                        >
-                            <option value="all">All Quarters</option>
-                            {quarters.map((q) => (
-                                <option key={q} value={q}>{q.replace("_", " FY")}</option>
-                            ))}
-                        </select>
 
                         {/* Category pills */}
                         <div className="flex gap-1.5">

@@ -5,7 +5,7 @@ import ScreenerClient from "./ScreenerClient";
 
 export const metadata = {
     title: "Narrative Screener — Quantalyze",
-    description: "Cross-company narrative change screener. See which companies had the biggest messaging shifts this earnings season.",
+    description: "Cross-company narrative change screener. See which companies had the biggest messaging shifts this earnings season in NIFTY 200 and much more.",
 };
 
 export default async function ScreenerPage() {

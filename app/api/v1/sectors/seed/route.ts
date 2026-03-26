@@ -311,7 +311,7 @@ export async function POST() {
                 const payload = await runPipeline(qPrevKey, qCurrKey);
 
                 // Save to cache
-                await saveAnalysis("system-seed", ticker, qPrev, qCurr, payload);
+                await saveAnalysis(null, ticker, qPrev, qCurr, payload);
                 companyPayloads.push({ ticker, payload, quarter: qCurr, quarterPrev: qPrev });
                 log.push(`[${sector}/${ticker}] Analysis complete. Overall: ${payload.overall_signal} (${payload.overall_score})`);
             } catch (e) {

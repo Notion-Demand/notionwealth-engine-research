@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { NIFTY200 } from "@/lib/nifty200";
 
 export const dynamic = "force-dynamic";
+export const fetchCache = "force-no-store";
 
 interface MetricDelta {
     subtopic: string;
@@ -41,12 +43,20 @@ export interface ScreenerSignal {
     earnings_delta: string[];
 }
 
-/** GET /api/v1/screener — returns ranked narrative change signals across all companies */
+/** GET /api/v1/screener — returns ranked narrative change signals across Nifty 200 */
 export async function GET() {
-    // Fetch ALL analysis results (no user filter — screener is cross-company)
+    const Q_PREV = "Q2_2026";
+    const Q_CURR = "Q3_2026";
+
+    // Fetch only Q2_2026 → Q3_2026 results for Nifty 200 tickers
+    const nifty200Tickers = Object.keys(NIFTY200);
+
     const { data: rows, error } = await supabaseAdmin()
         .from("analysis_results")
         .select("company_ticker, q_curr, q_prev, payload, created_at")
+        .eq("q_prev", Q_PREV)
+        .eq("q_curr", Q_CURR)
+        .in("company_ticker", nifty200Tickers)
         .order("created_at", { ascending: false });
 
     if (error) {
@@ -55,19 +65,16 @@ export async function GET() {
     }
 
     if (!rows || rows.length === 0) {
-        return NextResponse.json({ signals: [], quarters: [] });
+        return NextResponse.json({ signals: [] });
     }
 
-    // Keep only the most recent result per ticker
+    // Keep only the most recent result per ticker (in case of duplicates)
     const latestByTicker = new Map<string, typeof rows[0]>();
     for (const row of rows) {
         if (!latestByTicker.has(row.company_ticker)) {
             latestByTicker.set(row.company_ticker, row);
         }
     }
-
-    // Collect all unique quarters for the filter
-    const quarterSet = new Set<string>();
 
     // Extract top signals per company
     const signals: ScreenerSignal[] = [];
@@ -82,7 +89,7 @@ export async function GET() {
 
         if (!payload?.insights || !Array.isArray(payload.insights)) continue;
 
-        quarterSet.add(row.q_curr);
+
 
         // Collect ALL non-Noise metrics from all sections
         const allMetrics: { metric: MetricDelta; section: string }[] = [];
@@ -120,10 +127,8 @@ export async function GET() {
     // Rank by |signal_score| descending
     signals.sort((a, b) => Math.abs(b.score) - Math.abs(a.score));
 
-    const quarters = Array.from(quarterSet).sort((a, b) => b.localeCompare(a));
-
     return NextResponse.json(
-        { signals, quarters },
+        { signals },
         { headers: { "Cache-Control": "no-store" } }
     );
 }

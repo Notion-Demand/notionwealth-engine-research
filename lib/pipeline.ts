@@ -7,6 +7,7 @@ import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
 import type { Schema } from "@google/generative-ai";
 import pdfParse from "pdf-parse";
 import { NIFTY50 } from "./nifty50";
+import { NIFTY200 } from "./nifty200";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 // ── Progress events (streamed back to client during pipeline execution) ───────
@@ -630,7 +631,7 @@ function quarterToDateRange(quarter: string): { start: Date; end: Date } | null 
 
 /** Fetch quarter % price change from Yahoo Finance (NSE). Returns 0 on failure. */
 async function fetchStockPriceChange(ticker: string, quarter: string): Promise<number> {
-  const info = NIFTY50[ticker];
+  const info = NIFTY50[ticker] ?? NIFTY200[ticker];
   if (!info) return 0;
   const range = quarterToDateRange(quarter);
   if (!range) return 0;

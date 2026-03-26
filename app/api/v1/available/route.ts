@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { NIFTY200 } from "@/lib/nifty200";
 
 export const dynamic = "force-dynamic";
 
@@ -11,22 +12,22 @@ export async function GET(req: Request) {
   const debug = url.searchParams.has("debug");
   const hintTicker = url.searchParams.get("ticker")?.toUpperCase() ?? null;
 
-  // ── Step 1: Offset pagination to discover most files (~359 cap) ────────
+  // ── Step 1: Offset pagination to discover all files ────────────────────
   const offsetFiles: { name: string }[] = [];
   let offset = 0;
   while (true) {
     const { data } = await supabaseAdmin()
       .storage.from(BUCKET)
-      .list("", { limit: 100, offset, sortBy: { column: "name", order: "asc" } });
+      .list("", { limit: 1000, offset, sortBy: { column: "name", order: "asc" } });
     if (!data || data.length === 0) break;
     offsetFiles.push(...data);
-    if (data.length < 100) break;
+    if (data.length < 1000) break;
     offset += data.length;
   }
 
   // Build initial available map + collect known ticker prefixes
   const available: Record<string, string[]> = {};
-  const FILE_RE = /^([A-Za-z]+)_Q(\d)_(\d{4})\.pdf$/i;
+  const FILE_RE = /^(.+?)_Q(\d)_(\d{4})\.pdf$/i;
   const knownTickers = new Set<string>();
 
   for (const file of offsetFiles) {
@@ -41,6 +42,9 @@ export async function GET(req: Request) {
 
   // Add the hint ticker (from ?ticker= param) so we always search for it
   if (hintTicker) knownTickers.add(hintTicker);
+
+  // Always include all Nifty 200 tickers so they're discovered even if offset listing misses them
+  for (const t of Object.keys(NIFTY200)) knownTickers.add(t);
 
   // ── Step 2: Targeted per-ticker searches to catch files beyond the cap ──
   // Supabase `search: "TICKER"` reliably finds files regardless of bucket size.
@@ -80,7 +84,7 @@ export async function GET(req: Request) {
   if (debug) {
     const search = new URL(req.url).searchParams.get("ticker")?.toLowerCase() ?? "";
     const unmatchedFiles = allFiles
-      .filter((f) => !f.name.match(/^([A-Za-z]+)_Q(\d)_(\d{4})\.pdf$/i))
+      .filter((f) => !f.name.match(/^(.+?)_Q(\d)_(\d{4})\.pdf$/i))
       .map((f) => f.name);
 
     // Also do a direct prefix search via Supabase (independent of pagination)

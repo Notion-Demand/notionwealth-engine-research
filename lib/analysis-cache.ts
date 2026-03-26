@@ -53,7 +53,7 @@ export async function getCachedAnalysis(
  * Persist an analysis result. Returns the new row id, or "unknown" on failure.
  */
 export async function saveAnalysis(
-  userId: string,
+  userId: string | null,
   ticker: string,
   qPrev: string,
   qCurr: string,
