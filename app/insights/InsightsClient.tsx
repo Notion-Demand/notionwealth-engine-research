@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import Nav from "@/components/Nav";
 import { runInsightsStream } from "@/lib/api";
@@ -26,8 +26,41 @@ import {
   Globe,
   Users,
   Package,
+  Bookmark,
+  BookmarkCheck,
+  X,
 } from "lucide-react";
 import clsx from "clsx";
+
+// ── Watchlist (shared with Dashboard via same localStorage key) ───────────────
+
+const WATCHLIST_KEY = "quantalyze_watchlist";
+
+function useInsightsWatchlist() {
+  const [watchlist, setWatchlist] = useState<{ ticker: string; name: string }[]>([]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(WATCHLIST_KEY);
+      if (raw) setWatchlist(JSON.parse(raw));
+    } catch { /* ignore */ }
+  }, []);
+
+  const toggle = useCallback((ticker: string) => {
+    setWatchlist((prev) => {
+      const exists = prev.find((w) => w.ticker === ticker);
+      const next = exists
+        ? prev.filter((w) => w.ticker !== ticker)
+        : [...prev, { ticker, name: ticker }];
+      localStorage.setItem(WATCHLIST_KEY, JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
+  const isWatched = useCallback((ticker: string) => watchlist.some((w) => w.ticker === ticker), [watchlist]);
+
+  return { watchlist, toggle, isWatched };
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -329,6 +362,9 @@ export default function InsightsClient() {
   // Active tab
   const [tab, setTab] = useState<"overview" | "themes" | "guidance" | "segments" | "timeline">("overview");
 
+  // Watchlist
+  const { watchlist, toggle: toggleWatchlist, isWatched } = useInsightsWatchlist();
+
   async function run(t: string) {
     if (!t.trim()) return;
     setLoading(true);
@@ -385,6 +421,33 @@ export default function InsightsClient() {
           </p>
         </div>
 
+        {/* Watchlist chips */}
+        {watchlist.length > 0 && (
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <span className="text-[11px] font-medium uppercase tracking-wide text-gray-400">Watchlist</span>
+            {watchlist.map((w) => (
+              <button
+                key={w.ticker}
+                type="button"
+                onClick={() => { setInputTicker(w.ticker); run(w.ticker); }}
+                className={clsx(
+                  "group inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+                  inputTicker === w.ticker
+                    ? "border-brand-300 bg-brand-50 text-brand-700"
+                    : "border-gray-200 bg-white text-gray-600 hover:border-brand-200 hover:text-brand-600"
+                )}
+              >
+                {w.ticker}
+                <X
+                  size={10}
+                  className="opacity-40 group-hover:opacity-100"
+                  onClick={(e) => { e.stopPropagation(); toggleWatchlist(w.ticker); }}
+                />
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* Search bar */}
         <form
           onSubmit={(e) => { e.preventDefault(); setTicker(inputTicker); run(inputTicker); }}
@@ -405,6 +468,18 @@ export default function InsightsClient() {
           >
             {loading ? "Analysing…" : "Analyse"}
           </button>
+          {inputTicker && (
+            <button
+              type="button"
+              onClick={() => toggleWatchlist(inputTicker)}
+              title={isWatched(inputTicker) ? "Remove from watchlist" : "Add to watchlist"}
+              className="flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-500 hover:text-brand-600 hover:border-brand-300"
+            >
+              {isWatched(inputTicker)
+                ? <BookmarkCheck size={14} className="text-brand-500" />
+                : <Bookmark size={14} />}
+            </button>
+          )}
         </form>
 
         {/* Error */}

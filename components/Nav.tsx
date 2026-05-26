@@ -8,12 +8,12 @@ import clsx from "clsx";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: BarChart2 },
-  { href: "/screener", label: "Screener", icon: TrendingUp },
-  { href: "/insights", label: "Insights", icon: BarChart3 },
-  // { href: "/kpis", label: "KPIs", icon: BarChart3 }, // Hidden: KPI data not yet accurate
+  { href: "/insights", label: "Multi-Quarter Insights", icon: BarChart3 },
   { href: "/sectors", label: "Sector Intelligence", icon: Layers },
+  { href: "/screener", label: "Screener", icon: TrendingUp },
   { href: "/request", label: "Request", icon: Inbox },
   { href: "/settings/connections", label: "Connections", icon: Settings },
+  // { href: "/kpis", label: "KPIs", icon: BarChart3 }, // Hidden: KPI data not yet accurate
 ];
 
 export default function Nav() {

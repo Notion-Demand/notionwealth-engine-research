@@ -40,6 +40,9 @@ interface SectorIntelligence {
 
 // ── Dimension extraction from analysis payloads ───────────────────────────────
 
+// NOTE: section names must match the pipeline's SECTION_NAMES exactly:
+//   "Revenue & Growth", "Margins & Profitability", "Cost Structure",
+//   "CapEx & Balance Sheet", "Macro & Risk"
 const DIMENSION_KEYWORDS: Record<string, { section: string; keywords: RegExp }> = {
     "Demand Momentum": {
         section: "Revenue & Growth",
@@ -49,16 +52,28 @@ const DIMENSION_KEYWORDS: Record<string, { section: string; keywords: RegExp }> 
         section: "Revenue & Growth",
         keywords: /pric|tariff|arpu|premium|discount|rate hike|realiz/i,
     },
-    "Capex Cycle": {
-        section: "Capital & Liquidity",
-        keywords: /capex|capacity|investment|expansion|capital exp|project|greenfield|brownfield/i,
-    },
     "Margin Trajectory": {
-        section: "Operational Margin",
+        section: "Margins & Profitability",   // was "Operational Margin" — broken; now fixed
         keywords: /./, // all subtopics in this section are relevant
     },
+    "Cost Pressure": {
+        section: "Cost Structure",             // NEW dimension
+        keywords: /raw material|commodity|energy|power|labour|freight|input cost|working capital/i,
+    },
+    "CapEx & Allocation": {
+        section: "CapEx & Balance Sheet",      // was "Capital & Liquidity" — broken; now fixed
+        keywords: /capex|capacity|investment|expansion|debt|fcf|free cash|return|roic/i,
+    },
+    "Macro & Cycle Risk": {
+        section: "Macro & Risk",               // NEW dimension
+        keywords: /./, // entire section is relevant
+    },
     "Management Confidence": {
-        section: "__overall__", // derived from overall_score + evasiveness
+        section: "__overall__",
+        keywords: /./,
+    },
+    "Earnings Quality": {
+        section: "__validation__",             // NEW — derived from validation metrics
         keywords: /./,
     },
 };
@@ -79,6 +94,20 @@ function extractDimensionScores(payload: DashboardPayload): Map<string, { score:
                 score: Math.max(-10, Math.min(10, adjustedScore)),
                 details: [payload.summary ?? "No summary available"],
             });
+            continue;
+        }
+
+        if (config.section === "__validation__") {
+            // Earnings Quality: validation_score (0-100) + flagged signal penalty
+            const validationScore = payload.validation_score ?? 70;
+            const flaggedCount = payload.flagged_count ?? 0;
+            // Map to -10..+10: 100 validation = +5, 50 = 0, 0 = -5, then subtract 0.5 per flag
+            const raw = (validationScore / 100) * 10 - 5 - flaggedCount * 0.5;
+            const score = Math.max(-10, Math.min(10, raw));
+            const details = flaggedCount > 0
+                ? [`${flaggedCount} signals flagged — earnings quality requires scrutiny`]
+                : [`Validation score ${validationScore.toFixed(0)}% — signals appear clean`];
+            result.set(dimName, { score, details });
             continue;
         }
 

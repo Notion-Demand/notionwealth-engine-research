@@ -51,27 +51,48 @@ const DIMENSION_META: Record<
     "Demand Momentum": {
         icon: "📈",
         label: "Demand Momentum",
-        why: "Often leads revenue upgrades by 1–2 quarters.",
+        why: "Volume & order flow signals — often leads revenue upgrades by 1–2 quarters.",
     },
     "Pricing Power": {
         icon: "💰",
         label: "Pricing Power",
-        why: "Determines earnings resilience during slowdowns.",
-    },
-    "Capex Cycle": {
-        icon: "🏗️",
-        label: "Capex Cycle",
-        why: "Capex cycles drive multi-year earnings growth.",
+        why: "ARPU, realisation, and tariff direction — determines earnings resilience during slowdowns.",
     },
     "Margin Trajectory": {
         icon: "📊",
         label: "Margin Trajectory",
-        why: "Margin shifts drive earnings surprises.",
+        why: "EBITDA/PAT margin shifts and operating leverage — directly drives earnings surprises.",
+    },
+    "Cost Pressure": {
+        icon: "🏭",
+        label: "Cost Pressure",
+        why: "Raw material, energy, and freight cost evolution — leading indicator of margin compression or relief.",
+    },
+    "CapEx & Allocation": {
+        icon: "🏗️",
+        label: "CapEx & Allocation",
+        why: "Capex intensity vs. historical norms and FCF signals — determines capacity cycle and ROIC trajectory.",
+    },
+    "Macro & Cycle Risk": {
+        icon: "🌐",
+        label: "Macro & Cycle Risk",
+        why: "FX, rates, and regulatory headwinds — quantifies external risk not captured in margins.",
     },
     "Management Confidence": {
         icon: "🎯",
         label: "Management Confidence",
-        why: "Executives often signal cycle turns before numbers show it.",
+        why: "Evasiveness-adjusted guidance tone — executives signal cycle turns before numbers do.",
+    },
+    "Earnings Quality": {
+        icon: "🔍",
+        label: "Earnings Quality",
+        why: "Flagged signals and validation score — detects one-time adjustments and accounting red flags.",
+    },
+    // Legacy aliases kept for backward compat with old cached data
+    "Capex Cycle": {
+        icon: "🏗️",
+        label: "CapEx Cycle",
+        why: "Capex cycles drive multi-year earnings growth.",
     },
 };
 
@@ -279,6 +300,101 @@ function DimensionCard({ dim }: { dim: SectorDimension }) {
     );
 }
 
+// ── Cross-sector scorecard matrix ────────────────────────────────────────────
+
+function SectorMatrix({ sectors }: { sectors: SectorIntelligence[] }) {
+    if (sectors.length === 0) return null;
+
+    // Collect all unique dimension names in display order
+    const dimOrder = [
+        "Demand Momentum", "Pricing Power", "Margin Trajectory",
+        "Cost Pressure", "CapEx & Allocation", "Macro & Cycle Risk",
+        "Management Confidence", "Earnings Quality",
+        // legacy
+        "Capex Cycle",
+    ];
+    const allDims = dimOrder.filter((d) =>
+        sectors.some((s) => s.dimensions.find((dim) => dim.dimension === d))
+    );
+
+    function scoreColor(score: number) {
+        if (score > 1.5)  return "bg-emerald-500";
+        if (score > 0.5)  return "bg-emerald-200";
+        if (score > -0.5) return "bg-gray-200";
+        if (score > -1.5) return "bg-red-200";
+        return "bg-red-500";
+    }
+    function scoreText(score: number) {
+        if (score > 1.5)  return "text-emerald-900";
+        if (score > 0.5)  return "text-emerald-800";
+        if (score > -0.5) return "text-gray-600";
+        if (score > -1.5) return "text-red-800";
+        return "text-red-900";
+    }
+
+    return (
+        <div className="mb-8 overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
+            <div className="px-5 py-3 border-b border-gray-100 flex items-center gap-2">
+                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Sector Scorecard</span>
+                <span className="text-[11px] text-gray-400">— market-cap weighted signal per dimension</span>
+                <div className="ml-auto flex items-center gap-3 text-[10px] text-gray-400">
+                    <span className="flex items-center gap-1"><span className="inline-block h-2 w-3 rounded-sm bg-emerald-500" /> Strong</span>
+                    <span className="flex items-center gap-1"><span className="inline-block h-2 w-3 rounded-sm bg-emerald-200" /> Positive</span>
+                    <span className="flex items-center gap-1"><span className="inline-block h-2 w-3 rounded-sm bg-gray-200" /> Neutral</span>
+                    <span className="flex items-center gap-1"><span className="inline-block h-2 w-3 rounded-sm bg-red-200" /> Weak</span>
+                    <span className="flex items-center gap-1"><span className="inline-block h-2 w-3 rounded-sm bg-red-500" /> Risk</span>
+                </div>
+            </div>
+            <table className="w-full text-xs">
+                <thead>
+                    <tr className="border-b border-gray-100 bg-gray-50">
+                        <th className="text-left px-4 py-2 font-medium text-gray-500 w-32">Sector</th>
+                        {allDims.map((d) => (
+                            <th key={d} className="px-2 py-2 text-center font-medium text-gray-500 max-w-[72px]">
+                                <span title={(DIMENSION_META[d]?.why ?? "")} className="cursor-help">
+                                    {DIMENSION_META[d]?.icon ?? "📌"}{" "}
+                                    <span className="hidden lg:inline">{DIMENSION_META[d]?.label ?? d}</span>
+                                </span>
+                            </th>
+                        ))}
+                    </tr>
+                </thead>
+                <tbody>
+                    {sectors.map((s) => (
+                        <tr key={s.sector} className="border-b border-gray-50 hover:bg-gray-50/50">
+                            <td className="px-4 py-2 font-semibold text-gray-800 text-[11px]">
+                                {s.sector_label || s.sector}
+                            </td>
+                            {allDims.map((d) => {
+                                const dim = s.dimensions.find((dim) => dim.dimension === d);
+                                if (!dim) return (
+                                    <td key={d} className="px-2 py-2 text-center">
+                                        <span className="text-gray-200">—</span>
+                                    </td>
+                                );
+                                return (
+                                    <td key={d} className="px-2 py-2 text-center">
+                                        <span
+                                            title={`${dim.direction} (${dim.weighted_score > 0 ? "+" : ""}${dim.weighted_score.toFixed(1)})`}
+                                            className={clsx(
+                                                "inline-flex items-center justify-center rounded px-1.5 py-0.5 font-mono font-semibold cursor-default",
+                                                scoreColor(dim.weighted_score),
+                                                scoreText(dim.weighted_score)
+                                            )}
+                                        >
+                                            {dim.weighted_score > 0 ? "+" : ""}{dim.weighted_score.toFixed(1)}
+                                        </span>
+                                    </td>
+                                );
+                            })}
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+    );
+}
+
 // ── Sector Card ───────────────────────────────────────────────────────────────
 
 function SectorCard({ sector }: { sector: SectorIntelligence }) {
@@ -407,6 +523,11 @@ export default function SectorsClient() {
                             <strong className="text-gray-900">{totalCompanies}</strong> companies
                         </span>
                     </div>
+                )}
+
+                {/* Cross-sector scorecard — only show on "All" view */}
+                {!loading && selectedSector === "All" && sectors.length > 0 && (
+                    <SectorMatrix sectors={sectors} />
                 )}
 
                 {/* Sector tabs */}
