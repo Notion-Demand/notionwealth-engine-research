@@ -24,15 +24,57 @@ function buildQuery(companyName: string, quarter: string): string {
     return `${companyName} ${ql} FY${fyFull} earnings concall`;
 }
 
-async function searchYouTube(query: string, apiKey: string): Promise<{
-    videoId: string; title: string; channel: string;
-} | null> {
+// Words to strip when extracting key name tokens for title matching
+const STOP_WORDS = new Set([
+    "india", "indian", "limited", "ltd", "industries", "industry",
+    "enterprises", "corporation", "corp", "company", "co", "the",
+    "and", "&", "group", "holdings", "services", "technologies",
+    "technology", "solutions", "international", "global", "national",
+]);
+
+/**
+ * Returns true only if the video title contains enough of the company's
+ * key name tokens that we're confident it's actually about this company.
+ */
+function titleMatchesCompany(title: string, companyName: string, ticker: string): boolean {
+    const t = title.toLowerCase();
+
+    // Ticker match is a strong signal (e.g. "POLYCAB" in title)
+    if (t.includes(ticker.toLowerCase())) return true;
+
+    // Extract meaningful tokens from company name
+    const tokens = companyName
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, " ")
+        .split(/\s+/)
+        .filter((w) => w.length > 2 && !STOP_WORDS.has(w));
+
+    if (tokens.length === 0) return false;
+
+    // At least the first key token must appear
+    if (!t.includes(tokens[0])) return false;
+
+    // For names with 2+ meaningful tokens, require 2 to match
+    if (tokens.length >= 2) {
+        const matches = tokens.filter((w) => t.includes(w)).length;
+        return matches >= 2;
+    }
+
+    return true;
+}
+
+async function searchYouTube(
+    query: string,
+    apiKey: string,
+    companyName: string,
+    ticker: string,
+): Promise<{ videoId: string; title: string; channel: string } | null> {
     try {
         const url = new URL("https://www.googleapis.com/youtube/v3/search");
         url.searchParams.set("part", "snippet");
         url.searchParams.set("q", query);
         url.searchParams.set("type", "video");
-        url.searchParams.set("maxResults", "5");
+        url.searchParams.set("maxResults", "10");   // more results = better chance of finding correct one
         url.searchParams.set("relevanceLanguage", "en");
         url.searchParams.set("key", apiKey);
 
@@ -46,14 +88,22 @@ async function searchYouTube(query: string, apiKey: string): Promise<{
         }> = data.items ?? [];
         if (items.length === 0) return null;
 
-        // Prefer items whose title contains "concall" / "earnings call" / "conference call"
-        const preferred = items.find((it) =>
-            /concall|earnings call|conference call|results/i.test(it.snippet.title)
+        // Filter strictly: title must actually mention this company
+        const matching = items.filter((it) =>
+            titleMatchesCompany(it.snippet.title, companyName, ticker)
         );
-        const best = preferred ?? items[0];
+
+        // No confirmed match → don't cache a wrong video, fall back to search URL
+        if (matching.length === 0) return null;
+
+        // Among matching, prefer concall/earnings call/conference call
+        const preferred = matching.find((it) =>
+            /concall|earnings call|conference call/i.test(it.snippet.title)
+        );
+        const best = preferred ?? matching[0];
         return {
             videoId: best.id.videoId,
-            title: best.snippet.title,
+            title:   best.snippet.title,
             channel: best.snippet.channelTitle,
         };
     } catch {
@@ -104,7 +154,7 @@ export async function GET(req: NextRequest) {
     let result: ConcallResult;
 
     if (apiKey) {
-        const yt = await searchYouTube(query, apiKey);
+        const yt = await searchYouTube(query, apiKey, info.name, ticker);
         if (yt) {
             const watchUrl = `https://www.youtube.com/watch?v=${yt.videoId}`;
             result = { url: watchUrl, videoId: yt.videoId, title: yt.title, channel: yt.channel, direct: true, query };
