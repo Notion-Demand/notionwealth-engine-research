@@ -77,7 +77,7 @@ function nextQuarter(q: string): string {
  * Q3 FY2026 = Oct–Dec 2025  → results Jan 15 – Feb 28, 2026
  * Q4 FY2026 = Jan–Mar 2026  → results Apr 15 – May 31, 2026
  */
-export function getQuarterResultsWindow(quarter: string): { from: string; to: string; calYear: number } {
+function getQuarterResultsWindow(quarter: string): { from: string; to: string; calYear: number } {
     const m = quarter.match(/^Q(\d)_(\d{4})$/);
     if (!m) throw new Error(`Invalid quarter: ${quarter}`);
     const qNum = parseInt(m[1]);
