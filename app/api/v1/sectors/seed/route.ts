@@ -7,7 +7,7 @@ import type { DashboardPayload } from "@/lib/pipeline";
 import { getCachedAnalysis, saveAnalysis } from "@/lib/analysis-cache";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 300; // 5 minutes — run locally, not on Vercel Hobby
+export const maxDuration = 60; // 60s per sector call — pass ?sector=Banking to seed one at a time
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -257,20 +257,36 @@ function quarterToCalendarIndex(q: string): number {
 
 // ── Main seed handler ─────────────────────────────────────────────────────────
 
-export async function POST() {
+export async function POST(request: Request) {
     const startTime = Date.now();
     const log: string[] = [];
     const sectorResults: SectorIntelligence[] = [];
 
-    // Clean up any stale sector_intelligence rows before re-seeding
-    const validSectors = Object.keys(SECTOR_UNIVERSE);
+    // ?sector=Banking  → seed only that one sector (fits in Vercel's 60s timeout)
+    // no param          → seed all (use locally only; will timeout on Vercel)
+    const { searchParams } = new URL(request.url);
+    const sectorParam = searchParams.get("sector");
+
+    const sectorsToProcess = sectorParam
+        ? Object.entries(SECTOR_UNIVERSE).filter(([s]) => s === sectorParam)
+        : Object.entries(SECTOR_UNIVERSE);
+
+    if (sectorParam && sectorsToProcess.length === 0) {
+        return NextResponse.json(
+            { error: `Unknown sector: ${sectorParam}`, available: Object.keys(SECTOR_UNIVERSE) },
+            { status: 400 }
+        );
+    }
+
+    // Only delete the specific sector row(s) being re-seeded
+    const sectorsBeingSeeded = sectorsToProcess.map(([s]) => s);
     await supabaseAdmin()
         .from("sector_intelligence")
         .delete()
-        .in("sector", validSectors);
-    log.push(`Cleared old sector_intelligence rows for ${validSectors.length} sectors.`);
+        .in("sector", sectorsBeingSeeded);
+    log.push(`Cleared old rows for: ${sectorsBeingSeeded.join(", ")}`);
 
-    for (const [sector, config] of Object.entries(SECTOR_UNIVERSE)) {
+    for (const [sector, config] of sectorsToProcess) {
         log.push(`\n=== Processing sector: ${sector} (${config.tickers.join(", ")}) ===`);
 
         // Step 1: Fetch & upload transcripts for each company
