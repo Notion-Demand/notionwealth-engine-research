@@ -12,7 +12,7 @@ import AgentPanel, {
 import { runAnalysisStream } from "@/lib/api";
 import { quarterLabel, SECTION_NAMES, QUARTERS } from "@/lib/nifty50";
 import { NIFTY200_LIST, NIFTY200 } from "@/lib/nifty200";
-import { BarChart2, RefreshCw, Bookmark, BookmarkCheck, X } from "lucide-react";
+import { BarChart2, RefreshCw, Bookmark, BookmarkCheck, X, Youtube } from "lucide-react";
 import clsx from "clsx";
 
 const DEFAULT_SECTIONS = [...SECTION_NAMES];
@@ -384,10 +384,10 @@ export default function DashboardClient() {
         <div className="mb-8">
           <h2 className="text-xl font-semibold text-gray-900 flex items-center gap-2">
             <BarChart2 size={18} className="text-brand-500" />
-            Earnings Disclosure Analysis
+            Concall Analysis
           </h2>
           <p className="mt-1 text-sm text-gray-500">
-            Compare management language shift quarter-over-quarter for any Nifty 200 company and much more.
+            Track what management says — not the numbers. Detect language shifts, evasiveness, and narrative changes quarter-over-quarter for any Nifty 200 company.
           </p>
           <p className="mt-2 text-xs text-gray-400 flex items-center gap-1.5">
             <span className="inline-block h-1 w-1 rounded-full bg-gray-300" />

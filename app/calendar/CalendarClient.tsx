@@ -481,7 +481,7 @@ export default function CalendarClient() {
                                         No earnings data for {MONTH_NAMES[month - 1]} {year}.
                                     </p>
                                     <p className="text-xs text-gray-400 mt-1">
-                                        Run analyses from the Earnings Analysis tab to populate the calendar.
+                                        Run concall analyses from the Concall Analysis tab to populate the calendar.
                                         Board meeting data is fetched live from BSE/NSE.
                                     </p>
                                 </div>
@@ -518,7 +518,7 @@ export default function CalendarClient() {
                                     </div>
                                 </div>
                                 <p className="text-[11px] text-gray-400 mt-3 leading-relaxed">
-                                    Click any chip to open that company in Earnings Analysis.
+                                    Click any chip to open that company in Concall Analysis.
                                     Board meeting dates sourced from BSE/NSE corporate filings calendar.
                                 </p>
                             </div>

@@ -87,7 +87,7 @@ export default function LoginPage() {
           Quantalyze
         </h1>
         <p className="mb-8 text-center text-sm text-gray-500">
-          Earnings Intelligence Engine
+          Earnings Concall Analysis
         </p>
 
         <form onSubmit={handleEmailAuth} className="space-y-4">

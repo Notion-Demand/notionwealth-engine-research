@@ -146,7 +146,7 @@ function CompanyCard({
                     </a>
                     <button
                         onClick={() => onAnalyse(company.ticker)}
-                        title="Earnings Analysis"
+                        title="Concall Analysis"
                         className="flex items-center justify-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-[11px] text-gray-500 hover:bg-gray-50 hover:text-gray-700 transition-colors"
                     >
                         <BarChart2 size={11} />

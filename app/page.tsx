@@ -29,19 +29,20 @@ export default async function RootPage() {
       {/* ── Hero ────────────────────────────────────────────────────────── */}
       <section className="mx-auto max-w-4xl px-6 pb-24 pt-24 text-center">
         <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-sky-500/30 bg-sky-500/10 px-4 py-1.5 text-xs font-medium text-sky-400">
-          Built for Nifty 50 research teams
+          Built for Nifty 200 research teams
         </div>
 
         <h1 className="mb-6 text-5xl font-bold leading-tight tracking-tight text-white md:text-6xl">
-          Earnings intelligence
+          Earnings concall analysis
           <br />
           <span className="text-sky-400">in 60 seconds.</span>
         </h1>
 
         <p className="mx-auto mb-10 max-w-xl text-lg text-white/50 leading-relaxed">
-          AI analysts read every earnings call transcript, detect language
-          shifts quarter-over-quarter, score executive evasiveness, and surface
-          what changed — so your team doesn&apos;t have to.
+          AI analysts read every earnings call transcript, detect what
+          management says — not the numbers — track language shifts
+          quarter-over-quarter, score executive evasiveness, and surface
+          what changed in the narrative.
         </p>
 
         <div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
@@ -66,33 +67,33 @@ export default async function RootPage() {
           {[
             {
               icon: "⚡",
-              title: "Multi-agent analysis",
-              body: "Four specialist AI agents — Capital, Revenue, Margins, Macro — analyse every call in parallel. Results in under a minute.",
+              title: "Multi-agent concall analysis",
+              body: "Four specialist AI agents — Capital, Revenue, Margins, Macro — read every concall transcript in parallel. Results in under a minute.",
             },
             {
               icon: "📊",
-              title: "Quarter-over-quarter signals",
-              body: "Every metric is compared against the prior quarter. Language shifts are classified Positive, Negative, or Noise with a scored signal.",
+              title: "Quarter-over-quarter narrative",
+              body: "Language shifts are tracked quarter-over-quarter and classified Positive, Negative, or Noise — what management said vs. what they said before.",
             },
             {
               icon: "🎭",
               title: "Executive evasiveness score",
-              body: "Detects when management deflects analyst questions, pivots to talking points, or uses excessive hedging language.",
+              body: "Detects when management deflects analyst questions, pivots to talking points, or uses excessive hedging language during the Q&A.",
             },
             {
-              icon: "✅",
-              title: "Market validation",
-              body: "Signals are cross-checked against the stock's actual quarterly return to flag where management narrative diverges from market reality.",
+              icon: "🔍",
+              title: "Narrative screener",
+              body: "Screen all Nifty 200 companies by management tone shift. Spot narrative traps — high signal, low confidence — before the market does.",
             },
             {
-              icon: "📬",
-              title: "Send to clients via Gmail",
-              body: "One click sends a branded, formatted report directly from your Gmail to any client — no copy-pasting required.",
+              icon: "📅",
+              title: "Earnings calendar",
+              body: "Board meeting dates for all Nifty 200 companies seeded from BSE, NSE, and Tickertape. Never miss a results day.",
             },
             {
-              icon: "💬",
-              title: "Slack slash command",
-              body: "Type /earnings BHARTI in any Slack channel and the full analysis posts directly — results cached, so repeat queries are instant.",
+              icon: "▶️",
+              title: "Concall video library",
+              body: "YouTube concall recordings for every Nifty 200 company, organised by sector — AlphaStreet India, CNBCTV18, Zerodha, Motilal, and more.",
             },
           ].map((f) => (
             <div key={f.title} className="px-8 py-10">
@@ -125,10 +126,10 @@ export default async function RootPage() {
       <section className="border-t border-white/5">
         <div className="mx-auto max-w-4xl px-6 py-20 text-center">
           <h2 className="mb-4 text-3xl font-bold text-white">
-            Stop reading transcripts. Start reading signals.
+            Stop reading transcripts. Start reading narratives.
           </h2>
           <p className="mb-8 text-white/45">
-            Every Nifty 50 company, every quarter, in under a minute.
+            Every Nifty 200 company, every concall, in under a minute.
           </p>
           <Link
             href="/login"

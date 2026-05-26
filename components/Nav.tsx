@@ -11,7 +11,7 @@ import { createClient } from "@/lib/supabase/client";
 import clsx from "clsx";
 
 const NAV_ITEMS = [
-    { href: "/dashboard",  label: "Earnings Analysis",      icon: BarChart2 },
+    { href: "/dashboard",  label: "Concall Analysis",        icon: BarChart2 },
     { href: "/insights",   label: "Multi-Quarter Insights", icon: BarChart3 },
     { href: "/sectors",    label: "Sector Intelligence",    icon: Layers },
     { href: "/screener",   label: "Screener",               icon: TrendingUp },

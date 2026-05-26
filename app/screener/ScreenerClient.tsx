@@ -593,7 +593,7 @@ export default function ScreenerClient() {
                     <div className="rounded-xl border border-gray-200 bg-white px-5 py-16 text-center">
                         <p className="text-gray-500 text-sm">
                             {signals.length === 0
-                                ? "No analysis results yet. Run analyses from Earnings Analysis to populate the screener."
+                                ? "No concall analyses yet. Run analyses from Concall Analysis to populate the screener."
                                 : "No signals match the current filters."}
                         </p>
                     </div>
