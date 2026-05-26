@@ -55,6 +55,12 @@ const CONSISTENCY_ICONS = {
   unclear:    Minus,
 } as const;
 
+/** Numeric sort key: Q3_2026 → 20263, Q4_2025 → 20254 (year dominates) */
+function qKey(q: string): number {
+  const m = q.match(/^Q(\d)_(\d{4})$/);
+  return m ? parseInt(m[2]) * 10 + parseInt(m[1]) : 0;
+}
+
 function SignalDot({ signal }: { signal: string }) {
   return (
     <span className={clsx(
@@ -69,7 +75,7 @@ function SignalDot({ signal }: { signal: string }) {
 // ── Financials table ──────────────────────────────────────────────────────────
 
 function FinancialsTable({ briefs }: { briefs: QuarterBrief[] }) {
-  const sorted = [...briefs].sort((a, b) => a.quarter.localeCompare(b.quarter));
+  const sorted = [...briefs].sort((a, b) => qKey(a.quarter) - qKey(b.quarter)); // oldest → newest
   return (
     <div className="overflow-x-auto rounded-xl border border-gray-200">
       <table className="w-full text-sm">
@@ -237,7 +243,7 @@ const SIGNAL_TYPE_ICONS: Record<string, typeof Globe> = {
 // ── Segments table ────────────────────────────────────────────────────────────
 
 function SegmentsTable({ briefs }: { briefs: QuarterBrief[] }) {
-  const sorted = [...briefs].sort((a, b) => a.quarter.localeCompare(b.quarter));
+  const sorted = [...briefs].sort((a, b) => qKey(a.quarter) - qKey(b.quarter)); // oldest → newest
   // Collect all unique segment names
   const allSegments = Array.from(new Set(sorted.flatMap((b) => b.segment_highlights.map((s) => s.segment))));
   if (allSegments.length === 0) return null;
@@ -290,7 +296,7 @@ function SegmentsTable({ briefs }: { briefs: QuarterBrief[] }) {
 // ── Key points timeline ───────────────────────────────────────────────────────
 
 function KeyPointsTimeline({ briefs }: { briefs: QuarterBrief[] }) {
-  const sorted = [...briefs].sort((a, b) => b.quarter.localeCompare(a.quarter)); // newest first
+  const sorted = [...briefs].sort((a, b) => qKey(b.quarter) - qKey(a.quarter)); // newest first
   return (
     <div className="space-y-4">
       {sorted.map((b) => (
