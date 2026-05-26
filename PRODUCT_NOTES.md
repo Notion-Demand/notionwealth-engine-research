@@ -5,6 +5,178 @@ Newest entries at the top.
 
 ---
 
+## 2026-05-27 — Multi-Quarter Insights: Response Caching
+
+### Problem
+Every visit to the Insights page re-ran 8+ Gemini calls (one brief per quarter + synthesis). On 6 quarters that's ~7 LLM calls taking 60–120 seconds. Re-visiting the same stock had zero benefit over the first run.
+
+### Decision: insights_cache Table (30-day TTL)
+
+Cache key: `(ticker, quarters_key)` where `quarters_key` is the **sorted, comma-joined list of quarters analyzed** (e.g. `"Q1_2026,Q2_2026,Q3_2026,Q4_2026"`).
+
+Why this key? Sorting means key is stable regardless of query order. Using the actual quarter list means **adding a new transcript automatically invalidates the cache** — the key changes when a new quarter appears in storage.
+
+On cache **hit**:
+- Progress events (`start`, `quarter_done` × N, `synthesis_start`) are replayed instantly
+- Cached payload returned — zero Gemini calls
+- UI still animates through the progress panel (same UX, ~1s instead of 2min)
+
+On cache **miss**:
+- Full pipeline runs as before
+- Result written to cache non-blocking (errors are warned, not thrown — never fails the user response)
+
+`force=true` param (wired to the "Clear cache & re-analyse" button) skips the cache read entirely and overwrites on write.
+
+### Decision: No Per-Quarter Brief Caching
+Caching at the full payload level was chosen over per-quarter brief caching because:
+- The synthesis output depends on the combination of quarters, not just individual briefs
+- Full payload cache is simpler (one table, one key) with the same cache invalidation behavior
+- The rarest scenario (only synthesis changed) can be handled by force-refresh
+
+**Migration to run**: `supabase/migrations/007_insights_cache.sql`
+
+---
+
+## 2026-05-27 — Watchlist: Defaults, Max 20, Cycle Navigation, CSV on Dashboard
+
+### Problem
+- Watchlist was empty for new users with no guidance on where to start
+- No cap on watchlist size — could grow unbounded
+- No way to cycle through watchlist stocks quickly (PMS use case = scanning many stocks)
+- CSV upload existed only in Insights, not in Concall Analysis
+- Default ticker was BHARTI (Airtel) — not the most recognisable stock for first impressions
+
+### Decision: Default 10 Popular Stocks
+When `localStorage` has no watchlist entry, seed with:
+`RELIANCE, HDFC, ICICI, INFOSYS, TCS, KOTAKBANK, AXISBANK, SBI, BHARTI, ITC`
+
+These are the top Nifty 50 heavyweights by market cap and brand recognition. They give a new user an immediately usable watchlist without any setup.
+
+### Decision: Max 20 Tickers
+Hard cap at 20 in both `toggle` (silently ignores adds beyond 20) and `bulkAdd`/CSV upload (only takes remaining slots). This keeps the watchlist bar scannable without scrolling.
+
+Rationale: TradingView's default watchlist shows ~20 items per panel. 20 is the practical limit for quick visual scanning.
+
+### Decision: TradingView-Style Cycling
+- ◀ ▶ buttons appear next to "Watchlist (n/20)" when 2+ stocks are in the list
+- `←` / `→` arrow keys cycle through the watchlist **when focus is not in an input or textarea**
+- Cycles wrap around (last → first, first → last)
+- In Insights, cycling automatically triggers `run()` on the new ticker
+
+Keyboard shortcut is implemented via a `cycleRef` pattern (ref holds latest values of `cycleNext`, `cyclePrev`, `ticker`) so the global `keydown` listener is added once on mount and never re-registered — avoids stale closure bugs.
+
+### Decision: Default Ticker → RELIANCE
+Changed from "BHARTI" to "RELIANCE" in both Concall Analysis and Multi-Quarter Insights.
+
+Rationale: Reliance is the highest-weight, most-recognised stock in India. A new user landing on the dashboard should see the most compelling example. BHARTI is a great company but not the automatic first choice for a broad audience.
+
+---
+
+## 2026-05-27 — Per-User Custom Tickers (Outside Nifty 200)
+
+### Problem
+Users searching for stocks outside the Nifty 200 universe had no way to add them permanently. The search dropdown showed "No matches" with no action available. Any extra stocks in storage were visible to all users (leaked across accounts).
+
+### Decision: user_tickers Table with RLS
+
+```sql
+CREATE TABLE user_tickers (
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  ticker  TEXT NOT NULL,
+  name    TEXT NOT NULL DEFAULT '',
+  sector  TEXT NOT NULL DEFAULT 'Custom',
+  added_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(user_id, ticker)
+);
+-- RLS: each user sees and manages only their own rows
+```
+
+Row-Level Security policy ensures DB-level isolation — even a compromised API route cannot leak another user's tickers.
+
+### Decision: "Add TICKER to my list — visible only to you"
+When a user types a valid ticker format (`/^[A-Z0-9&.-]{1,20}$/`) that matches nothing in the dropdown, a special row appears:
+
+```
+[+ icon]  Add ADANIGREEN to my list          visible only to you
+```
+
+Clicking this:
+1. Optimistically updates local state (instant UI response)
+2. POSTs to `/api/v1/user-tickers` (upsert)
+3. Sets that ticker as the selected company immediately
+
+The `filteredList` (used by CompanySearch and Watchlist) is: `NIFTY200_LIST + userTickers + storageExtras`. Storage extras are stocks in the transcripts bucket that aren't in Nifty 200 and haven't been claimed by the user yet — these migrate to user-scoped on next add.
+
+---
+
+## 2026-05-27 — Earnings Concall Video Library (Videos Tab)
+
+### Problem
+The screener and concall analysis tools are text-heavy. Many users want to watch the actual earnings call recording alongside reading the analysis. Previously there was a single YouTube search link in the screener — no curated video library.
+
+### Decision: Sector-Organized Video Grid for All Nifty 200
+
+`/videos` page shows a grid of company cards organized by sector (sorted by sector size descending). Each card shows:
+- YouTube thumbnail (free CDN: `https://img.youtube.com/vi/{videoId}/mqdefault.jpg`)
+- Video title and channel name
+- "Watch" button (direct video link) or "Search" button (YouTube search fallback)
+- Analyse button → navigates to `/dashboard?ticker=TICKER`
+
+### Decision: YouTube Data API v3 with Strict Title Matching
+
+Using YouTube search API (`maxResults=10`) to find the most relevant concall video. The original implementation took `items[0]` blindly — this caused Polycab India to cache a Vikram Solar video because both appeared in the same batch.
+
+**`titleMatchesCompany(title, companyName, ticker)` rules:**
+1. Ticker appears in title → strong match (return true)
+2. Extract meaningful tokens from company name (strip stop words: india, limited, ltd, industries, etc.; keep tokens length > 2)
+3. First key token must appear in title
+4. For 2+ key tokens, require at least 2 to match
+5. Return false on no match → store YouTube search URL as fallback, not a wrong video
+
+Results are cached in `concall_links` table (ticker, quarter) to stay within the 10,000 quota/day free tier.
+
+### Decision: Concurrency Cap on Sector Fetch
+When switching sectors, all companies are marked "loading" and fetched 5 at a time via `fetchConcurrent(tasks, 5)`. This prevents rate-limiting the YouTube API while keeping the sector load fast.
+
+### Decision: State Key Pattern `ticker::quarter`
+Video data is cached in React state using `videoData["RELIANCE::Q4_2026"]`. Switching quarters doesn't clear previously loaded sectors — all fetched data accumulates in state for the session.
+
+---
+
+## 2026-05-27 — Rebrand: "Quantalyze Concall Analysis" (Not Numbers)
+
+### Decision
+Product positioned as **earnings concall analysis** — what management says, not what the numbers show. Key copy changes:
+
+- Page title: "Quantalyze — Earnings Concall Analysis"
+- Hero: "Earnings concall analysis in 60 seconds"
+- Dashboard header: "Concall Analysis" (was "Earnings Analysis")
+- Subheading: "Track what management says — not the numbers. Detect language shifts, evasiveness, and narrative changes quarter-over-quarter."
+- Landing page features: Narrative Screener, Earnings Calendar, Concall Video Library (replaced Slack/Gmail integration cards)
+
+Rationale: The product's moat is qualitative — detecting management evasiveness, guidance consistency, narrative drift. Positioning it alongside financial statement tools (screener.in, moneycontrol) would be a mistake. The positioning is more like a "management language" intelligence layer.
+
+---
+
+## 2026-05-26 — Earnings Calendar: Auto-Seed + Full-Year Coverage
+
+### Problem
+The calendar was empty for July and showed nothing after the current quarter. The seed button was not visible, and the calendar only seeded 2 quarters of data (missing Q1 FY27 results due in July).
+
+### Decision: Auto-Seed on First Load
+On first calendar visit (when DB has 0 rows), the seed runs automatically — full-page loading state with a progress log shows instead of an empty calendar. No manual "Seed" button required. A subtle "Refresh" icon allows re-seeding if needed.
+
+### Decision: 5 Historical + 1 Upcoming Quarter
+Seed covers: `[Q4_2025, Q1_2026, Q2_2026, Q3_2026, Q4_2026, Q1_2027]`
+- 5 historical quarters to show past result dates
+- Q1_2027 (Apr–Jun 2026, results expected Jul–Aug 2026) — populates July/August in the calendar
+
+A `nextQuarter()` helper handles the `Q4 → Q1` year-rollover edge case.
+
+**Note on June gap**: June 1–14 is genuinely empty — Q4 FY2026 results end by May 31, Q1 FY2027 results start July 15. This is intentional, not a bug.
+
+---
+
 ## 2026-05-26 — Screener v2: Confidence Multiplier & Narrative Trap Detection
 
 ### Problem
@@ -140,5 +312,8 @@ Updated `DIMENSION_KEYWORDS` in the seed route to match current `SECTION_NAMES` 
 - Request route (`/api/v1/request`) fetches from both Screener.in and BSE API, deduplicates by filename, and uploads to `transcripts` bucket
 
 ### Watchlist
-- Shared between Earnings Analysis and Multi-Quarter Insights via `localStorage` key `quantalyze_watchlist`
-- Insights supports CSV bulk-import: paste comma/whitespace-separated tickers, filters to 2–12 char tokens starting with a letter
+- Shared between Concall Analysis and Multi-Quarter Insights via `localStorage` key `quantalyze_watchlist`
+- Default 10 stocks seeded on first use: RELIANCE, HDFC, ICICI, INFOSYS, TCS, KOTAKBANK, AXISBANK, SBI, BHARTI, ITC
+- Max 20 tickers enforced in toggle and bulk-add
+- TradingView-style ◀ ▶ cycle buttons + `←`/`→` keyboard shortcuts
+- CSV upload available on both Concall Analysis and Insights pages
