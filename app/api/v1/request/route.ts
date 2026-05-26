@@ -159,7 +159,7 @@ const BSE_MONTH_LABELS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep",
 async function fetchBseTranscripts(bseCode: string): Promise<TranscriptLink[]> {
   const toDate = new Date();
   const fromDate = new Date();
-  fromDate.setDate(fromDate.getDate() - 548); // ~18 months back
+  fromDate.setDate(fromDate.getDate() - 912); // ~30 months back — covers 8 quarters comfortably
   const fmt = (d: Date) => d.toISOString().slice(0, 10).replace(/-/g, "");
   const apiUrl =
     `https://api.bseindia.com/BseIndiaAPI/api/AnnSubCategoryGetData/w` +
@@ -387,12 +387,12 @@ export async function POST(req: NextRequest) {
   const existingForTicker = allExisting.map((f) => f.name).filter((n) => n.toLowerCase().startsWith(tickerClean.toLowerCase()));
   console.log(`[request] ${tickerClean}: existingNames=${existingNames.size} existingForTicker=${JSON.stringify(existingForTicker)}`);
 
-  // 4. Download up to 4 most recent transcripts
+  // 4. Download up to 8 most recent transcripts (covers 2 full fiscal years)
   const uploaded: string[] = [];
   const skipped: string[] = [];
   const errors: string[] = [];
 
-  for (const { url, htmlContext } of allLinks.slice(0, 4)) {
+  for (const { url, htmlContext } of allLinks.slice(0, 8)) {
     const urlFile = url.split("/").pop() ?? url;
     try {
       // Fast pre-check using filename-inferred quarter (works for NSE URLs, not BSE UUIDs)

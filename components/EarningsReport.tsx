@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { Mail, ChevronDown, ChevronRight, AlertTriangle, CheckCircle, Download } from "lucide-react";
-import { sendEmail } from "@/lib/api";
+import { useRouter } from "next/navigation";
+import { ChevronDown, ChevronRight, AlertTriangle, Download, FileText, Layers } from "lucide-react";
+import { getTranscriptDownloadUrl } from "@/lib/api";
 import { quarterLabel } from "@/lib/nifty50";
 import clsx from "clsx";
 
@@ -25,6 +26,16 @@ interface SectionalInsight {
   metrics: MetricDelta[];
 }
 
+interface KeyMetrics {
+  revenue?: string;
+  revenue_growth?: string;
+  ebitda_margin?: string;
+  ebitda_change?: string;
+  pat?: string;
+  pat_growth?: string;
+  product_highlight?: string;
+}
+
 interface DashboardPayload {
   company_ticker: string;
   quarter: string;
@@ -41,6 +52,7 @@ interface DashboardPayload {
   market_sources: string[];
   earnings_delta?: string[];
   fcf_implications?: string[];
+  key_metrics?: KeyMetrics;
 }
 
 // ── Small helpers ──────────────────────────────────────────────────────────
@@ -313,6 +325,60 @@ function FCFImplicationsPanel({ bullets }: { bullets: string[] }) {
   );
 }
 
+// ── Key Metrics snapshot bar ───────────────────────────────────────────────
+
+function KeyMetricsBar({ km, quarter }: { km: KeyMetrics; quarter: string }) {
+  const items = [
+    {
+      label: "Revenue",
+      value: km.revenue ?? "—",
+      sub: km.revenue_growth,
+      subColor: km.revenue_growth?.startsWith("+") ? "text-emerald-600" : "text-red-500",
+    },
+    {
+      label: "EBITDA Margin",
+      value: km.ebitda_margin ?? "—",
+      sub: km.ebitda_change,
+      subColor: km.ebitda_change?.startsWith("+") ? "text-emerald-600" : "text-red-500",
+    },
+    {
+      label: "PAT",
+      value: km.pat ?? "—",
+      sub: km.pat_growth,
+      subColor: km.pat_growth?.startsWith("+") ? "text-emerald-600" : "text-red-500",
+    },
+    {
+      label: "Product Mix",
+      value: km.product_highlight ?? "—",
+      sub: undefined,
+      subColor: "",
+    },
+  ];
+
+  return (
+    <div className="rounded-xl border border-brand-100 bg-brand-50/40 overflow-hidden">
+      <div className="px-5 py-2 border-b border-brand-100 flex items-center justify-between">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-brand-600">
+          {quarterLabel(quarter)} · Quick Read
+        </span>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 divide-y md:divide-y-0 md:divide-x divide-brand-100">
+        {items.map((item) => (
+          <div key={item.label} className="px-5 py-3 space-y-0.5">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-brand-400">
+              {item.label}
+            </p>
+            <p className="text-sm font-semibold text-gray-900 leading-snug">{item.value}</p>
+            {item.sub && (
+              <p className={clsx("text-[11px] font-medium", item.subColor)}>{item.sub}</p>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Full metrics panel (always open) ──────────────────────────────────────
 
 function MetricsPanel({
@@ -475,10 +541,9 @@ interface EarningsReportProps {
 }
 
 export default function EarningsReport({ payload }: EarningsReportProps) {
-  const [sending, setSending] = useState(false);
-  const [sent, setSent] = useState(false);
+  const router = useRouter();
   const [exporting, setExporting] = useState(false);
-  const [emailTarget, setEmailTarget] = useState("");
+  const [downloading, setDownloading] = useState(false);
   const reportRef = useRef<HTMLDivElement>(null);
 
   async function handleExportPDF() {
@@ -523,239 +588,50 @@ export default function EarningsReport({ payload }: EarningsReportProps) {
   const isStructured = Array.isArray(payload.insights);
 
   if (!isStructured) {
-    // Legacy fallback — raw text dump
-    const result =
-      (payload.result as string | undefined) ?? JSON.stringify(payload, null, 2);
-    const query = (payload.query as string | undefined) ?? "Analysis";
-
-    const handleSendEmail = async () => {
-      if (!emailTarget) return alert("Enter a recipient email.");
-      setSending(true);
-      try {
-        await sendEmail({ to: emailTarget, subject: `Quantalyze: ${query}`, body: result });
-        setSent(true);
-      } catch (err) {
-        alert(`Failed to send: ${err}`);
-      } finally {
-        setSending(false);
-      }
-    };
-
+    // Legacy fallback
+    const result = (payload.result as string | undefined) ?? JSON.stringify(payload, null, 2);
     return (
       <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
         <h3 className="mb-3 font-medium text-gray-900">Analysis Result</h3>
         <pre className="whitespace-pre-wrap rounded bg-gray-50 p-4 text-sm text-gray-700 overflow-auto max-h-96">
           {result}
         </pre>
-        <div className="mt-4 flex items-center gap-2">
-          <input
-            type="email"
-            value={emailTarget}
-            onChange={(e) => setEmailTarget(e.target.value)}
-            placeholder="Recipient email"
-            className="flex-1 rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-          />
-          <button
-            onClick={handleSendEmail}
-            disabled={sending || sent}
-            className="inline-flex items-center gap-1.5 rounded-md bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
-          >
-            <Mail size={14} />
-            {sent ? "Sent!" : sending ? "Sending…" : "Send via Gmail"}
-          </button>
-        </div>
       </div>
     );
   }
 
   // ── Structured DashboardPayload rendering ─────────────────────────────
   const d = payload as unknown as DashboardPayload;
-
   const signalStyle = SIGNAL_STYLES[d.overall_signal] ?? SIGNAL_STYLES.Noise;
   const dotStyle = SIGNAL_DOT[d.overall_signal] ?? SIGNAL_DOT.Noise;
 
-  async function handleSendEmail() {
-    if (!emailTarget) return alert("Enter a recipient email.");
-    setSending(true);
-
-    const signalColor = {
-      Positive: "#059669", Negative: "#dc2626", Mixed: "#d97706", Noise: "#9ca3af",
-    }[d.overall_signal] ?? "#9ca3af";
-
-    const signalBg = {
-      Positive: "#ecfdf5", Negative: "#fef2f2", Mixed: "#fffbeb", Noise: "#f9fafb",
-    }[d.overall_signal] ?? "#f9fafb";
-
-    const scoreStr = `${d.overall_score > 0 ? "+" : ""}${d.overall_score.toFixed(1)}`;
-
-    const insightRows = d.insights.map((ins) => {
-      const takeaways = ins.key_takeaways
-        .map((t) => `<li style="margin:0 0 6px 0;color:#374151;font-size:14px;line-height:1.6;">${t}</li>`)
-        .join("");
-      return `
-        <tr>
-          <td style="padding:0 0 24px 0;">
-            <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">
-              <tr>
-                <td style="background:#f9fafb;padding:12px 20px;border-bottom:1px solid #e5e7eb;">
-                  <span style="font-size:13px;font-weight:600;color:#111827;">${ins.section_name}</span>
-                </td>
-              </tr>
-              <tr>
-                <td style="padding:16px 20px;">
-                  <ul style="margin:0;padding:0 0 0 16px;">${takeaways}</ul>
-                </td>
-              </tr>
-            </table>
-          </td>
-        </tr>`;
-    }).join("");
-
-    const metricCell = (label: string, value: string, sub: string) => `
-      <td style="padding:16px;text-align:center;border-right:1px solid #f3f4f6;">
-        <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:#9ca3af;margin-bottom:6px;">${label}</div>
-        <div style="font-size:22px;font-weight:700;color:#111827;margin-bottom:4px;">${value}</div>
-        <div style="font-size:12px;color:#6b7280;">${sub}</div>
-      </td>`;
-
-    const evasLabel = d.executive_evasiveness_score <= 3 ? "Very direct"
-      : d.executive_evasiveness_score <= 6 ? "Some hedging" : "Frequently evasive";
-    const stockStr = d.stock_price_change === 0 ? "—"
-      : `${d.stock_price_change > 0 ? "+" : ""}${d.stock_price_change.toFixed(1)}%`;
-
-    const html = `<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:32px 0;">
-    <tr><td align="center">
-      <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
-
-        <!-- Header -->
-        <tr>
-          <td style="background:#111827;border-radius:12px 12px 0 0;padding:24px 32px;">
-            <table width="100%" cellpadding="0" cellspacing="0">
-              <tr>
-                <td>
-                  <div style="font-size:18px;font-weight:700;color:#ffffff;letter-spacing:-0.01em;">Quantalyze</div>
-                  <div style="font-size:12px;color:#9ca3af;margin-top:2px;">Earnings Intelligence Engine</div>
-                </td>
-                <td align="right">
-                  <div style="font-size:13px;color:#9ca3af;">${new Date().toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</div>
-                </td>
-              </tr>
-            </table>
-          </td>
-        </tr>
-
-        <!-- Hero -->
-        <tr>
-          <td style="background:#ffffff;padding:28px 32px 24px;border-left:1px solid #e5e7eb;border-right:1px solid #e5e7eb;">
-            <table width="100%" cellpadding="0" cellspacing="0">
-              <tr>
-                <td>
-                  <div style="font-size:24px;font-weight:700;color:#111827;margin-bottom:4px;">${d.company_ticker}</div>
-                  <div style="font-size:14px;color:#6b7280;margin-bottom:16px;">${quarterLabel(d.quarter_previous)} &rarr; ${quarterLabel(d.quarter)}</div>
-                  <p style="margin:0;font-size:15px;color:#374151;line-height:1.7;">${d.summary}</p>
-                </td>
-                <td width="120" valign="top" align="right" style="padding-left:16px;">
-                  <div style="display:inline-block;background:${signalBg};border:1px solid ${signalColor}33;border-radius:20px;padding:8px 16px;text-align:center;">
-                    <div style="font-size:14px;font-weight:700;color:${signalColor};">${d.overall_signal}</div>
-                    <div style="font-size:12px;color:${signalColor};opacity:0.8;margin-top:2px;">${scoreStr}</div>
-                  </div>
-                </td>
-              </tr>
-            </table>
-          </td>
-        </tr>
-
-        <!-- Section divider -->
-        <tr>
-          <td style="background:#f9fafb;padding:12px 32px;border-left:1px solid #e5e7eb;border-right:1px solid #e5e7eb;border-top:1px solid #e5e7eb;">
-            <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:#9ca3af;">Section Insights</span>
-          </td>
-        </tr>
-
-        <!-- Insights -->
-        <tr>
-          <td style="background:#ffffff;padding:24px 32px;border-left:1px solid #e5e7eb;border-right:1px solid #e5e7eb;">
-            <table width="100%" cellpadding="0" cellspacing="0">
-              ${insightRows}
-            </table>
-          </td>
-        </tr>
-
-        <!-- Metrics -->
-        <tr>
-          <td style="border-left:1px solid #e5e7eb;border-right:1px solid #e5e7eb;">
-            <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;border-top:1px solid #e5e7eb;">
-              <tr>
-                <td style="padding:12px 32px;border-bottom:1px solid #e5e7eb;">
-                  <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:#9ca3af;">Signal Metrics</span>
-                </td>
-              </tr>
-              <tr>
-                <table width="100%" cellpadding="0" cellspacing="0" style="background:#ffffff;">
-                  <tr>
-                    ${metricCell("Evasiveness", `${d.executive_evasiveness_score.toFixed(1)}/10`, evasLabel)}
-                    ${metricCell("Validation", `${d.validation_score.toFixed(0)}%`, d.flagged_count > 0 ? `${d.flagged_count} flagged` : "All verified")}
-                    ${metricCell("Market Alignment", `${d.market_alignment_pct.toFixed(0)}%`, d.market_alignment_pct >= 70 ? "Aligned" : "Divergent")}
-                    ${metricCell(`Stock · ${quarterLabel(d.quarter)}`, stockStr, d.stock_price_change === 0 ? "No data" : "Quarterly return")}
-                  </tr>
-                </table>
-              </tr>
-            </table>
-          </td>
-        </tr>
-
-        <!-- Footer -->
-        <tr>
-          <td style="background:#111827;border-radius:0 0 12px 12px;padding:16px 32px;text-align:center;">
-            <p style="margin:0;font-size:12px;color:#6b7280;">Powered by <span style="color:#a5b4fc;font-weight:600;">Quantalyze</span> &nbsp;&middot;&nbsp; This report is AI-generated and for informational purposes only.</p>
-          </td>
-        </tr>
-
-      </table>
-    </td></tr>
-  </table>
-</body>
-</html>`;
-
-    // Plain text fallback
-    const body = [
-      `${d.company_ticker} | ${quarterLabel(d.quarter_previous)} → ${quarterLabel(d.quarter)}`,
-      `Overall: ${d.overall_signal} (${scoreStr})`,
-      "",
-      d.summary,
-      "",
-      ...d.insights.flatMap((ins) => [
-        `${ins.section_name}`,
-        ...ins.key_takeaways.map((t) => `• ${t}`),
-        "",
-      ]),
-      `Evasiveness: ${d.executive_evasiveness_score.toFixed(1)}/10 | Validation: ${d.validation_score.toFixed(0)}% | Market Alignment: ${d.market_alignment_pct.toFixed(0)}%`,
-      "",
-      "Powered by Quantalyze",
-    ].join("\n");
-
+  async function handleDownloadTranscript() {
+    setDownloading(true);
     try {
-      await sendEmail({
-        to: emailTarget,
-        subject: `${d.company_ticker} ${quarterLabel(d.quarter)} Earnings Analysis — Quantalyze`,
-        body,
-        html,
-      });
-      setSent(true);
+      const { url, filename } = await getTranscriptDownloadUrl(d.company_ticker, d.quarter);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.target = "_blank";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
     } catch (err) {
-      alert(`Failed to send: ${err}`);
+      alert(`Download failed: ${err}`);
     } finally {
-      setSending(false);
+      setDownloading(false);
     }
   }
 
   return (
     <div className="space-y-4">
       <div ref={reportRef} className="space-y-4">
+
+      {/* ── Key Metrics bar ─────────────────────────────────────────────── */}
+      {d.key_metrics && Object.keys(d.key_metrics).length > 0 && (
+        <KeyMetricsBar km={d.key_metrics} quarter={d.quarter} />
+      )}
+
       {/* ── Hero: signal + summary ──────────────────────────────────────── */}
       <div className="rounded-xl border border-gray-200 bg-white px-6 py-5">
         <div className="flex items-start justify-between gap-4">
@@ -793,25 +669,20 @@ export default function EarningsReport({ payload }: EarningsReportProps) {
         </div>
       </div>
 
-      {/* ── Disclosure diff — LEAD ──────────────────────────────────────── */}
+      {/* ── Section insights ────────────────────────────────────────────── */}
       <div className="space-y-3">
         {d.insights.length === 0 ? (
           <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-700">
-            No section insights were generated. The analysis agents may have encountered an error — check server logs.
+            No section insights were generated. The analysis agents may have encountered an error.
           </div>
         ) : (
           d.insights.map((insight, i) => (
-            <Section
-              key={i}
-              insight={insight}
-              qPrev={d.quarter_previous}
-              qCurr={d.quarter}
-            />
+            <Section key={i} insight={insight} qPrev={d.quarter_previous} qCurr={d.quarter} />
           ))
         )}
       </div>
 
-      {/* ── Institutional sections ───────────────────────────────────────── */}
+      {/* ── What Changed + Financial Implications ───────────────────────── */}
       {(d.earnings_delta?.length || d.fcf_implications?.length) ? (
         <div className="space-y-3">
           <EarningsDeltaPanel
@@ -823,7 +694,7 @@ export default function EarningsReport({ payload }: EarningsReportProps) {
         </div>
       ) : null}
 
-      {/* ── Metrics panel ───────────────────────────────────────────────── */}
+      {/* ── Signal quality metrics ───────────────────────────────────────── */}
       <MetricsPanel
         evasiveness={d.executive_evasiveness_score}
         validationScore={d.validation_score}
@@ -834,22 +705,15 @@ export default function EarningsReport({ payload }: EarningsReportProps) {
       />
       </div>
 
-      {/* ── Actions ────────────────────────────────────────────────────── */}
+      {/* ── Actions row ─────────────────────────────────────────────────── */}
       <div data-no-print className="flex items-center gap-2 pt-1">
-        <input
-          type="email"
-          value={emailTarget}
-          onChange={(e) => setEmailTarget(e.target.value)}
-          placeholder="Send to email…"
-          className="flex-1 rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-        />
         <button
-          onClick={handleSendEmail}
-          disabled={sending || sent}
-          className="inline-flex items-center gap-1.5 rounded-md bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
+          onClick={handleDownloadTranscript}
+          disabled={downloading}
+          className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
         >
-          <Mail size={14} />
-          {sent ? "Sent!" : sending ? "Sending…" : "Send via Gmail"}
+          <FileText size={14} />
+          {downloading ? "Getting link…" : "Download Transcript"}
         </button>
         <button
           onClick={handleExportPDF}
@@ -857,7 +721,14 @@ export default function EarningsReport({ payload }: EarningsReportProps) {
           className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
         >
           <Download size={14} />
-          {exporting ? "Exporting…" : "Export PDF"}
+          {exporting ? "Exporting…" : "Export Analysis PDF"}
+        </button>
+        <button
+          onClick={() => router.push(`/insights?ticker=${encodeURIComponent(d.company_ticker)}`)}
+          className="inline-flex items-center gap-1.5 rounded-md bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-700"
+        >
+          <Layers size={14} />
+          Multi-Quarter Insights
         </button>
       </div>
     </div>

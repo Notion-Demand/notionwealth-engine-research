@@ -34,10 +34,11 @@ export function makeInitialAgentState(sections: string[]): AgentPanelState {
 }
 
 const SECTION_ICONS: Record<string, string> = {
-  "Capital & Liquidity": "💰",
-  "Revenue & Growth": "📈",
-  "Operational Margin": "⚙️",
-  "Macro & Risk": "🌐",
+  "Revenue & Growth":      "📈",
+  "Margins & Profitability": "💹",
+  "Cost Structure":        "🏭",
+  "CapEx & Balance Sheet": "💰",
+  "Macro & Risk":          "🌐",
 };
 
 function StatusIcon({ status }: { status: AgentStatus }) {
@@ -109,8 +110,8 @@ export default function AgentPanel({ state, ticker, qPrev, qCurr }: AgentPanelPr
         </span>
       </div>
 
-      {/* 4 thematic agent cards */}
-      <div className="grid grid-cols-2 gap-3">
+      {/* Thematic agent cards — 3 cols so 5 fit cleanly */}
+      <div className="grid grid-cols-3 gap-3">
         {state.sections.map((section) => {
           const prevDone = state.prevStatus[section] === "done";
           const currDone = state.currStatus[section] === "done";

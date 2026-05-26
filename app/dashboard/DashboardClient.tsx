@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import Nav from "@/components/Nav";
 import EarningsReport from "@/components/EarningsReport";
@@ -12,7 +12,7 @@ import AgentPanel, {
 import { runAnalysisStream } from "@/lib/api";
 import { quarterLabel, SECTION_NAMES } from "@/lib/nifty50";
 import { NIFTY200_LIST } from "@/lib/nifty200";
-import { BarChart2, ChevronDown, RefreshCw } from "lucide-react";
+import { BarChart2, ChevronDown, RefreshCw, Bookmark, BookmarkCheck, X } from "lucide-react";
 import clsx from "clsx";
 
 const DEFAULT_SECTIONS = [...SECTION_NAMES];
@@ -141,6 +141,40 @@ function CompanySearch({
   );
 }
 
+const WATCHLIST_KEY = "quantalyze_watchlist";
+
+function useWatchlist(options: { ticker: string; name: string }[]) {
+  const [watchlist, setWatchlist] = useState<{ ticker: string; name: string }[]>([]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(WATCHLIST_KEY);
+      if (raw) setWatchlist(JSON.parse(raw));
+    } catch { /* ignore */ }
+  }, []);
+
+  const save = useCallback((list: { ticker: string; name: string }[]) => {
+    setWatchlist(list);
+    localStorage.setItem(WATCHLIST_KEY, JSON.stringify(list));
+  }, []);
+
+  const toggle = useCallback((ticker: string) => {
+    setWatchlist((prev) => {
+      const exists = prev.find((w) => w.ticker === ticker);
+      const name = options.find((o) => o.ticker === ticker)?.name ?? ticker;
+      const next = exists
+        ? prev.filter((w) => w.ticker !== ticker)
+        : [...prev, { ticker, name }];
+      localStorage.setItem(WATCHLIST_KEY, JSON.stringify(next));
+      return next;
+    });
+  }, [options, save]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const isWatched = useCallback((ticker: string) => watchlist.some((w) => w.ticker === ticker), [watchlist]);
+
+  return { watchlist, toggle, isWatched };
+}
+
 export default function DashboardClient() {
   const searchParams = useSearchParams();
   const tickerParam = searchParams.get("ticker")?.toUpperCase() ?? null;
@@ -191,6 +225,8 @@ export default function DashboardClient() {
       .map((t) => ({ ticker: t, bse: 0, nse: t, name: t }));
     return [...niftyInStorage, ...extras];
   }, [available]);
+
+  const { watchlist, toggle: toggleWatchlist, isWatched } = useWatchlist(filteredList);
 
   // ── Picker state ────────────────────────────────────────────────────────────
   const [ticker, setTicker] = useState("BHARTI");
@@ -340,6 +376,35 @@ export default function DashboardClient() {
           </p>
         </div>
 
+        {/* ── Watchlist ──────────────────────────────────────────────────── */}
+        {watchlist.length > 0 && (
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            <span className="text-[11px] font-medium uppercase tracking-wide text-gray-400">
+              Watchlist
+            </span>
+            {watchlist.map((w) => (
+              <button
+                key={w.ticker}
+                type="button"
+                onClick={() => handleTickerChange(w.ticker)}
+                className={clsx(
+                  "group inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+                  w.ticker === ticker
+                    ? "border-brand-300 bg-brand-50 text-brand-700"
+                    : "border-gray-200 bg-white text-gray-600 hover:border-brand-200 hover:text-brand-600"
+                )}
+              >
+                {w.ticker}
+                <X
+                  size={10}
+                  className="opacity-40 group-hover:opacity-100"
+                  onClick={(e) => { e.stopPropagation(); toggleWatchlist(w.ticker); }}
+                />
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* ── Picker form ──────────────────────────────────────────────── */}
         <form
           data-no-print
@@ -352,16 +417,29 @@ export default function DashboardClient() {
               <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">
                 Company
               </label>
-              <button
-                type="button"
-                onClick={() => fetchAvailable.current?.(tickerParam)}
-                disabled={availableLoading || loading}
-                className="flex items-center gap-1 text-[11px] text-gray-400 hover:text-gray-600 disabled:opacity-40"
-                title="Refresh company list"
-              >
-                <RefreshCw size={11} className={availableLoading ? "animate-spin" : ""} />
-                Refresh
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => toggleWatchlist(ticker)}
+                  disabled={loading}
+                  title={isWatched(ticker) ? "Remove from watchlist" : "Add to watchlist"}
+                  className="flex items-center gap-1 text-[11px] text-gray-400 hover:text-brand-600 disabled:opacity-40"
+                >
+                  {isWatched(ticker)
+                    ? <BookmarkCheck size={12} className="text-brand-500" />
+                    : <Bookmark size={12} />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => fetchAvailable.current?.(tickerParam)}
+                  disabled={availableLoading || loading}
+                  className="flex items-center gap-1 text-[11px] text-gray-400 hover:text-gray-600 disabled:opacity-40"
+                  title="Refresh company list"
+                >
+                  <RefreshCw size={11} className={availableLoading ? "animate-spin" : ""} />
+                  Refresh
+                </button>
+              </div>
             </div>
             {tickerParam && !available[tickerParam] && !availableLoading && (
               <p className="text-[11px] text-amber-600">

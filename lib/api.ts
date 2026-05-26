@@ -152,6 +152,84 @@ export async function getAnalysisHistory(): Promise<unknown[]> {
   return apiFetch<unknown[]>("/analyze/history");
 }
 
+// ── Transcript download ───────────────────────────────────────────────────────
+
+export async function getTranscriptDownloadUrl(
+  ticker: string,
+  quarter: string
+): Promise<{ url: string; filename: string }> {
+  const token = await getToken();
+  const res = await fetch(
+    `${API_URL}/transcript/download?ticker=${encodeURIComponent(ticker)}&quarter=${encodeURIComponent(quarter)}`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`API ${res.status}: ${err}`);
+  }
+  return res.json();
+}
+
+// ── Insights stream ───────────────────────────────────────────────────────────
+
+export type InsightsProgressEvent =
+  | { type: "start"; ticker: string; quarters: string[] }
+  | { type: "quarter_done"; quarter: string }
+  | { type: "synthesis_start" }
+  | { type: "done"; payload: Record<string, unknown> }
+  | { type: "error"; detail: string };
+
+export async function runInsightsStream(
+  ticker: string,
+  onEvent: (event: InsightsProgressEvent) => void
+): Promise<Record<string, unknown>> {
+  const token = await getToken();
+  const response = await fetch(`${API_URL}/insights`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ ticker }),
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`API ${response.status}: ${error}`);
+  }
+  if (!response.body) throw new Error("No response body");
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let result: Record<string, unknown> | null = null;
+
+  const processLine = (line: string) => {
+    if (!line.trim()) return;
+    let event: InsightsProgressEvent;
+    try {
+      event = JSON.parse(line) as InsightsProgressEvent;
+    } catch {
+      return;
+    }
+    onEvent(event);
+    if (event.type === "done") result = event.payload;
+    if (event.type === "error") throw new Error(event.detail);
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) processLine(line);
+  }
+  if (buffer.trim()) processLine(buffer);
+  if (!result) throw new Error("Insights pipeline completed without result");
+  return result;
+}
+
 // ── Email helpers ─────────────────────────────────────────────────────────────
 
 export async function sendEmail(params: {

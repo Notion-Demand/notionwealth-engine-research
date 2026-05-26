@@ -189,11 +189,12 @@ export const SCREENER_SLUGS: Record<string, string> = {
   APOLLOHOSP: "/company/APOLLOHOSP/consolidated/",
 };
 
-/** The 4 thematic analysis sections — exported for both pipeline and UI */
+/** The 5 thematic analysis sections — exported for both pipeline and UI */
 export const SECTION_NAMES = [
-  "Capital & Liquidity",
   "Revenue & Growth",
-  "Operational Margin",
+  "Margins & Profitability",
+  "Cost Structure",
+  "CapEx & Balance Sheet",
   "Macro & Risk",
 ] as const;
 

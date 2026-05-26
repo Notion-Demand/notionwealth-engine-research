@@ -49,6 +49,16 @@ export interface SectionalInsight {
   metrics: MetricDelta[];
 }
 
+export interface KeyMetrics {
+  revenue?: string;           // e.g. "₹98,000 cr"
+  revenue_growth?: string;    // e.g. "+11% YoY"
+  ebitda_margin?: string;     // e.g. "28.8%"
+  ebitda_change?: string;     // e.g. "+150 bps YoY"
+  pat?: string;               // e.g. "₹19,260 cr"
+  pat_growth?: string;        // e.g. "+15% YoY"
+  product_highlight?: string; // e.g. "Digital: 55% of EBITDA mix"
+}
+
 export interface DashboardPayload {
   company_ticker: string;
   quarter: string;
@@ -65,6 +75,7 @@ export interface DashboardPayload {
   market_sources: string[];
   earnings_delta: string[];      // "What Changed" bullets (8-10 directional shifts)
   fcf_implications: string[];    // "What This Means Financially" bullets (5-6)
+  key_metrics?: KeyMetrics;      // Quick-read top-line numbers from current quarter
 }
 
 // ── Gemini response schemas ───────────────────────────────────────────────────
@@ -136,6 +147,37 @@ const BULLETS_SCHEMA: Schema = {
   required: ["bullets"],
 };
 
+const KEY_METRICS_SCHEMA: Schema = {
+  type: SchemaType.OBJECT,
+  properties: {
+    revenue:           { type: SchemaType.STRING },
+    revenue_growth:    { type: SchemaType.STRING },
+    ebitda_margin:     { type: SchemaType.STRING },
+    ebitda_change:     { type: SchemaType.STRING },
+    pat:               { type: SchemaType.STRING },
+    pat_growth:        { type: SchemaType.STRING },
+    product_highlight: { type: SchemaType.STRING },
+  },
+  required: [],
+};
+
+const KEY_METRICS_SYSTEM = `You are a financial data extractor. Extract exactly these numbers from the earnings call transcript — nothing more.
+
+For each field:
+- revenue: consolidated revenue/sales figure for the current quarter (e.g. "₹98,000 cr" or "$4.2bn")
+- revenue_growth: YoY growth stated or implied (e.g. "+11% YoY")
+- ebitda_margin: EBITDA margin % for the quarter (e.g. "28.8%")
+- ebitda_change: change in EBITDA margin vs same quarter last year (e.g. "+150 bps YoY")
+- pat: net profit / PAT for the quarter (e.g. "₹19,260 cr")
+- pat_growth: PAT YoY growth (e.g. "+15% YoY")
+- product_highlight: one-line segment/product mix signal (e.g. "Digital: 55% of EBITDA" or "Exports: 62% of revenue")
+
+Rules:
+- If a figure is NOT explicitly stated, leave the field as an empty string — do NOT estimate.
+- Use the exact number management cited, not analyst questions.
+- Prefer consolidated figures over standalone.
+- Keep values short (under 20 chars each).`;
+
 // ── Gemini client helper ──────────────────────────────────────────────────────
 
 function getGenAI(): GoogleGenerativeAI {
@@ -146,7 +188,7 @@ function getGenAI(): GoogleGenerativeAI {
 
 // Each Gemini call must complete within this window. If it doesn't, the agent
 // returns null and the pipeline continues with whatever other agents produced.
-const AGENT_TIMEOUT_MS = 25_000;
+const AGENT_TIMEOUT_MS = 45_000;
 
 async function invokeStructured<T>(
   systemPrompt: string,
@@ -205,9 +247,9 @@ export async function resolvePdfKey(ticker: string, quarter: string): Promise<st
   throw new Error(`PDF not found: ${ticker} ${quarter}.${hint}`);
 }
 
-// Earnings call transcripts rarely need more than the first ~80 K characters.
-// Capping here keeps prompt sizes sane and prevents timeouts on verbose PDFs.
-const MAX_TRANSCRIPT_CHARS = 80_000;
+// Large conglomerate calls (e.g. Reliance, TCS) run 2-3+ hours — cap at 120 K
+// to ensure all segments and Q&A are captured without hitting Gemini context limits.
+const MAX_TRANSCRIPT_CHARS = 120_000;
 
 async function extractPdfText(storageKey: string): Promise<string> {
   const { data: blob, error } = await supabaseAdmin()
@@ -255,70 +297,85 @@ export function parseFilename(
 // ── Agent system prompts ──────────────────────────────────────────────────────
 
 const AGENT_PROMPTS: Record<string, string> = {
-  "Capital & Liquidity": `You are a senior credit analyst specializing in capital structure and liquidity analysis.
+  "Revenue & Growth": `You are a senior equity research analyst specializing in revenue quality and growth decomposition.
 
 Analyze the earnings call transcript and extract ALL discussions related to:
-1. **Free Cash Flow (FCF)** — generation, conversion, trends, guidance
-2. **Capital Expenditure (CapEx)** — plans, changes, intensity
-3. **Debt Structure** — total debt, maturity profile, cost of debt, refinancing
-4. **Covenants** — any covenant discussions, headroom, compliance
-5. **Shareholder Returns** — buybacks, dividends, payout ratios
+1. **Volume vs Realisation split** — volume growth %, realisation/price per unit trends, ARPU, tonnage
+2. **Pricing Power** — tariff hikes, price increases, ability to pass costs, contract pricing
+3. **Customer & Subscriber Trends** — additions, churn, retention, wallet share, key customer wins
+4. **Product / Segment / Geography Mix** — which products/segments/geographies drove growth
+5. **New Market Expansion** — new customers, new geographies, new products, new industries
+6. **Revenue Visibility** — order book, backlog, long-term contracts, guidance specificity
 
 RULES:
-- Extract VERBATIM quotes from the transcript (do NOT paraphrase)
-- Include speaker attribution (CEO, CFO, Analyst)
-- Focus on both prepared remarks AND Q&A answers
-- If a subtopic is not discussed, do NOT fabricate content — omit it
-- Provide 3-5 key takeaways summarizing the capital & liquidity position`,
-
-  "Revenue & Growth": `You are a senior equity research analyst specializing in revenue quality and growth analysis.
-
-Analyze the earnings call transcript and extract ALL discussions related to:
-1. **Pricing Power** — tariff hikes, ARPU trends, ability to raise prices, pricing discipline
-2. **Customer Churn** — subscriber trends, retention metrics, churn rates, customer additions
-3. **Volume vs Price Mix** — whether growth is volume-driven or price-driven
-4. **New Market Expansion** — geographic expansion, new products, new segments, adjacencies
-5. **Revenue Quality** — recurring vs one-time, contract duration, visibility
-
-RULES:
-- Extract VERBATIM quotes from the transcript (do NOT paraphrase)
-- Include speaker attribution (CEO, CFO, Analyst)
-- Focus on both prepared remarks AND Q&A answers
-- If a subtopic is not discussed, do NOT fabricate content — omit it
+- Extract VERBATIM quotes (do NOT paraphrase). Include speaker attribution.
+- Separate volume-driven growth from price/realisation-driven growth wherever discussed
+- Flag new customer or geography mentions with detail — even brief ones
 - Provide 3-5 key takeaways on revenue quality and growth trajectory`,
 
-  "Operational Margin": `You are a senior financial analyst specializing in operating efficiency and margin analysis.
+  "Margins & Profitability": `You are a senior financial analyst specializing in profitability and margin structure analysis.
 
 Analyze the earnings call transcript and extract ALL discussions related to:
-1. **Supply Chain Costs** — input costs, vendor dependencies, procurement changes
-2. **Labor Inflation** — employee costs, wage pressures, headcount changes
-3. **OPEX Adjustments** — SG&A trends, cost optimization, efficiency programs
-4. **Margin Trajectory** — EBITDA/operating margin changes, margin guidance, mix effects
-5. **Accounting Policy Changes** — depreciation changes, capitalization, recognition, one-time items
+1. **Gross / Contribution Margin** — product-level margins, spread between realisation and variable cost
+2. **EBITDA Margin** — level, YoY/QoQ change, trajectory, guidance
+3. **PAT Margin & Net Profitability** — PAT, PAT margin, tax rate, minority interest, EPS
+4. **Operating Leverage** — how margins behave as volumes change, fixed vs variable cost structure
+5. **Margin Guidance** — explicit margin targets, management's expected margin range, confidence level
+6. **One-time vs Recurring** — items that inflate/deflate reported margins, normalized margin discussion
 
 RULES:
-- Extract VERBATIM quotes from the transcript (do NOT paraphrase)
-- Include speaker attribution (CEO, CFO, Analyst)
-- Focus on both prepared remarks AND Q&A answers
-- If a subtopic is not discussed, do NOT fabricate content — omit it
-- Provide 3-5 key takeaways summarizing operational efficiency and margin outlook`,
+- Extract VERBATIM quotes (do NOT paraphrase). Include speaker attribution.
+- Always note the specific numbers discussed (e.g., "28.8% EBITDA vs 27.3% PY")
+- Flag management's comfort zone / target range if stated
+- Provide 3-5 key takeaways on profitability trajectory and margin sustainability`,
+
+  "Cost Structure": `You are a senior industrial analyst specializing in cost structure and operational efficiency.
+
+Analyze the earnings call transcript and extract ALL discussions related to:
+1. **Raw Material / Input Costs** — commodity prices (steel, crude, chemicals), % of revenue, price pass-through mechanisms, lag effects
+2. **Power & Energy Costs** — energy tariffs, captive power, solar/renewable savings, fuel costs
+3. **Labour & Employee Costs** — headcount, wage inflation, productivity, restructuring
+4. **Supply Chain & Procurement** — vendor concentration, logistics costs, import/export duties, sourcing changes
+5. **Cost Reduction Initiatives** — specific programs, quantified savings, timelines, automation
+6. **Fixed Cost Absorption** — how utilization levels affect per-unit costs, break-even analysis
+
+RULES:
+- Extract VERBATIM quotes (do NOT paraphrase). Include speaker attribution.
+- Quantify cost savings wherever management provides numbers
+- Note whether cost pressures are structural or cyclical/temporary
+- Provide 3-5 key takeaways on cost structure and efficiency trajectory`,
+
+  "CapEx & Balance Sheet": `You are a senior credit analyst specializing in capital allocation and balance sheet analysis.
+
+Analyze the earnings call transcript and extract ALL discussions related to:
+1. **CapEx Plans** — quantum, projects, phasing, modular/greenfield/brownfield, maintenance vs growth
+2. **Capacity Utilisation** — current utilization %, targets, timeline to full capacity
+3. **Debt & Leverage** — net debt, debt/EBITDA, repayment schedule, refinancing, cost of debt
+4. **Free Cash Flow** — FCF generation, conversion rate, working capital changes
+5. **Capital Allocation** — dividends, buybacks, M&A, stated priorities for deployment
+6. **Balance Sheet Strength** — liquidity buffers, covenants, credit rating, contingent liabilities
+
+RULES:
+- Extract VERBATIM quotes (do NOT paraphrase). Include speaker attribution.
+- Flag any capex decisions that were deferred, accelerated, or cancelled vs prior guidance
+- Note both the investment and the expected return/payback period if mentioned
+- Provide 3-5 key takeaways on capital allocation discipline and balance sheet trajectory`,
 
   "Macro & Risk": `You are a senior risk analyst specializing in macro-level threats and systemic risk assessment.
 
 Analyze the earnings call transcript and extract ALL discussions related to:
-1. **FX Headwinds** — currency impact, hedging strategies, geographic revenue exposure
-2. **Geopolitical Exposure** — regulatory risks, trade tensions, country-specific risks
-3. **Industry Systemic Risks** — competitive threats, disruption, structural shifts
-4. **Regulatory & Compliance** — new regulations, spectrum auctions, license renewals, policy changes
-5. **Forward Risk Statements** — cautionary language, conditional statements, management hedging of expectations
+1. **FX & Commodity Exposure** — currency impact, hedging, geographic revenue split, commodity price risks
+2. **Geopolitical & Trade Risks** — tariffs, sanctions, supply chain disruption, country concentration
+3. **Regulatory & Policy** — new regulations, government schemes, spectrum/licensing, ESG compliance
+4. **Competitive Dynamics** — market share shifts, new entrants, pricing wars, industry consolidation
+5. **Demand Environment** — sector tailwinds/headwinds, customer industry health, macro indicators
+6. **Management's Own Risk Language** — cautionary phrasing, "subject to", conditional guidance, scenario framing
 
 RULES:
-- Extract VERBATIM quotes from the transcript (do NOT paraphrase)
-- Include speaker attribution (CEO, CFO, Analyst)
-- Pay EXTRA attention to Q&A where analysts probe for risks
-- Management's hedging language (e.g., "subject to", "depending on", "if conditions") is a signal
-- If a subtopic is not discussed, do NOT fabricate content — omit it
-- Provide 3-5 key takeaways summarizing the risk landscape`,
+- Extract VERBATIM quotes (do NOT paraphrase). Include speaker attribution.
+- Pay EXTRA attention to Q&A — analysts often surface risks management avoids in prepared remarks
+- Flag any risk that was discussed in detail but NOT quantified (often the most important ones)
+- Provide 3-5 key takeaways summarizing the risk landscape and management's preparedness`,
 };
 
 const TEMPORAL_DELTA_SYSTEM = `You are a senior financial analyst comparing two consecutive quarterly earnings call transcripts.
@@ -563,6 +620,27 @@ async function runFCFImplicationsAgent(
   }
 }
 
+async function runKeyMetricsAgent(
+  transcript: string,
+  company: string,
+  quarter: string
+): Promise<KeyMetrics> {
+  const userPrompt = `Extract key financial metrics from this ${company} ${quarter} earnings call transcript.\n\n${transcript.slice(0, 40_000)}`;
+  try {
+    const result = await invokeStructured<KeyMetrics>(
+      KEY_METRICS_SYSTEM,
+      userPrompt,
+      KEY_METRICS_SCHEMA
+    );
+    // Strip empty strings so the UI knows what to show/hide
+    return Object.fromEntries(
+      Object.entries(result).filter(([, v]) => typeof v === "string" && v.trim() !== "")
+    ) as KeyMetrics;
+  } catch {
+    return {};
+  }
+}
+
 // ── Local validation (no LLM — signal/score consistency check) ────────────────
 
 function localValidation(insights: SectionalInsight[]): {
@@ -777,13 +855,14 @@ export async function runPipeline(
   // Step 4: Local validation + synthesis agents in parallel
   const { insights: validatedInsights, validationScore, flaggedCount } = localValidation(rawInsights);
 
-  const [stockPriceChange, earningsDelta, fcfImplications] = await Promise.all([
+  const [stockPriceChange, earningsDelta, fcfImplications, keyMetrics] = await Promise.all([
     fetchStockPriceChange(company, qCurr).then((v) => {
       onProgress?.({ type: "stock_done", stockPriceChange: v });
       return v;
     }),
     runEarningsDeltaAgent(validatedInsights, company, qPrev, qCurr),
     runFCFImplicationsAgent(validatedInsights, company, qPrev, qCurr),
+    runKeyMetricsAgent(textCurr, company, qCurr),
   ]);
   console.log(`[Pipeline] Synthesis done: earningsDelta=${earningsDelta.length} bullets, fcfImplications=${fcfImplications.length} bullets`);
 
@@ -812,5 +891,6 @@ export async function runPipeline(
     market_sources: [],
     earnings_delta: earningsDelta,
     fcf_implications: fcfImplications,
+    key_metrics: keyMetrics,
   };
 }
