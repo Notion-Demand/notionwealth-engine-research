@@ -12,7 +12,10 @@ import AgentPanel, {
 import { runAnalysisStream } from "@/lib/api";
 import { quarterLabel, SECTION_NAMES, QUARTERS } from "@/lib/nifty50";
 import { NIFTY200_LIST, NIFTY200 } from "@/lib/nifty200";
-import { BarChart2, RefreshCw, Bookmark, BookmarkCheck, X, Youtube, PlusCircle } from "lucide-react";
+import {
+  BarChart2, RefreshCw, Bookmark, BookmarkCheck, X, PlusCircle,
+  Upload, ChevronLeft, ChevronRight,
+} from "lucide-react";
 import clsx from "clsx";
 
 const DEFAULT_SECTIONS = [...SECTION_NAMES];
@@ -23,6 +26,13 @@ const NIFTY200_TICKERS = new Set(Object.keys(NIFTY200));
 // Fixed global quarter pair — always the two most recent quarters
 const GLOBAL_CURR = QUARTERS[0]; // e.g. Q4_2026
 const GLOBAL_PREV = QUARTERS[1]; // e.g. Q3_2026
+
+const WATCHLIST_KEY = "quantalyze_watchlist";
+const MAX_WATCHLIST = 20;
+const DEFAULT_WATCHLIST_TICKERS = [
+  "RELIANCE", "HDFC", "ICICI", "INFOSYS", "TCS",
+  "KOTAKBANK", "AXISBANK", "SBI", "BHARTI", "ITC",
+];
 
 // ── Company autocomplete ──────────────────────────────────────────────────────
 
@@ -175,38 +185,87 @@ function CompanySearch({
   );
 }
 
-const WATCHLIST_KEY = "quantalyze_watchlist";
+// ── Watchlist hook ────────────────────────────────────────────────────────────
 
 function useWatchlist(options: { ticker: string; name: string }[]) {
   const [watchlist, setWatchlist] = useState<{ ticker: string; name: string }[]>([]);
 
+  // Load from localStorage on mount; seed defaults if empty
   useEffect(() => {
     try {
       const raw = localStorage.getItem(WATCHLIST_KEY);
-      if (raw) setWatchlist(JSON.parse(raw));
+      if (raw) {
+        setWatchlist(JSON.parse(raw));
+      } else {
+        // Seed with top-10 popular stocks
+        const defaults = DEFAULT_WATCHLIST_TICKERS.map((t) => ({
+          ticker: t,
+          name: options.find((o) => o.ticker === t)?.name ?? t,
+        }));
+        setWatchlist(defaults);
+        localStorage.setItem(WATCHLIST_KEY, JSON.stringify(defaults));
+      }
     } catch { /* ignore */ }
-  }, []);
-
-  const save = useCallback((list: { ticker: string; name: string }[]) => {
-    setWatchlist(list);
-    localStorage.setItem(WATCHLIST_KEY, JSON.stringify(list));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const toggle = useCallback((ticker: string) => {
     setWatchlist((prev) => {
       const exists = prev.find((w) => w.ticker === ticker);
-      const name = options.find((o) => o.ticker === ticker)?.name ?? ticker;
-      const next = exists
-        ? prev.filter((w) => w.ticker !== ticker)
-        : [...prev, { ticker, name }];
+      let next: { ticker: string; name: string }[];
+      if (exists) {
+        next = prev.filter((w) => w.ticker !== ticker);
+      } else {
+        if (prev.length >= MAX_WATCHLIST) return prev; // cap at 20
+        const name = options.find((o) => o.ticker === ticker)?.name ?? ticker;
+        next = [...prev, { ticker, name }];
+      }
       localStorage.setItem(WATCHLIST_KEY, JSON.stringify(next));
       return next;
     });
-  }, [options, save]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [options]);
 
-  const isWatched = useCallback((ticker: string) => watchlist.some((w) => w.ticker === ticker), [watchlist]);
+  const bulkAdd = useCallback((tickers: string[]): number => {
+    let added = 0;
+    setWatchlist((prev) => {
+      const existing = new Set(prev.map((w) => w.ticker));
+      const remaining = MAX_WATCHLIST - prev.length;
+      const toAdd = tickers.filter((t) => !existing.has(t)).slice(0, remaining);
+      added = toAdd.length;
+      if (added === 0) return prev;
+      const next = [
+        ...prev,
+        ...toAdd.map((t) => ({
+          ticker: t,
+          name: options.find((o) => o.ticker === t)?.name ?? t,
+        })),
+      ];
+      localStorage.setItem(WATCHLIST_KEY, JSON.stringify(next));
+      return next;
+    });
+    return added;
+  }, [options]);
 
-  return { watchlist, toggle, isWatched };
+  const cycleNext = useCallback((currentTicker: string): string | null => {
+    if (watchlist.length === 0) return null;
+    const idx = watchlist.findIndex((w) => w.ticker === currentTicker);
+    const nextIdx = (idx + 1) % watchlist.length;
+    return watchlist[nextIdx].ticker;
+  }, [watchlist]);
+
+  const cyclePrev = useCallback((currentTicker: string): string | null => {
+    if (watchlist.length === 0) return null;
+    const idx = watchlist.findIndex((w) => w.ticker === currentTicker);
+    const prevIdx = (idx - 1 + watchlist.length) % watchlist.length;
+    return watchlist[prevIdx].ticker;
+  }, [watchlist]);
+
+  const isWatched = useCallback(
+    (ticker: string) => watchlist.some((w) => w.ticker === ticker),
+    [watchlist]
+  );
+
+  return { watchlist, toggle, bulkAdd, cycleNext, cyclePrev, isWatched };
 }
 
 // ── User custom tickers hook ──────────────────────────────────────────────────
@@ -257,11 +316,9 @@ export default function DashboardClient() {
       .then((r) => r.json())
       .then((data: Record<string, string[]>) => {
         setAvailable(data);
-        // If a specific ticker was requested (e.g. after Request upload), select it
         if (selectTicker && data[selectTicker]) {
           setTicker(selectTicker);
         }
-        // Quarters are always GLOBAL_CURR / GLOBAL_PREV — never changed by fetch
       })
       .catch(() => { })
       .finally(() => setAvailableLoading(false));
@@ -275,7 +332,6 @@ export default function DashboardClient() {
   const { userTickers, add: addUserTicker } = useUserTickers();
 
   const filteredList = useMemo(() => {
-    // Nifty 200 universe + user's custom tickers + any extras already in storage
     const userTickerSet = new Set(userTickers.map((t) => t.ticker));
     const extras = Object.keys(available)
       .filter((t) => !NIFTY200_TICKERS.has(t) && !userTickerSet.has(t))
@@ -285,14 +341,64 @@ export default function DashboardClient() {
     return [...NIFTY200_LIST, ...custom, ...extras];
   }, [available, userTickers]);
 
-  const { watchlist, toggle: toggleWatchlist, isWatched } = useWatchlist(filteredList);
+  const { watchlist, toggle: toggleWatchlist, bulkAdd: watchlistBulkAdd, cycleNext, cyclePrev, isWatched } = useWatchlist(filteredList);
 
   // ── Picker state ────────────────────────────────────────────────────────────
-  const [ticker, setTicker] = useState("BHARTI");
+  const [ticker, setTicker] = useState(tickerParam ?? "RELIANCE");
 
   // Quarters are globally fixed — always the two most recent across all stocks
   const qCurr = GLOBAL_CURR;
   const qPrev = GLOBAL_PREV;
+
+  // ── CSV upload for watchlist ────────────────────────────────────────────────
+  const csvInputRef = useRef<HTMLInputElement>(null);
+  const [csvMsg, setCsvMsg] = useState<string | null>(null);
+
+  function handleCsvUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string;
+      const tokens = text.split(/[\s,;|\t\r\n]+/);
+      const tickers = Array.from(
+        new Set(
+          tokens
+            .map((t) => t.replace(/[^A-Za-z0-9&]/g, "").toUpperCase())
+            .filter((t) => t.length >= 2 && t.length <= 12 && /^[A-Z]/.test(t))
+        )
+      );
+      const added = watchlistBulkAdd(tickers);
+      setCsvMsg(`Added ${added} ticker${added !== 1 ? "s" : ""} from ${file.name}`);
+      setTimeout(() => setCsvMsg(null), 4000);
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  }
+
+  // ── Keyboard cycling (← → when not in an input) ────────────────────────────
+  const cycleRef = useRef({ cycleNext, cyclePrev, ticker, handleTickerChange: (t: string) => { } });
+  useEffect(() => {
+    cycleRef.current.cycleNext = cycleNext;
+    cycleRef.current.cyclePrev = cyclePrev;
+    cycleRef.current.ticker = ticker;
+  });
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      const active = document.activeElement;
+      if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) return;
+      if (e.key === "ArrowRight") {
+        const next = cycleRef.current.cycleNext(cycleRef.current.ticker);
+        if (next) cycleRef.current.handleTickerChange(next);
+      } else if (e.key === "ArrowLeft") {
+        const prev = cycleRef.current.cyclePrev(cycleRef.current.ticker);
+        if (prev) cycleRef.current.handleTickerChange(prev);
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   // ── Auto-fetch state ─────────────────────────────────────────────────────────
   const [fetchingTranscripts, setFetchingTranscripts] = useState(false);
@@ -307,13 +413,14 @@ export default function DashboardClient() {
     setCoverageMsg(null);
   }
 
+  // Wire handleTickerChange into cycleRef after it's defined
+  cycleRef.current.handleTickerChange = handleTickerChange;
+
   // ── Auto-fetch transcripts when a ticker has none ────────────────────────────
   useEffect(() => {
     if (!ticker || availableLoading) return;
-    if (available[ticker]?.length > 0) return; // already has transcripts
-    if (fetchAttempted.current.has(ticker)) return; // already tried this session
-    // Outside Nifty 200 is now allowed — user may have added it manually
-    // Just proceed with the request attempt (will no-op if transcripts don't exist)
+    if (available[ticker]?.length > 0) return;
+    if (fetchAttempted.current.has(ticker)) return;
 
     fetchAttempted.current.add(ticker);
     setFetchingTranscripts(true);
@@ -350,14 +457,13 @@ export default function DashboardClient() {
     setError(null);
     setResult(null);
     setLoading(true);
-    setAgentState(null); // will be set on "start" event (cache hits skip this)
+    setAgentState(null);
 
     try {
       const res = await runAnalysisStream(
         { ticker, q_prev: qPrev, q_curr: qCurr, ...(force ? { force: true } : {}) },
         (event) => {
           setAgentState((prev) => {
-            // "start" always initialises fresh state (prev is null at this point)
             if (event.type === "start") {
               const running = Object.fromEntries(
                 event.sections.map((s) => [s, "running" as AgentStatus])
@@ -375,7 +481,6 @@ export default function DashboardClient() {
               };
             }
 
-            // All other events need existing state — skip if panel not yet initialised
             if (!prev) return prev;
             const next: AgentPanelState = {
               ...prev,
@@ -391,13 +496,11 @@ export default function DashboardClient() {
                 } else {
                   next.currStatus[event.section] = "done";
                 }
-                // Once both prev+curr are done for a section, start its delta
                 const prevDone = next.prevStatus[event.section] === "done";
                 const currDone = next.currStatus[event.section] === "done";
                 if (prevDone && currDone) {
                   next.deltaStatus[event.section] = "running";
                 }
-                // Check if ALL thematic agents done → enter delta phase
                 const allThematic = DEFAULT_SECTIONS.every(
                   (s) => next.prevStatus[s] === "done" && next.currStatus[s] === "done"
                 );
@@ -465,33 +568,81 @@ export default function DashboardClient() {
         </div>
 
         {/* ── Watchlist ──────────────────────────────────────────────────── */}
-        {watchlist.length > 0 && (
-          <div className="mb-4 flex flex-wrap items-center gap-2">
-            <span className="text-[11px] font-medium uppercase tracking-wide text-gray-400">
-              Watchlist
-            </span>
-            {watchlist.map((w) => (
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <span className="text-[11px] font-medium uppercase tracking-wide text-gray-400">
+            Watchlist
+            {watchlist.length > 0 && (
+              <span className="ml-1 font-normal text-gray-300">
+                {watchlist.length}/{MAX_WATCHLIST}
+              </span>
+            )}
+          </span>
+
+          {/* Cycle ◀ ▶ buttons */}
+          {watchlist.length > 1 && (
+            <>
               <button
-                key={w.ticker}
                 type="button"
-                onClick={() => handleTickerChange(w.ticker)}
-                className={clsx(
-                  "group inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors",
-                  w.ticker === ticker
-                    ? "border-brand-300 bg-brand-50 text-brand-700"
-                    : "border-gray-200 bg-white text-gray-600 hover:border-brand-200 hover:text-brand-600"
-                )}
+                title="Previous stock (←)"
+                onClick={() => { const t = cyclePrev(ticker); if (t) handleTickerChange(t); }}
+                className="inline-flex items-center justify-center h-6 w-6 rounded border border-gray-200 bg-white text-gray-400 hover:text-gray-600 hover:border-gray-300 transition-colors"
               >
-                {w.ticker}
-                <X
-                  size={10}
-                  className="opacity-40 group-hover:opacity-100"
-                  onClick={(e) => { e.stopPropagation(); toggleWatchlist(w.ticker); }}
-                />
+                <ChevronLeft size={12} />
               </button>
-            ))}
-          </div>
-        )}
+              <button
+                type="button"
+                title="Next stock (→)"
+                onClick={() => { const t = cycleNext(ticker); if (t) handleTickerChange(t); }}
+                className="inline-flex items-center justify-center h-6 w-6 rounded border border-gray-200 bg-white text-gray-400 hover:text-gray-600 hover:border-gray-300 transition-colors"
+              >
+                <ChevronRight size={12} />
+              </button>
+            </>
+          )}
+
+          {watchlist.map((w) => (
+            <button
+              key={w.ticker}
+              type="button"
+              onClick={() => handleTickerChange(w.ticker)}
+              className={clsx(
+                "group inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+                w.ticker === ticker
+                  ? "border-brand-300 bg-brand-50 text-brand-700"
+                  : "border-gray-200 bg-white text-gray-600 hover:border-brand-200 hover:text-brand-600"
+              )}
+            >
+              {w.ticker}
+              <X
+                size={10}
+                className="opacity-40 group-hover:opacity-100"
+                onClick={(e) => { e.stopPropagation(); toggleWatchlist(w.ticker); }}
+              />
+            </button>
+          ))}
+
+          {/* CSV upload */}
+          <input
+            ref={csvInputRef}
+            type="file"
+            accept=".csv,.txt"
+            className="hidden"
+            onChange={handleCsvUpload}
+          />
+          <button
+            type="button"
+            onClick={() => csvInputRef.current?.click()}
+            title={`Bulk-add tickers from CSV (max ${MAX_WATCHLIST})`}
+            className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-gray-300 px-3 py-1 text-xs font-medium text-gray-400 hover:border-brand-400 hover:text-brand-600 transition-colors"
+          >
+            <Upload size={11} />
+            CSV
+          </button>
+
+          {csvMsg && (
+            <span className="text-[11px] text-emerald-600 font-medium">{csvMsg}</span>
+          )}
+        </div>
 
         {/* ── Picker form ──────────────────────────────────────────────── */}
         <form
@@ -510,7 +661,7 @@ export default function DashboardClient() {
                   type="button"
                   onClick={() => toggleWatchlist(ticker)}
                   disabled={loading}
-                  title={isWatched(ticker) ? "Remove from watchlist" : "Add to watchlist"}
+                  title={isWatched(ticker) ? "Remove from watchlist" : `Add to watchlist (${watchlist.length}/${MAX_WATCHLIST})`}
                   className="flex items-center gap-1 text-[11px] text-gray-400 hover:text-brand-600 disabled:opacity-40"
                 >
                   {isWatched(ticker)

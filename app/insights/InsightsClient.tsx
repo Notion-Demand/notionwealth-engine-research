@@ -21,6 +21,7 @@ import {
   AlertCircle,
   ChevronDown,
   ChevronRight,
+  ChevronLeft,
   Loader2,
   Target,
   Globe,
@@ -36,6 +37,11 @@ import clsx from "clsx";
 // ── Watchlist (shared with Dashboard via same localStorage key) ───────────────
 
 const WATCHLIST_KEY = "quantalyze_watchlist";
+const MAX_WATCHLIST = 20;
+const DEFAULT_WATCHLIST_TICKERS = [
+  "RELIANCE", "HDFC", "ICICI", "INFOSYS", "TCS",
+  "KOTAKBANK", "AXISBANK", "SBI", "BHARTI", "ITC",
+];
 
 function useInsightsWatchlist() {
   const [watchlist, setWatchlist] = useState<{ ticker: string; name: string }[]>([]);
@@ -43,28 +49,41 @@ function useInsightsWatchlist() {
   useEffect(() => {
     try {
       const raw = localStorage.getItem(WATCHLIST_KEY);
-      if (raw) setWatchlist(JSON.parse(raw));
+      if (raw) {
+        setWatchlist(JSON.parse(raw));
+      } else {
+        // Seed with top-10 popular stocks
+        const defaults = DEFAULT_WATCHLIST_TICKERS.map((t) => ({ ticker: t, name: t }));
+        setWatchlist(defaults);
+        localStorage.setItem(WATCHLIST_KEY, JSON.stringify(defaults));
+      }
     } catch { /* ignore */ }
   }, []);
 
   const toggle = useCallback((ticker: string) => {
     setWatchlist((prev) => {
       const exists = prev.find((w) => w.ticker === ticker);
-      const next = exists
-        ? prev.filter((w) => w.ticker !== ticker)
-        : [...prev, { ticker, name: ticker }];
+      let next: { ticker: string; name: string }[];
+      if (exists) {
+        next = prev.filter((w) => w.ticker !== ticker);
+      } else {
+        if (prev.length >= MAX_WATCHLIST) return prev; // cap at 20
+        next = [...prev, { ticker, name: ticker }];
+      }
       localStorage.setItem(WATCHLIST_KEY, JSON.stringify(next));
       return next;
     });
   }, []);
 
-  /** Add multiple tickers at once — skips duplicates. Returns count added. */
+  /** Add multiple tickers at once — skips duplicates, respects max 20. Returns count added. */
   const bulkAdd = useCallback((tickers: string[]): number => {
     let added = 0;
     setWatchlist((prev) => {
       const existing = new Set(prev.map((w) => w.ticker));
-      const toAdd = tickers.filter((t) => !existing.has(t));
+      const remaining = MAX_WATCHLIST - prev.length;
+      const toAdd = tickers.filter((t) => !existing.has(t)).slice(0, remaining);
       added = toAdd.length;
+      if (added === 0) return prev;
       const next = [...prev, ...toAdd.map((t) => ({ ticker: t, name: t }))];
       localStorage.setItem(WATCHLIST_KEY, JSON.stringify(next));
       return next;
@@ -72,9 +91,23 @@ function useInsightsWatchlist() {
     return added;
   }, []);
 
+  const cycleNext = useCallback((currentTicker: string): string | null => {
+    if (watchlist.length === 0) return null;
+    const idx = watchlist.findIndex((w) => w.ticker === currentTicker);
+    const nextIdx = (idx + 1) % watchlist.length;
+    return watchlist[nextIdx].ticker;
+  }, [watchlist]);
+
+  const cyclePrev = useCallback((currentTicker: string): string | null => {
+    if (watchlist.length === 0) return null;
+    const idx = watchlist.findIndex((w) => w.ticker === currentTicker);
+    const prevIdx = (idx - 1 + watchlist.length) % watchlist.length;
+    return watchlist[prevIdx].ticker;
+  }, [watchlist]);
+
   const isWatched = useCallback((ticker: string) => watchlist.some((w) => w.ticker === ticker), [watchlist]);
 
-  return { watchlist, toggle, bulkAdd, isWatched };
+  return { watchlist, toggle, bulkAdd, cycleNext, cyclePrev, isWatched };
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -363,8 +396,8 @@ export default function InsightsClient() {
   const searchParams = useSearchParams();
   const paramTicker = searchParams.get("ticker")?.toUpperCase() ?? "";
 
-  const [ticker, setTicker] = useState(paramTicker);
-  const [inputTicker, setInputTicker] = useState(paramTicker);
+  const [ticker, setTicker] = useState(paramTicker || "RELIANCE");
+  const [inputTicker, setInputTicker] = useState(paramTicker || "RELIANCE");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [payload, setPayload] = useState<InsightsPayload | null>(null);
@@ -378,9 +411,33 @@ export default function InsightsClient() {
   const [tab, setTab] = useState<"overview" | "themes" | "guidance" | "segments" | "timeline">("overview");
 
   // Watchlist
-  const { watchlist, toggle: toggleWatchlist, bulkAdd, isWatched } = useInsightsWatchlist();
+  const { watchlist, toggle: toggleWatchlist, bulkAdd, cycleNext, cyclePrev, isWatched } = useInsightsWatchlist();
   const csvInputRef = useRef<HTMLInputElement>(null);
   const [csvMsg, setCsvMsg] = useState<string | null>(null);
+
+  // Keyboard cycling (← → when not in an input)
+  const cycleRef = useRef({ cycleNext, cyclePrev, inputTicker: paramTicker || "RELIANCE" });
+  useEffect(() => {
+    cycleRef.current.cycleNext = cycleNext;
+    cycleRef.current.cyclePrev = cyclePrev;
+    cycleRef.current.inputTicker = inputTicker;
+  });
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      const active = document.activeElement;
+      if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) return;
+      if (e.key === "ArrowRight") {
+        const next = cycleRef.current.cycleNext(cycleRef.current.inputTicker);
+        if (next) { setInputTicker(next); setTicker(next); run(next); }
+      } else if (e.key === "ArrowLeft") {
+        const prev = cycleRef.current.cyclePrev(cycleRef.current.inputTicker);
+        if (prev) { setInputTicker(prev); setTicker(prev); run(prev); }
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function handleCsvUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -463,15 +520,50 @@ export default function InsightsClient() {
           </p>
         </div>
 
-        {/* Watchlist row: chips + Upload CSV */}
+        {/* Watchlist row: chips + cycle + Upload CSV */}
         <div className="mb-3 flex flex-wrap items-center gap-2 min-h-[28px]">
-          <span className="text-[11px] font-medium uppercase tracking-wide text-gray-400">Watchlist</span>
+          <span className="text-[11px] font-medium uppercase tracking-wide text-gray-400">
+            Watchlist
+            {watchlist.length > 0 && (
+              <span className="ml-1 font-normal text-gray-300">
+                {watchlist.length}/{MAX_WATCHLIST}
+              </span>
+            )}
+          </span>
+
+          {/* Cycle ◀ ▶ buttons */}
+          {watchlist.length > 1 && (
+            <>
+              <button
+                type="button"
+                title="Previous stock (←)"
+                onClick={() => {
+                  const t = cyclePrev(inputTicker);
+                  if (t) { setInputTicker(t); setTicker(t); run(t); }
+                }}
+                className="inline-flex items-center justify-center h-6 w-6 rounded border border-gray-200 bg-white text-gray-400 hover:text-gray-600 hover:border-gray-300 transition-colors"
+              >
+                <ChevronLeft size={12} />
+              </button>
+              <button
+                type="button"
+                title="Next stock (→)"
+                onClick={() => {
+                  const t = cycleNext(inputTicker);
+                  if (t) { setInputTicker(t); setTicker(t); run(t); }
+                }}
+                className="inline-flex items-center justify-center h-6 w-6 rounded border border-gray-200 bg-white text-gray-400 hover:text-gray-600 hover:border-gray-300 transition-colors"
+              >
+                <ChevronRight size={12} />
+              </button>
+            </>
+          )}
 
           {watchlist.map((w) => (
             <button
               key={w.ticker}
               type="button"
-              onClick={() => { setInputTicker(w.ticker); run(w.ticker); }}
+              onClick={() => { setInputTicker(w.ticker); setTicker(w.ticker); run(w.ticker); }}
               className={clsx(
                 "group inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors",
                 inputTicker === w.ticker
@@ -500,10 +592,10 @@ export default function InsightsClient() {
             type="button"
             onClick={() => csvInputRef.current?.click()}
             className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-gray-300 px-3 py-1 text-xs font-medium text-gray-400 hover:border-brand-400 hover:text-brand-600 transition-colors"
-            title="Upload a CSV/spreadsheet of tickers to bulk-add to watchlist"
+            title={`Upload a CSV of tickers to bulk-add (max ${MAX_WATCHLIST})`}
           >
             <Upload size={11} />
-            Upload CSV
+            CSV
           </button>
 
           {/* Success toast */}
