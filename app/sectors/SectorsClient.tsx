@@ -69,6 +69,55 @@ const DIMENSION_META: Record<string, { icon: string; label: string; short: strin
     "Capex Cycle":        { icon: "🏗️", label: "CapEx Cycle",        short: "CapEx",    why: "Capex cycles drive multi-year earnings growth." },
 };
 
+// ── Signal quality helpers ────────────────────────────────────────────────────
+
+/**
+ * Returns true if a company signal contains a real business observation.
+ * Filters out:
+ *   - "Insufficient data" placeholders
+ *   - Transcript metadata ("transitioned from scheduling to uploading", etc.)
+ *   - Score-0 neutral noise that adds nothing to the weighted average
+ */
+function hasRealSignal(cs: CompanySignal): boolean {
+    const lower = (cs.signal ?? "").toLowerCase();
+    if (lower.includes("insufficient data"))      return false;
+    if (lower.includes("no data"))                return false;
+    if (lower.includes("no transcript"))          return false;
+    if (lower.includes("no earnings"))            return false;
+    // Metadata about transcript availability — not a business observation
+    if (
+        lower.includes("transcript") &&
+        (
+            lower.includes("upload") ||
+            lower.includes("schedul") ||
+            lower.includes("transition") ||
+            lower.includes("earnings call")
+        )
+    ) return false;
+    return true;
+}
+
+/** Sum of weight_pct for companies with real signals → 0–100 */
+function coveragePct(signals: CompanySignal[]): number {
+    return signals
+        .filter(hasRealSignal)
+        .reduce((sum, cs) => sum + (cs.weight_pct ?? 0), 0);
+}
+
+/** Color class for coverage badge */
+function coverageCls(pct: number): string {
+    if (pct >= 60) return "text-emerald-600";
+    if (pct >= 30) return "text-amber-500";
+    return "text-red-500";
+}
+
+/** Background class for coverage badge pill */
+function coverageBgCls(pct: number): string {
+    if (pct >= 60) return "bg-emerald-50 text-emerald-700 border-emerald-200";
+    if (pct >= 30) return "bg-amber-50 text-amber-700 border-amber-200";
+    return "bg-red-50 text-red-600 border-red-200";
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function scoreColor(s: number): string {
@@ -123,6 +172,8 @@ function DimTile({
     // Gauge bar: 50% = centre, extends left (red) or right (green)
     const barPct = Math.min(Math.abs(s) / 5 * 50, 50); // scaled: 5 → full half
     const isPos = s >= 0;
+    const cov = coveragePct(dim.company_signals);
+    const lowCoverage = cov < 30;
 
     return (
         <button
@@ -130,31 +181,43 @@ function DimTile({
             className={clsx(
                 "rounded-xl border p-3.5 text-left transition-all hover:shadow-sm",
                 active ? "ring-2 ring-brand-400 ring-offset-1" : "",
+                lowCoverage ? "opacity-60" : "",
                 scoreBorder(s),
                 scoreBg(s),
             )}
         >
             <div className="flex items-start justify-between mb-2">
                 <span className="text-base leading-none">{meta.icon}</span>
-                <span className={clsx("text-base font-bold font-mono leading-none", scoreTextColor(s))}>
+                <span className={clsx("text-base font-bold font-mono leading-none", lowCoverage ? "text-gray-400" : scoreTextColor(s))}>
                     {s > 0 ? "+" : ""}{s.toFixed(1)}
                 </span>
             </div>
             <p className="text-[11px] font-semibold text-gray-700 truncate mb-2">{meta.label}</p>
-            {/* Gauge bar */}
+            {/* Gauge bar — greyed out if low coverage */}
             <div className="relative h-1.5 rounded-full bg-gray-200">
                 <div
                     className={clsx(
                         "absolute top-0 h-full rounded-full",
-                        isPos ? "left-1/2 bg-emerald-500" : "right-1/2 bg-red-500"
+                        lowCoverage
+                            ? "bg-gray-400"
+                            : isPos ? "left-1/2 bg-emerald-500" : "right-1/2 bg-red-500"
                     )}
-                    style={{ width: `${barPct}%` }}
+                    style={{ width: `${barPct}%`, ...(lowCoverage ? {} : isPos ? { left: "50%" } : { right: "50%" }) }}
                 />
                 <div className="absolute left-1/2 top-0 h-full w-px bg-gray-400" />
             </div>
-            <div className={clsx("flex items-center gap-1 mt-2 text-[10px] font-medium", dir.cls)}>
-                {dir.icon}
-                {dir.text}
+            <div className="flex items-center justify-between mt-2">
+                <div className={clsx("flex items-center gap-1 text-[10px] font-medium", lowCoverage ? "text-gray-400" : dir.cls)}>
+                    {dir.icon}
+                    {dir.text}
+                </div>
+                {/* Coverage pill */}
+                <span className={clsx(
+                    "text-[9px] font-semibold",
+                    lowCoverage ? "text-gray-400" : coverageCls(cov)
+                )}>
+                    {cov.toFixed(0)}% cov
+                </span>
             </div>
         </button>
     );
@@ -172,7 +235,8 @@ function CompanyHeatMap({ sector }: { sector: SectorIntelligence }) {
         const m = new Map<string, number | null>();
         for (const dim of sector.dimensions) {
             for (const cs of dim.company_signals) {
-                m.set(`${cs.ticker}::${dim.dimension}`, cs.score);
+                // Only store a real score if the company has a genuine signal
+                m.set(`${cs.ticker}::${dim.dimension}`, hasRealSignal(cs) ? cs.score : null);
             }
         }
         return m;
@@ -251,94 +315,98 @@ function DimDetail({ dim }: { dim: SectorDimension }) {
     const [open, setOpen] = useState(false);
     const meta = DIMENSION_META[dim.dimension] ?? { icon: "📌", label: dim.dimension, short: "", why: "" };
 
+    // Only show companies with real business signals — filter out "Insufficient data" noise
+    const realSignals = dim.company_signals.filter(hasRealSignal);
+    const cov = coveragePct(dim.company_signals);
+    const hasAnySignal = realSignals.length > 0;
+
     return (
         <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
             <button
-                onClick={() => setOpen((v) => !v)}
-                className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-gray-50/50 transition-colors"
+                onClick={() => hasAnySignal && setOpen((v) => !v)}
+                className={clsx(
+                    "flex w-full items-center justify-between px-4 py-3 text-left transition-colors",
+                    hasAnySignal ? "hover:bg-gray-50/50 cursor-pointer" : "cursor-default opacity-50"
+                )}
             >
                 <div className="flex items-center gap-2.5">
                     <span className="text-base">{meta.icon}</span>
                     <span className="text-sm font-semibold text-gray-800">{meta.label}</span>
+                    {/* Coverage badge */}
+                    <span className={clsx(
+                        "rounded border px-1.5 py-0.5 text-[10px] font-semibold",
+                        hasAnySignal ? coverageBgCls(cov) : "bg-gray-50 text-gray-400 border-gray-200"
+                    )}>
+                        {hasAnySignal ? `${cov.toFixed(0)}% mkt cap` : "No data"}
+                    </span>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                    <span className={clsx(
-                        "rounded px-1.5 py-0.5 text-xs font-mono font-semibold",
-                        dim.weighted_score > 0 ? "bg-emerald-100 text-emerald-700" : dim.weighted_score < 0 ? "bg-red-100 text-red-700" : "bg-gray-100 text-gray-600"
-                    )}>
-                        {dim.weighted_score > 0 ? "+" : ""}{dim.weighted_score.toFixed(2)}
-                    </span>
-                    <span className={clsx(
-                        "text-[11px] font-medium flex items-center gap-1",
-                        directionLabel(dim.direction).cls
-                    )}>
-                        {directionLabel(dim.direction).icon}
-                        {directionLabel(dim.direction).text}
-                    </span>
-                    {open ? <ChevronUp size={14} className="text-gray-400" /> : <ChevronDown size={14} className="text-gray-400" />}
+                    {hasAnySignal && (
+                        <>
+                            <span className={clsx(
+                                "rounded px-1.5 py-0.5 text-xs font-mono font-semibold",
+                                dim.weighted_score > 0 ? "bg-emerald-100 text-emerald-700"
+                                : dim.weighted_score < 0 ? "bg-red-100 text-red-700"
+                                : "bg-gray-100 text-gray-600"
+                            )}>
+                                {dim.weighted_score > 0 ? "+" : ""}{dim.weighted_score.toFixed(2)}
+                            </span>
+                            <span className={clsx(
+                                "text-[11px] font-medium flex items-center gap-1",
+                                directionLabel(dim.direction).cls
+                            )}>
+                                {directionLabel(dim.direction).icon}
+                                {directionLabel(dim.direction).text}
+                            </span>
+                        </>
+                    )}
+                    {hasAnySignal && (
+                        open ? <ChevronUp size={14} className="text-gray-400" /> : <ChevronDown size={14} className="text-gray-400" />
+                    )}
                 </div>
             </button>
 
-            {open && (
+            {open && hasAnySignal && (
                 <div className="border-t border-gray-100 divide-y divide-gray-50">
-                    {/* Signal summary */}
-                    <div className="px-4 py-2.5 bg-gray-50/50">
-                        <p className="text-sm text-gray-600 leading-relaxed">{dim.signal}</p>
-                    </div>
-
-                    {/* Company-level details */}
-                    {dim.details.length > 0 && (
-                        <div className="px-4 py-2.5">
-                            <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-2">Company signals</p>
-                            <ul className="space-y-1.5">
-                                {dim.details.map((d, i) => (
-                                    <li key={i} className="flex items-start gap-2 text-xs text-gray-600">
-                                        <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-gray-300 shrink-0" />
-                                        {d}
-                                    </li>
-                                ))}
-                            </ul>
+                    {/* Signal summary — only show if it doesn't just say "Mixed signals" generically */}
+                    {dim.signal && !dim.signal.toLowerCase().startsWith("mixed signals") && (
+                        <div className="px-4 py-2.5 bg-gray-50/50">
+                            <p className="text-sm text-gray-600 leading-relaxed">{dim.signal}</p>
                         </div>
                     )}
 
-                    {/* Company scores table */}
-                    {dim.company_signals.length > 0 && (
-                        <div className="px-4 py-2.5">
-                            <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-2">Market-cap weighted breakdown</p>
-                            <div className="space-y-1">
-                                {dim.company_signals.map((cs) => (
-                                    <div key={cs.ticker} className="flex items-center gap-2 text-xs">
-                                        <span className={clsx(
-                                            "inline-block h-1.5 w-1.5 rounded-full shrink-0",
-                                            cs.direction === "positive" ? "bg-emerald-500" : cs.direction === "negative" ? "bg-red-500" : "bg-gray-400"
-                                        )} />
-                                        <span className="font-mono font-semibold text-gray-800 w-20 shrink-0">{cs.ticker}</span>
-                                        <span className="flex-1 text-gray-500 truncate text-[11px]">{cs.signal}</span>
-                                        <span className={clsx(
-                                            "rounded px-1 py-0.5 font-mono text-[10px] font-semibold shrink-0",
-                                            (cs.score ?? 0) > 1.5 ? "bg-emerald-100 text-emerald-700"
-                                            : (cs.score ?? 0) < -1.5 ? "bg-red-100 text-red-700"
-                                            : "bg-gray-100 text-gray-600"
-                                        )}>
-                                            {(cs.score ?? 0) > 0 ? "+" : ""}{(cs.score ?? 0).toFixed(1)}
-                                        </span>
-                                        {/* Weight bar */}
-                                        <div className="flex items-center gap-1 shrink-0 w-20">
-                                            <div className="h-1 flex-1 rounded-full bg-gray-100 overflow-hidden">
-                                                <div
-                                                    className="h-full rounded-full bg-gray-400"
-                                                    style={{ width: `${Math.min(cs.weight_pct ?? 0, 100)}%` }}
-                                                />
-                                            </div>
-                                            <span className="text-[10px] text-gray-400 w-8 text-right font-mono">
-                                                {(cs.weight_pct ?? 0).toFixed(0)}%
+                    {/* Company breakdown — ONLY real signals, no "Insufficient data" rows */}
+                    <div className="px-4 py-3">
+                        <div className="space-y-2">
+                            {realSignals.map((cs) => (
+                                <div key={cs.ticker} className="flex items-start gap-2.5 text-xs">
+                                    <span className={clsx(
+                                        "mt-1 inline-block h-1.5 w-1.5 rounded-full shrink-0",
+                                        cs.direction === "positive" ? "bg-emerald-500"
+                                        : cs.direction === "negative" ? "bg-red-500"
+                                        : "bg-gray-400"
+                                    )} />
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-1.5 mb-0.5">
+                                            <span className="font-mono font-bold text-gray-900 text-[11px]">{cs.ticker}</span>
+                                            <span className={clsx(
+                                                "rounded px-1 py-0.5 font-mono text-[10px] font-semibold",
+                                                (cs.score ?? 0) > 1.5 ? "bg-emerald-100 text-emerald-700"
+                                                : (cs.score ?? 0) < -1.5 ? "bg-red-100 text-red-700"
+                                                : "bg-gray-100 text-gray-600"
+                                            )}>
+                                                {(cs.score ?? 0) > 0 ? "+" : ""}{(cs.score ?? 0).toFixed(1)}
+                                            </span>
+                                            <span className="text-[10px] text-gray-400 font-mono">
+                                                {(cs.weight_pct ?? 0).toFixed(0)}% wt
                                             </span>
                                         </div>
+                                        <p className="text-[11px] text-gray-500 leading-relaxed">{cs.signal}</p>
                                     </div>
-                                ))}
-                            </div>
+                                </div>
+                            ))}
                         </div>
-                    )}
+                    </div>
 
                     {/* Why it matters */}
                     {meta.why && (
@@ -361,15 +429,29 @@ function SectorDashboard({ sector }: { sector: SectorIntelligence }) {
         .map((d) => sector.dimensions.find((dim) => dim.dimension === d))
         .filter((d): d is SectorDimension => !!d);
 
-    const dirCounts = dims.reduce((acc, d) => {
+    // Only count dimensions with real signal in direction tallies
+    const dimsWithSignal = dims.filter((d) => coveragePct(d.company_signals) > 0);
+
+    const dirCounts = dimsWithSignal.reduce((acc, d) => {
         acc[d.direction] = (acc[d.direction] || 0) + 1;
         return acc;
     }, {} as Record<string, number>);
 
-    // Overall sector health (average of dimension scores)
-    const avgScore = dims.length > 0
-        ? dims.reduce((sum, d) => sum + d.weighted_score, 0) / dims.length
+    // Overall score — average of dims WITH real coverage only (no coverage = no signal)
+    const avgScore = dimsWithSignal.length > 0
+        ? dimsWithSignal.reduce((sum, d) => sum + d.weighted_score, 0) / dimsWithSignal.length
         : 0;
+
+    // Overall signal coverage: what % of companies (by count) have ≥1 real data point
+    const allTickers = new Set(
+        dims.flatMap((d) => d.company_signals.filter(hasRealSignal).map((cs) => cs.ticker))
+    );
+    const totalTickers = new Set(
+        dims.flatMap((d) => d.company_signals.map((cs) => cs.ticker))
+    );
+    const companyCoverageStr = totalTickers.size > 0
+        ? `${allTickers.size}/${totalTickers.size} companies with data`
+        : "";
 
     return (
         <div className="space-y-5">
@@ -380,6 +462,9 @@ function SectorDashboard({ sector }: { sector: SectorIntelligence }) {
                     <p className="text-sm text-gray-400 mt-0.5">
                         {sector.company_count} companies ·{" "}
                         {sector.quarter_previous?.replace("_", " FY")} → {sector.quarter?.replace("_", " FY")}
+                        {companyCoverageStr && (
+                            <> · <span className="font-medium text-gray-500">{companyCoverageStr}</span></>
+                        )}
                     </p>
                 </div>
                 {/* Overall health pill */}
@@ -387,7 +472,7 @@ function SectorDashboard({ sector }: { sector: SectorIntelligence }) {
                     "flex items-center gap-2 rounded-xl border px-4 py-2",
                     scoreBorder(avgScore), scoreBg(avgScore)
                 )}>
-                    <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Overall</span>
+                    <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Signal</span>
                     <span className={clsx("text-xl font-bold font-mono", scoreTextColor(avgScore))}>
                         {avgScore > 0 ? "+" : ""}{avgScore.toFixed(1)}
                     </span>
@@ -414,10 +499,13 @@ function SectorDashboard({ sector }: { sector: SectorIntelligence }) {
             {/* Company heat map */}
             <CompanyHeatMap sector={sector} />
 
-            {/* Dimension detail panels — all visible, collapsed by default */}
+            {/* Dimension detail panels */}
             <div className="space-y-2">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 pt-1">
                     Dimension Details
+                    <span className="ml-2 normal-case font-normal text-gray-400">
+                        — grayed rows have no data this quarter, click to expand where available
+                    </span>
                 </p>
                 {dims.map((dim) => (
                     <DimDetail key={dim.dimension} dim={dim} />
