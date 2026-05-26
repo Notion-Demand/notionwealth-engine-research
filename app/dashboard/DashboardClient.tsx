@@ -12,7 +12,7 @@ import AgentPanel, {
 import { runAnalysisStream } from "@/lib/api";
 import { quarterLabel, SECTION_NAMES, QUARTERS } from "@/lib/nifty50";
 import { NIFTY200_LIST, NIFTY200 } from "@/lib/nifty200";
-import { BarChart2, RefreshCw, Bookmark, BookmarkCheck, X, Youtube } from "lucide-react";
+import { BarChart2, RefreshCw, Bookmark, BookmarkCheck, X, Youtube, PlusCircle } from "lucide-react";
 import clsx from "clsx";
 
 const DEFAULT_SECTIONS = [...SECTION_NAMES];
@@ -30,11 +30,13 @@ function CompanySearch({
   options,
   value,
   onChange,
+  onAdd,
   disabled,
 }: {
   options: { ticker: string; name: string }[];
   value: string;
   onChange: (ticker: string) => void;
+  onAdd?: (ticker: string) => void;
   disabled?: boolean;
 }) {
   const [query, setQuery] = useState("");
@@ -52,6 +54,13 @@ function CompanySearch({
         o.ticker.toLowerCase().includes(query.toLowerCase())
     )
     : options;
+
+  // Candidate ticker to add when no match found
+  const addCandidate = (() => {
+    if (!query.trim() || filtered.length > 0) return null;
+    const t = query.trim().toUpperCase();
+    return /^[A-Z0-9&.-]{1,20}$/.test(t) ? t : null;
+  })();
 
   // Close on outside click
   useEffect(() => {
@@ -77,6 +86,12 @@ function CompanySearch({
     setQuery("");
   }
 
+  function handleAdd() {
+    if (!addCandidate) return;
+    onAdd?.(addCandidate);
+    select(addCandidate);
+  }
+
   function onKeyDown(e: React.KeyboardEvent) {
     if (!open) {
       if (e.key === "ArrowDown" || e.key === "Enter") {
@@ -94,6 +109,7 @@ function CompanySearch({
     } else if (e.key === "Enter") {
       e.preventDefault();
       if (filtered[highlighted]) select(filtered[highlighted].ticker);
+      else if (addCandidate) handleAdd();
     } else if (e.key === "Escape") {
       setOpen(false);
       setQuery("");
@@ -140,8 +156,19 @@ function CompanySearch({
         </ul>
       )}
       {open && filtered.length === 0 && (
-        <div className="absolute z-50 mt-1 w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-400 shadow-lg">
-          No matches
+        <div className="absolute z-50 mt-1 w-full rounded-md border border-gray-200 bg-white shadow-lg overflow-hidden">
+          {addCandidate ? (
+            <button
+              onMouseDown={(e) => { e.preventDefault(); handleAdd(); }}
+              className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-left hover:bg-blue-50 transition-colors"
+            >
+              <PlusCircle size={14} className="text-blue-500 shrink-0" />
+              <span className="text-gray-700">Add <span className="font-semibold font-mono">{addCandidate}</span> to my list</span>
+              <span className="ml-auto text-[11px] text-gray-400">visible only to you</span>
+            </button>
+          ) : (
+            <p className="px-3 py-2 text-sm text-gray-400">No matches</p>
+          )}
         </div>
       )}
     </div>
@@ -182,6 +209,39 @@ function useWatchlist(options: { ticker: string; name: string }[]) {
   return { watchlist, toggle, isWatched };
 }
 
+// ── User custom tickers hook ──────────────────────────────────────────────────
+
+function useUserTickers() {
+  const [userTickers, setUserTickers] = useState<{ ticker: string; name: string; sector: string }[]>([]);
+
+  useEffect(() => {
+    fetch("/api/v1/user-tickers")
+      .then((r) => r.ok ? r.json() : [])
+      .then(setUserTickers)
+      .catch(() => {});
+  }, []);
+
+  const add = useCallback(async (ticker: string) => {
+    // Optimistic add
+    setUserTickers((prev) => {
+      if (prev.some((t) => t.ticker === ticker)) return prev;
+      return [{ ticker, name: ticker, sector: "Custom" }, ...prev];
+    });
+    await fetch("/api/v1/user-tickers", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ticker }),
+    }).catch(() => {});
+  }, []);
+
+  const remove = useCallback(async (ticker: string) => {
+    setUserTickers((prev) => prev.filter((t) => t.ticker !== ticker));
+    await fetch(`/api/v1/user-tickers?ticker=${ticker}`, { method: "DELETE" }).catch(() => {});
+  }, []);
+
+  return { userTickers, add, remove };
+}
+
 export default function DashboardClient() {
   const searchParams = useSearchParams();
   const tickerParam = searchParams.get("ticker")?.toUpperCase() ?? null;
@@ -212,14 +272,18 @@ export default function DashboardClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const { userTickers, add: addUserTicker } = useUserTickers();
+
   const filteredList = useMemo(() => {
-    // Always show the full Nifty 200 universe; add extras (non-Nifty200 companies in storage) at end
+    // Nifty 200 universe + user's custom tickers + any extras already in storage
+    const userTickerSet = new Set(userTickers.map((t) => t.ticker));
     const extras = Object.keys(available)
-      .filter((t) => !NIFTY200_TICKERS.has(t))
+      .filter((t) => !NIFTY200_TICKERS.has(t) && !userTickerSet.has(t))
       .sort()
       .map((t) => ({ ticker: t, bse: 0, nse: t, name: t, sector: "" }));
-    return [...NIFTY200_LIST, ...extras];
-  }, [available]);
+    const custom = userTickers.map((t) => ({ ticker: t.ticker, bse: 0, nse: t.ticker, name: t.name || t.ticker, sector: t.sector }));
+    return [...NIFTY200_LIST, ...custom, ...extras];
+  }, [available, userTickers]);
 
   const { watchlist, toggle: toggleWatchlist, isWatched } = useWatchlist(filteredList);
 
@@ -248,10 +312,8 @@ export default function DashboardClient() {
     if (!ticker || availableLoading) return;
     if (available[ticker]?.length > 0) return; // already has transcripts
     if (fetchAttempted.current.has(ticker)) return; // already tried this session
-    if (!NIFTY200_TICKERS.has(ticker)) {
-      setCoverageMsg(`${ticker} is outside our Nifty 200 coverage.`);
-      return;
-    }
+    // Outside Nifty 200 is now allowed — user may have added it manually
+    // Just proceed with the request attempt (will no-op if transcripts don't exist)
 
     fetchAttempted.current.add(ticker);
     setFetchingTranscripts(true);
@@ -490,6 +552,7 @@ export default function DashboardClient() {
               options={filteredList}
               value={ticker}
               onChange={handleTickerChange}
+              onAdd={addUserTicker}
               disabled={loading || fetchingTranscripts}
             />
           </div>
