@@ -12,7 +12,7 @@ import AgentPanel, {
 import { runAnalysisStream } from "@/lib/api";
 import { quarterLabel, SECTION_NAMES } from "@/lib/nifty50";
 import { NIFTY200_LIST } from "@/lib/nifty200";
-import { BarChart2, ChevronDown, RefreshCw, Bookmark, BookmarkCheck, X } from "lucide-react";
+import { BarChart2, RefreshCw, Bookmark, BookmarkCheck, X } from "lucide-react";
 import clsx from "clsx";
 
 const DEFAULT_SECTIONS = [...SECTION_NAMES];
@@ -347,8 +347,6 @@ export default function DashboardClient() {
     }
   }
 
-  const selectCls =
-    "appearance-none rounded-md border border-gray-300 bg-white px-3 py-2 pr-8 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500";
 
   return (
     <>
@@ -454,62 +452,24 @@ export default function DashboardClient() {
             />
           </div>
 
-          {/* Previous quarter */}
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">
-              Previous Quarter
-            </label>
-            <div className="relative">
-              <select
-                value={qPrev}
-                onChange={(e) => setQPrev(e.target.value)}
-                className={selectCls}
-                disabled={loading}
-              >
-                {quartersForTicker.map((q) => (
-                  <option key={q} value={q}>
-                    {quarterLabel(q)}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown
-                size={14}
-                className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400"
-              />
+          {/* Auto-compare label — most recent two quarters */}
+          {qPrev && qCurr && qPrev !== qCurr && (
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                Comparing
+              </label>
+              <div className="flex items-center gap-2 rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700">
+                <span className="font-medium">{quarterLabel(qPrev)}</span>
+                <span className="text-gray-400">→</span>
+                <span className="font-medium">{quarterLabel(qCurr)}</span>
+              </div>
             </div>
-          </div>
-
-          <span className="pb-2 text-gray-400 text-sm">→</span>
-
-          {/* Current quarter */}
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">
-              Current Quarter
-            </label>
-            <div className="relative">
-              <select
-                value={qCurr}
-                onChange={(e) => setQCurr(e.target.value)}
-                className={selectCls}
-                disabled={loading}
-              >
-                {quartersForTicker.map((q) => (
-                  <option key={q} value={q}>
-                    {quarterLabel(q)}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown
-                size={14}
-                className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400"
-              />
-            </div>
-          </div>
+          )}
 
           {/* Submit */}
           <button
             type="submit"
-            disabled={loading || qPrev === qCurr}
+            disabled={loading || !qPrev || !qCurr || qPrev === qCurr}
             className="rounded-md bg-brand-600 px-5 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
           >
             {loading ? "Analyzing…" : "Analyze"}

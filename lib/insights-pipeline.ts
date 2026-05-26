@@ -245,16 +245,13 @@ const BUCKET = "transcripts";
 const MAX_CHARS = 120_000;
 
 export async function getQuartersForTicker(ticker: string): Promise<string[]> {
-  const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
-  const pages = await Promise.all(
-    LETTERS.map((l) =>
-      supabaseAdmin().storage.from(BUCKET).list("", { limit: 500, search: l })
-    )
-  );
-  const allFiles = pages.flatMap(({ data }) => data ?? []);
+  // Direct ticker search — same approach as /api/v1/available (A-Z fan-out was unreliable)
+  const { data } = await supabaseAdmin()
+    .storage.from(BUCKET)
+    .list("", { limit: 50, search: ticker });
   const quarters: string[] = [];
-  for (const f of allFiles) {
-    const m = f.name.match(/^([A-Za-z]+)_Q(\d)_(\d{4})\.pdf$/i);
+  for (const f of data ?? []) {
+    const m = f.name.match(/^(.+?)_Q(\d)_(\d{4})\.pdf$/i);
     if (!m) continue;
     if (m[1].toUpperCase() !== ticker.toUpperCase()) continue;
     quarters.push(`Q${m[2]}_${m[3]}`);
