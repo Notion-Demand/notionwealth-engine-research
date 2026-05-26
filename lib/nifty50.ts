@@ -76,77 +76,101 @@ export const QUARTERS = [
   "Q1_2025",
 ];
 
-/** 17 sectors covering the Nifty 200 universe — used for sector intelligence */
-export const SECTOR_UNIVERSE: Record<string, { tickers: string[]; label: string; subsector?: string }> = {
+/**
+ * 18 sectors — each has ≥5 companies picked from Nifty 200 by market cap.
+ * Sectors with fewer Nifty 200 members are kept as-is (e.g. Healthcare).
+ * Used for Sector Intelligence seeding.
+ */
+export const SECTOR_UNIVERSE: Record<string, { tickers: string[]; label: string }> = {
   // ── Core Financials ──────────────────────────────────────────────────────────
   Banking: {
-    tickers: ["HDFC", "ICICI", "SBI", "KOTAKBANK", "AXISBANK", "INDUSINDBK"],
+    // Top private + PSU banks by market cap
+    tickers: ["HDFC", "ICICI", "SBI", "KOTAKBANK", "AXISBANK", "INDUSINDBK", "PNB", "BANKBARODA"],
     label: "Banking",
   },
   NBFC: {
-    tickers: ["BAJAJ", "BAJAJFINSV", "MUTHOOTFIN", "CHOLAFIN", "SBICARD"],
+    // Bajaj Finance, Bajaj Finserv, Muthoot, Chola, Shriram, SBI Card
+    tickers: ["BAJAJ", "BAJAJFINSV", "MUTHOOTFIN", "CHOLAFIN", "SHRIRAMFIN", "SBICARD"],
     label: "NBFCs & Consumer Finance",
   },
   Insurance: {
-    tickers: ["SBILIFE", "HDFCLIFE", "ICICIPRULI"],
+    // LIC (largest by far), SBI Life, HDFC Life, ICICI Pru, ICICI Lombard
+    tickers: ["LICI", "SBILIFE", "HDFCLIFE", "ICICIPRULI", "ICICIGI"],
     label: "Insurance",
   },
   // ── Technology ───────────────────────────────────────────────────────────────
   IT: {
-    tickers: ["TCS", "INFOSYS", "HCLTECH", "WIPRO", "TECHM", "LTIM"],
+    tickers: ["TCS", "INFOSYS", "HCLTECH", "WIPRO", "TECHM", "LTIM", "PERSISTENT", "MPHASIS"],
     label: "IT Services",
   },
   // ── Industrials ─────────────────────────────────────────────────────────────
   Auto: {
-    tickers: ["MARUTI", "TATAMOTORS", "MM", "BAJAJAUTO", "EICHERMOT", "HEROMOTOCO"],
+    // 4W + 2W + EV + ancillaries
+    tickers: ["MARUTI", "TATAMOTORS", "MM", "BAJAJAUTO", "EICHERMOT", "HEROMOTOCO", "TVSMOTOR", "ASHOKLEY"],
     label: "Automobiles",
   },
   CapGoods: {
-    tickers: ["LT", "BEL", "SIEMENS", "ABB", "BHEL", "HAVELLS"],
-    label: "Capital Goods",
+    // Defense (HAL, BEL), engineering (L&T, Siemens, ABB), electricals (Polycab, Havells)
+    tickers: ["LT", "HAL", "BEL", "SIEMENS", "ABB", "POLYCAB", "HAVELLS", "CGPOWER"],
+    label: "Capital Goods & Defence",
   },
   Infra: {
-    tickers: ["ADANIPORTS", "DLF", "GODREJPROP", "OBEROIRLTY"],
-    label: "Infrastructure & Real Estate",
+    // Ports, railways, airports, logistics
+    tickers: ["ADANIPORTS", "RVNL", "CONCOR", "GMRAIRPORT", "INDIGO", "IRB"],
+    label: "Infrastructure & Logistics",
+  },
+  Realty: {
+    // Real estate developers — Nifty 200 coverage
+    tickers: ["DLF", "GODREJPROP", "LODHA", "OBEROIRLTY", "PRESTIGE", "PHOENIXLTD"],
+    label: "Real Estate",
   },
   // ── Consumption ──────────────────────────────────────────────────────────────
   FMCG: {
-    tickers: ["HUL", "ITC", "NESTLEIND", "TATACONSUM", "BRITANNIA"],
+    // Large-cap staples + beverages
+    tickers: ["HUL", "ITC", "NESTLEIND", "TATACONSUM", "BRITANNIA", "COLPAL", "DABUR", "MARICO"],
     label: "FMCG",
   },
   Consumer: {
-    tickers: ["TITAN", "ASIANPAINT", "DMART", "TRENT"],
+    // Jewellery, paints, electronics, eComm, QSR
+    tickers: ["TITAN", "ASIANPAINT", "DMART", "TRENT", "KALYANKJIL", "ETERNAL", "JUBLFOOD"],
     label: "Consumer & Retail",
   },
   // ── Healthcare ───────────────────────────────────────────────────────────────
   Pharma: {
-    tickers: ["SUNPHARMA", "DRREDDY", "CIPLA", "DIVISLAB"],
+    // Ranked by market cap within Nifty 200
+    tickers: ["SUNPHARMA", "DRREDDY", "CIPLA", "DIVISLAB", "TORNTPHARM", "LUPIN", "AUROPHARMA", "MANKIND"],
     label: "Pharmaceuticals",
   },
   Healthcare: {
-    tickers: ["APOLLOHOSP", "FORTIS", "MAXHEALTH"],
+    // Hospital chains — only 3 in Nifty 200
+    tickers: ["APOLLOHOSP", "MAXHEALTH", "FORTIS"],
     label: "Healthcare & Hospitals",
   },
   // ── Energy & Materials ────────────────────────────────────────────────────────
   "Oil & Gas": {
-    tickers: ["RELIANCE", "ONGC", "BPCL"],
+    // Upstream (ONGC, OIL) + downstream (IOC, BPCL, HINDPETRO) + midstream (GAIL)
+    tickers: ["RELIANCE", "ONGC", "IOC", "BPCL", "GAIL", "HINDPETRO"],
     label: "Oil & Gas",
   },
   Power: {
-    tickers: ["NTPC", "POWERGRID", "TATAPOWER", "ADANIGREEN"],
+    // Thermal (NTPC, Adani Power), transmission (Powergrid), renewables (Adani Green, JSW Energy, Tata Power)
+    tickers: ["NTPC", "POWERGRID", "ADANIGREEN", "ADANIPOWER", "TATAPOWER", "JSWENERGY"],
     label: "Power & Utilities",
   },
   Metals: {
-    tickers: ["TATASTEEL", "JSWSTEEL", "HINDALCO"],
+    // Steel, aluminium, zinc, copper
+    tickers: ["TATASTEEL", "JSWSTEEL", "HINDALCO", "VEDL", "HINDZINC", "JINDALSTEL", "SAIL"],
     label: "Metals & Mining",
   },
   Cement: {
-    tickers: ["ULTRACEMCO", "GRASIM", "AMBUJACEM", "SHREECEM"],
+    // Top 5 cement companies
+    tickers: ["ULTRACEMCO", "GRASIM", "AMBUJACEM", "SHREECEM", "ACC"],
     label: "Cement",
   },
   // ── Telecom ──────────────────────────────────────────────────────────────────
   Telecom: {
-    tickers: ["BHARTI"],
+    // Airtel + subsidiaries + tower + enterprise
+    tickers: ["BHARTI", "BHARTIHEXA", "INDUSTOWER", "TATACOMM"],
     label: "Telecom",
   },
 };
@@ -155,36 +179,48 @@ export const SECTOR_UNIVERSE: Record<string, { tickers: string[]; label: string;
 export const MARKET_CAPS: Record<string, number> = {
   // Banking
   HDFC: 13.5, ICICI: 9.5, SBI: 7.5, KOTAKBANK: 4.0, AXISBANK: 3.8, INDUSINDBK: 1.0,
+  PNB: 1.0, BANKBARODA: 1.0,
   // NBFCs
   BAJAJ: 5.8, BAJAJFINSV: 2.5, MUTHOOTFIN: 0.8, CHOLAFIN: 1.0, SBICARD: 0.5,
+  SHRIRAMFIN: 0.7,
   // Insurance
-  SBILIFE: 1.5, HDFCLIFE: 1.4, ICICIPRULI: 0.8,
+  LICI: 6.0, SBILIFE: 1.5, HDFCLIFE: 1.4, ICICIPRULI: 0.8, ICICIGI: 0.9,
   // IT
   TCS: 15.0, INFOSYS: 7.5, HCLTECH: 4.5, WIPRO: 2.8, TECHM: 1.5, LTIM: 1.8,
+  PERSISTENT: 0.8, MPHASIS: 0.5,
   // Auto
   MARUTI: 4.2, TATAMOTORS: 3.0, MM: 3.8, BAJAJAUTO: 2.5, EICHERMOT: 1.2, HEROMOTOCO: 1.0,
+  TVSMOTOR: 1.5, ASHOKLEY: 0.7,
   // Capital Goods
-  LT: 5.0, BEL: 1.8, SIEMENS: 1.4, ABB: 0.8, BHEL: 1.2, HAVELLS: 1.2,
-  // Infra & Real Estate
-  ADANIPORTS: 3.2, DLF: 2.0, GODREJPROP: 0.9, OBEROIRLTY: 0.8,
+  LT: 5.0, HAL: 3.0, BEL: 1.8, SIEMENS: 1.4, ABB: 0.8, BHEL: 1.2, HAVELLS: 1.2,
+  POLYCAB: 0.8, CGPOWER: 0.5,
+  // Infra
+  ADANIPORTS: 3.2, RVNL: 0.5, CONCOR: 0.6, GMRAIRPORT: 0.9, INDIGO: 0.8, IRB: 0.3,
+  // Real Estate
+  DLF: 2.0, GODREJPROP: 0.9, LODHA: 1.2, OBEROIRLTY: 0.8, PRESTIGE: 0.5, PHOENIXLTD: 0.7,
   // FMCG
   HUL: 5.8, ITC: 5.5, NESTLEIND: 1.8, TATACONSUM: 1.0, BRITANNIA: 1.2,
+  COLPAL: 0.8, DABUR: 0.9, MARICO: 0.6,
   // Consumer & Retail
   TITAN: 3.2, ASIANPAINT: 2.2, DMART: 2.8, TRENT: 1.5,
+  KALYANKJIL: 0.5, ETERNAL: 2.5, JUBLFOOD: 0.4,
   // Pharma
   SUNPHARMA: 4.0, DRREDDY: 1.1, CIPLA: 1.2, DIVISLAB: 0.9,
+  TORNTPHARM: 0.8, LUPIN: 0.7, AUROPHARMA: 0.5, MANKIND: 0.7,
   // Healthcare
   APOLLOHOSP: 1.0, FORTIS: 0.3, MAXHEALTH: 0.4,
   // Oil & Gas
-  RELIANCE: 17.0, ONGC: 3.5, BPCL: 1.5,
+  RELIANCE: 17.0, ONGC: 3.5, BPCL: 1.5, IOC: 1.5, GAIL: 1.3, HINDPETRO: 0.8,
   // Power
   NTPC: 3.5, POWERGRID: 3.0, TATAPOWER: 1.4, ADANIGREEN: 2.5,
+  ADANIPOWER: 1.8, JSWENERGY: 0.8,
   // Metals
   TATASTEEL: 1.8, JSWSTEEL: 2.3, HINDALCO: 1.5,
+  VEDL: 1.5, HINDZINC: 1.3, JINDALSTEL: 0.5, SAIL: 0.4,
   // Cement
-  ULTRACEMCO: 2.5, GRASIM: 1.8, AMBUJACEM: 1.2, SHREECEM: 0.8,
+  ULTRACEMCO: 2.5, GRASIM: 1.8, AMBUJACEM: 1.2, SHREECEM: 0.8, ACC: 0.4,
   // Telecom
-  BHARTI: 9.5,
+  BHARTI: 9.5, BHARTIHEXA: 0.5, INDUSTOWER: 0.9, TATACOMM: 0.3,
 };
 
 /**
@@ -282,6 +318,64 @@ export const SCREENER_SLUGS: Record<string, string> = {
   DLF: "/company/DLF/consolidated/",
   GODREJPROP: "/company/GODREJPROP/standalone/",
   OBEROIRLTY: "/company/OBEROIRLTY/standalone/",
+  LODHA: "/company/LODHA/consolidated/",
+  PRESTIGE: "/company/PRESTIGE/consolidated/",
+  PHOENIXLTD: "/company/PHOENIXLTD/consolidated/",
+  // Banking (new)
+  PNB: "/company/PNB/consolidated/",
+  BANKBARODA: "/company/BANKBARODA/consolidated/",
+  // NBFC (new)
+  SHRIRAMFIN: "/company/SHRIRAMFIN/consolidated/",
+  // Insurance (new)
+  LICI: "/company/LICI/consolidated/",
+  ICICIGI: "/company/ICICIGI/consolidated/",
+  // IT (new)
+  PERSISTENT: "/company/PERSISTENT/consolidated/",
+  MPHASIS: "/company/MPHASIS/consolidated/",
+  // Auto (new)
+  TVSMOTOR: "/company/TVSMOTOR/consolidated/",
+  ASHOKLEY: "/company/ASHOKLEY/consolidated/",
+  // Capital Goods (new)
+  HAL: "/company/HAL/consolidated/",
+  POLYCAB: "/company/POLYCAB/consolidated/",
+  CGPOWER: "/company/CGPOWER/consolidated/",
+  // Infra (new)
+  RVNL: "/company/RVNL/consolidated/",
+  CONCOR: "/company/CONCOR/consolidated/",
+  GMRAIRPORT: "/company/GMRAIRPORT/consolidated/",
+  INDIGO: "/company/INDIGO/consolidated/",
+  IRB: "/company/IRB/consolidated/",
+  // FMCG (new)
+  COLPAL: "/company/COLPAL/consolidated/",
+  DABUR: "/company/DABUR/consolidated/",
+  MARICO: "/company/MARICO/consolidated/",
+  // Consumer (new)
+  KALYANKJIL: "/company/KALYANKJIL/consolidated/",
+  ETERNAL: "/company/ETERNAL/consolidated/",
+  JUBLFOOD: "/company/JUBLFOOD/consolidated/",
+  // Pharma (new)
+  TORNTPHARM: "/company/TORNTPHARM/consolidated/",
+  LUPIN: "/company/LUPIN/consolidated/",
+  AUROPHARMA: "/company/AUROPHARMA/consolidated/",
+  MANKIND: "/company/MANKIND/consolidated/",
+  // Oil & Gas (new)
+  IOC: "/company/IOC/consolidated/",
+  GAIL: "/company/GAIL/consolidated/",
+  HINDPETRO: "/company/HINDPETRO/consolidated/",
+  // Power (new)
+  ADANIPOWER: "/company/ADANIPOWER/consolidated/",
+  JSWENERGY: "/company/JSWENERGY/consolidated/",
+  // Metals (new)
+  VEDL: "/company/VEDL/consolidated/",
+  HINDZINC: "/company/HINDZINC/standalone/",
+  JINDALSTEL: "/company/JINDALSTEL/consolidated/",
+  SAIL: "/company/SAIL/consolidated/",
+  // Cement (new)
+  ACC: "/company/ACC/consolidated/",
+  // Telecom (new)
+  BHARTIHEXA: "/company/BHARTIHEXA/consolidated/",
+  INDUSTOWER: "/company/INDUSTOWER/consolidated/",
+  TATACOMM: "/company/TATACOMM/consolidated/",
 };
 
 /** The 5 thematic analysis sections — exported for both pipeline and UI */

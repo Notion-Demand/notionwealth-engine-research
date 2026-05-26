@@ -166,8 +166,8 @@ function CompanyHeatMap({ sector }: { sector: SectorIntelligence }) {
     const dims = DIM_ORDER.filter((d) => sector.dimensions.some((dim) => dim.dimension === d));
     // Companies come from the first dimension's company_signals (sorted by weight)
     const companies = (sector.dimensions[0]?.company_signals ?? []).map((cs) => cs.ticker);
-    if (companies.length === 0) return null;
 
+    // ⚠️ useMemo must come before any conditional return (Rules of Hooks)
     const scoreMap = useMemo(() => {
         const m = new Map<string, number | null>();
         for (const dim of sector.dimensions) {
@@ -177,6 +177,8 @@ function CompanyHeatMap({ sector }: { sector: SectorIntelligence }) {
         }
         return m;
     }, [sector]);
+
+    if (companies.length === 0) return null;
 
     return (
         <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
