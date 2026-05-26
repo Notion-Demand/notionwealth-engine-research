@@ -59,6 +59,15 @@ const TICKERTAPE_HEADERS = {
 
 // ── Quarter window computation ────────────────────────────────────────────────
 
+/** Advance one quarter: Q4_2026 → Q1_2027, Q3_2026 → Q4_2026, etc. */
+function nextQuarter(q: string): string {
+    const m = q.match(/^Q(\d)_(\d{4})$/);
+    if (!m) return q;
+    const qNum = parseInt(m[1]);
+    const fy   = parseInt(m[2]);
+    return qNum === 4 ? `Q1_${fy + 1}` : `Q${qNum + 1}_${fy}`;
+}
+
 /**
  * Given an Indian FY quarter string, return the calendar date range when
  * companies typically announce results.
@@ -425,7 +434,13 @@ export async function POST(req: NextRequest) {
     let body: { quarters?: string[] } = {};
     try { body = await req.json(); } catch { /* no body */ }
 
-    const targetQuarters: string[] = body.quarters ?? [QUARTERS[0], QUARTERS[1]];
+    // Default: current quarter + previous quarter + next upcoming quarter
+    // e.g. Q4_2026 (Apr–May), Q3_2026 (Jan–Feb), Q1_2027 (Jul–Aug)
+    const targetQuarters: string[] = body.quarters ?? [
+        QUARTERS[0],
+        QUARTERS[1],
+        nextQuarter(QUARTERS[0]),
+    ];
     log.push(`Seeding earnings calendar for quarters: ${targetQuarters.join(", ")}`);
 
     const nseMap = buildNseToTicker();
