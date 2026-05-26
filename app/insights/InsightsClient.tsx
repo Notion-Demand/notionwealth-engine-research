@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import Nav from "@/components/Nav";
 import { runInsightsStream } from "@/lib/api";
@@ -29,6 +29,7 @@ import {
   Bookmark,
   BookmarkCheck,
   X,
+  Upload,
 } from "lucide-react";
 import clsx from "clsx";
 
@@ -57,9 +58,23 @@ function useInsightsWatchlist() {
     });
   }, []);
 
+  /** Add multiple tickers at once — skips duplicates. Returns count added. */
+  const bulkAdd = useCallback((tickers: string[]): number => {
+    let added = 0;
+    setWatchlist((prev) => {
+      const existing = new Set(prev.map((w) => w.ticker));
+      const toAdd = tickers.filter((t) => !existing.has(t));
+      added = toAdd.length;
+      const next = [...prev, ...toAdd.map((t) => ({ ticker: t, name: t }))];
+      localStorage.setItem(WATCHLIST_KEY, JSON.stringify(next));
+      return next;
+    });
+    return added;
+  }, []);
+
   const isWatched = useCallback((ticker: string) => watchlist.some((w) => w.ticker === ticker), [watchlist]);
 
-  return { watchlist, toggle, isWatched };
+  return { watchlist, toggle, bulkAdd, isWatched };
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -363,7 +378,34 @@ export default function InsightsClient() {
   const [tab, setTab] = useState<"overview" | "themes" | "guidance" | "segments" | "timeline">("overview");
 
   // Watchlist
-  const { watchlist, toggle: toggleWatchlist, isWatched } = useInsightsWatchlist();
+  const { watchlist, toggle: toggleWatchlist, bulkAdd, isWatched } = useInsightsWatchlist();
+  const csvInputRef = useRef<HTMLInputElement>(null);
+  const [csvMsg, setCsvMsg] = useState<string | null>(null);
+
+  function handleCsvUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string;
+      // Split into tokens on any whitespace, comma, semicolon, pipe, newline, tab
+      const tokens = text.split(/[\s,;|\t\r\n]+/);
+      // Keep tokens that look like NSE tickers: 1–12 uppercase alphanumeric chars
+      const tickers = Array.from(
+        new Set(
+          tokens
+            .map((t) => t.replace(/[^A-Za-z0-9&]/g, "").toUpperCase())
+            .filter((t) => t.length >= 2 && t.length <= 12 && /^[A-Z]/.test(t))
+        )
+      );
+      const added = bulkAdd(tickers);
+      setCsvMsg(`Added ${added} ticker${added !== 1 ? "s" : ""} from ${file.name}`);
+      setTimeout(() => setCsvMsg(null), 4000);
+    };
+    reader.readAsText(file);
+    // Reset so the same file can be re-uploaded if needed
+    e.target.value = "";
+  }
 
   async function run(t: string) {
     if (!t.trim()) return;
@@ -421,32 +463,54 @@ export default function InsightsClient() {
           </p>
         </div>
 
-        {/* Watchlist chips */}
-        {watchlist.length > 0 && (
-          <div className="mb-3 flex flex-wrap items-center gap-2">
-            <span className="text-[11px] font-medium uppercase tracking-wide text-gray-400">Watchlist</span>
-            {watchlist.map((w) => (
-              <button
-                key={w.ticker}
-                type="button"
-                onClick={() => { setInputTicker(w.ticker); run(w.ticker); }}
-                className={clsx(
-                  "group inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors",
-                  inputTicker === w.ticker
-                    ? "border-brand-300 bg-brand-50 text-brand-700"
-                    : "border-gray-200 bg-white text-gray-600 hover:border-brand-200 hover:text-brand-600"
-                )}
-              >
-                {w.ticker}
-                <X
-                  size={10}
-                  className="opacity-40 group-hover:opacity-100"
-                  onClick={(e) => { e.stopPropagation(); toggleWatchlist(w.ticker); }}
-                />
-              </button>
-            ))}
-          </div>
-        )}
+        {/* Watchlist row: chips + Upload CSV */}
+        <div className="mb-3 flex flex-wrap items-center gap-2 min-h-[28px]">
+          <span className="text-[11px] font-medium uppercase tracking-wide text-gray-400">Watchlist</span>
+
+          {watchlist.map((w) => (
+            <button
+              key={w.ticker}
+              type="button"
+              onClick={() => { setInputTicker(w.ticker); run(w.ticker); }}
+              className={clsx(
+                "group inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+                inputTicker === w.ticker
+                  ? "border-brand-300 bg-brand-50 text-brand-700"
+                  : "border-gray-200 bg-white text-gray-600 hover:border-brand-200 hover:text-brand-600"
+              )}
+            >
+              {w.ticker}
+              <X
+                size={10}
+                className="opacity-40 group-hover:opacity-100"
+                onClick={(e) => { e.stopPropagation(); toggleWatchlist(w.ticker); }}
+              />
+            </button>
+          ))}
+
+          {/* CSV upload */}
+          <input
+            ref={csvInputRef}
+            type="file"
+            accept=".csv,.txt,.xlsx"
+            className="hidden"
+            onChange={handleCsvUpload}
+          />
+          <button
+            type="button"
+            onClick={() => csvInputRef.current?.click()}
+            className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-gray-300 px-3 py-1 text-xs font-medium text-gray-400 hover:border-brand-400 hover:text-brand-600 transition-colors"
+            title="Upload a CSV/spreadsheet of tickers to bulk-add to watchlist"
+          >
+            <Upload size={11} />
+            Upload CSV
+          </button>
+
+          {/* Success toast */}
+          {csvMsg && (
+            <span className="text-[11px] text-emerald-600 font-medium">{csvMsg}</span>
+          )}
+        </div>
 
         {/* Search bar */}
         <form
