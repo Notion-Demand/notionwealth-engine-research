@@ -191,7 +191,7 @@ async function fetchScreenerFinancials(
             // Strip trailing " +" artifact (e.g. "Sales +" → "Sales")
             const label = rawLabel.replace(/[\s\u00a0]*\+\s*$/, "").trim();
 
-            const values = tds.slice(1).map((td) => {
+            const values = tds.slice(1).map((td: { innerText: string }) => {
                 const text = td.innerText.trim().replace(/,/g, "");
                 const num = parseFloat(text);
                 return isNaN(num) ? null : num;

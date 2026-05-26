@@ -21,8 +21,8 @@ const nextConfig = {
         "./finance-agent/multiagent_analysis/all-pdfs/**",
       ],
     },
-    // Prevent pdf-parse from being bundled by webpack (avoids test-file init issue)
-    serverComponentsExternalPackages: ["pdf-parse"],
+    // Prevent these Node-native packages from being bundled by webpack
+    serverComponentsExternalPackages: ["pdf-parse", "node-html-parser"],
   },
 };
 

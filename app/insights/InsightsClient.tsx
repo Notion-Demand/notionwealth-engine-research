@@ -239,7 +239,7 @@ const SIGNAL_TYPE_ICONS: Record<string, typeof Globe> = {
 function SegmentsTable({ briefs }: { briefs: QuarterBrief[] }) {
   const sorted = [...briefs].sort((a, b) => a.quarter.localeCompare(b.quarter));
   // Collect all unique segment names
-  const allSegments = [...new Set(sorted.flatMap((b) => b.segment_highlights.map((s) => s.segment)))];
+  const allSegments = Array.from(new Set(sorted.flatMap((b) => b.segment_highlights.map((s) => s.segment))));
   if (allSegments.length === 0) return null;
 
   return (
@@ -415,7 +415,7 @@ export default function InsightsClient() {
         if (event.type === "start") {
           setQuarters(event.quarters);
         } else if (event.type === "quarter_done") {
-          setDoneQuarters((prev) => new Set([...prev, event.quarter]));
+          setDoneQuarters((prev) => { const s = new Set(prev); s.add(event.quarter); return s; });
         } else if (event.type === "synthesis_start") {
           setSynthesizing(true);
         }
