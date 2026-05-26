@@ -434,12 +434,15 @@ export async function POST(req: NextRequest) {
     let body: { quarters?: string[] } = {};
     try { body = await req.json(); } catch { /* no body */ }
 
-    // Default: current quarter + previous quarter + next upcoming quarter
-    // e.g. Q4_2026 (Apr–May), Q3_2026 (Jan–Feb), Q1_2027 (Jul–Aug)
+    // Default: full year back (last 5 quarters) + next upcoming quarter
+    // Covers e.g. Q4_2025 → Q4_2026 (Apr 2025 – May 2026) + Q1_2027 (Jul–Aug 2026)
     const targetQuarters: string[] = body.quarters ?? [
-        QUARTERS[0],
+        QUARTERS[4], // oldest — ~1 year ago
+        QUARTERS[3],
+        QUARTERS[2],
         QUARTERS[1],
-        nextQuarter(QUARTERS[0]),
+        QUARTERS[0], // most recent completed
+        nextQuarter(QUARTERS[0]), // upcoming
     ];
     log.push(`Seeding earnings calendar for quarters: ${targetQuarters.join(", ")}`);
 

@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
 import {
     ChevronLeft, ChevronRight, Calendar, Loader2,
-    CheckCircle2, Clock, ExternalLink, RefreshCw, AlertCircle,
+    CheckCircle2, Clock, ExternalLink, RefreshCw,
 } from "lucide-react";
 import clsx from "clsx";
 import type { CalendarEvent, CalendarResponse } from "@/app/api/v1/calendar/route";
@@ -246,29 +246,52 @@ export default function CalendarClient() {
     const [error, setError] = useState<string | null>(null);
     const [seeding, setSeeding] = useState(false);
     const [seedLog, setSeedLog] = useState<string[] | null>(null);
+    const [seedDone, setSeedDone] = useState(false);
+    const autoSeededRef = React.useRef(false);
 
-    function loadCalendar() {
+    function loadCalendar(m = month, y = year) {
         setLoading(true);
         setError(null);
-        fetch(`/api/v1/calendar?month=${month}&year=${year}`)
+        fetch(`/api/v1/calendar?month=${m}&year=${y}`)
             .then((r) => r.json())
             .then((d: CalendarResponse) => setData(d))
             .catch((e) => setError(e.message))
             .finally(() => setLoading(false));
     }
 
-    useEffect(() => { loadCalendar(); }, [month, year]); // eslint-disable-line react-hooks/exhaustive-deps
+    // Auto-seed once on first load if calendar has never been seeded
+    useEffect(() => {
+        fetch(`/api/v1/calendar?month=${month}&year=${year}`)
+            .then((r) => r.json())
+            .then((d: CalendarResponse) => {
+                setData(d);
+                setLoading(false);
+                if (!d.seeded && !autoSeededRef.current) {
+                    autoSeededRef.current = true;
+                    runSeed();
+                }
+            })
+            .catch((e) => { setError(e.message); setLoading(false); });
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-    async function handleSeed() {
+    useEffect(() => {
+        if (autoSeededRef.current && seeding) return; // don't re-fetch while first seed is running
+        loadCalendar(month, year);
+    }, [month, year]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    async function runSeed() {
         setSeeding(true);
         setSeedLog(null);
+        setSeedDone(false);
         try {
             const resp = await fetch("/api/v1/calendar/seed", { method: "POST" });
             const result = await resp.json();
             setSeedLog(result.log ?? []);
-            loadCalendar(); // reload with fresh DB data
+            setSeedDone(true);
+            loadCalendar(month, year);
         } catch (e) {
             setSeedLog([`Error: ${e instanceof Error ? e.message : String(e)}`]);
+            setSeedDone(true);
         } finally {
             setSeeding(false);
         }
@@ -292,6 +315,50 @@ export default function CalendarClient() {
 
     const events = data?.events ?? {};
     const hasAnyEvents = Object.keys(events).length > 0;
+
+    // ── Full-page seeding state ───────────────────────────────────────────────
+    if (seeding || (loading && !data)) {
+        return (
+            <>
+                <Nav />
+                <main className="mx-auto max-w-7xl px-6 py-8">
+                    <div className="mb-6">
+                        <h1 className="text-2xl font-bold text-gray-900 tracking-tight flex items-center gap-2">
+                            <Calendar size={22} className="text-blue-600" />
+                            Earnings Calendar
+                        </h1>
+                    </div>
+                    <div className="rounded-2xl border border-blue-100 bg-blue-50/40 px-8 py-12 text-center">
+                        <Loader2 className="h-8 w-8 animate-spin text-blue-500 mx-auto mb-4" />
+                        <p className="text-base font-semibold text-gray-800">
+                            {seeding ? "Loading calendar data from BSE, NSE & Tickertape…" : "Loading calendar…"}
+                        </p>
+                        <p className="text-sm text-gray-500 mt-1">
+                            {seeding
+                                ? "Fetching board meeting dates for all Nifty 200 companies across the past year. This runs once and takes about a minute."
+                                : "Please wait…"}
+                        </p>
+                        {seedLog && seedLog.length > 0 && (
+                            <div className="mt-6 mx-auto max-w-lg rounded-xl border border-gray-200 bg-white text-left p-4 max-h-52 overflow-y-auto">
+                                {seedLog.map((line, i) => (
+                                    <p key={i} className={clsx(
+                                        "text-[11px] font-mono leading-relaxed",
+                                        line.startsWith("✓") || line.startsWith("✅") ? "text-emerald-600"
+                                        : line.startsWith("✗") || line.toLowerCase().includes("error") ? "text-red-500"
+                                        : line.startsWith("→") || line.startsWith("⏭") ? "text-blue-500"
+                                        : line.startsWith("\n") || line.startsWith("---") ? "text-gray-700 font-semibold mt-1"
+                                        : "text-gray-400"
+                                    )}>
+                                        {line}
+                                    </p>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </main>
+            </>
+        );
+    }
 
     return (
         <>
@@ -337,35 +404,16 @@ export default function CalendarClient() {
                             </button>
                         )}
                         <button
-                            onClick={handleSeed}
+                            onClick={runSeed}
                             disabled={seeding}
-                            title="Fetch board meeting dates from Tickertape, BSE & NSE and seed the calendar database"
-                            className={clsx(
-                                "flex items-center gap-1.5 text-xs font-medium rounded-md px-3 py-1.5 border transition-colors",
-                                seeding
-                                    ? "border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed"
-                                    : "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100"
-                            )}
+                            title="Re-fetch board meeting dates from Tickertape, BSE & NSE"
+                            className="flex items-center gap-1.5 text-xs font-medium rounded-md px-3 py-1.5 border border-gray-200 bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-700 transition-colors"
                         >
-                            <RefreshCw size={13} className={seeding ? "animate-spin" : ""} />
-                            {seeding ? "Seeding…" : "Seed Calendar"}
+                            <RefreshCw size={13} />
+                            Refresh
                         </button>
                     </div>
                 </div>
-
-                {/* Not-seeded banner */}
-                {!loading && data && !data.seeded && (
-                    <div className="mb-5 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
-                        <AlertCircle size={16} className="text-amber-500 mt-0.5 shrink-0" />
-                        <div className="flex-1 min-w-0">
-                            <p className="text-sm font-semibold text-amber-800">Calendar not seeded</p>
-                            <p className="text-xs text-amber-600 mt-0.5">
-                                Dates shown are from live BSE/NSE lookups or transcript upload dates — coverage may be incomplete.
-                                Click <strong>Seed Calendar</strong> to fetch and store board meeting dates from Tickertape, BSE notices, and NSE for all Nifty 200 companies.
-                            </p>
-                        </div>
-                    </div>
-                )}
 
                 {loading ? (
                     <div className="flex items-center justify-center py-32">
