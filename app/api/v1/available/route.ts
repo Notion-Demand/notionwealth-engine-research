@@ -77,8 +77,14 @@ export async function GET(req: Request) {
 
   console.log(`[available] offset=${offsetFiles.length} tickers=${knownTickers.size} merged=${allFiles.length}`);
 
+  // Sort newest-first by year then quarter (e.g. Q3_2026 > Q4_2025)
+  // localeCompare on "Q4_2025" vs "Q3_2026" is wrong — '4' > '3' beats year
+  function qKey(q: string) {
+    const m = q.match(/^Q(\d)_(\d{4})$/);
+    return m ? parseInt(m[2]) * 10 + parseInt(m[1]) : 0;
+  }
   for (const ticker in available) {
-    available[ticker] = Array.from(new Set(available[ticker])).sort((a, b) => b.localeCompare(a));
+    available[ticker] = Array.from(new Set(available[ticker])).sort((a, b) => qKey(b) - qKey(a));
   }
 
   if (debug) {

@@ -256,8 +256,12 @@ export async function getQuartersForTicker(ticker: string): Promise<string[]> {
     if (m[1].toUpperCase() !== ticker.toUpperCase()) continue;
     quarters.push(`Q${m[2]}_${m[3]}`);
   }
-  // Sort newest first
-  quarters.sort((a, b) => b.localeCompare(a));
+  // Sort newest-first by year then quarter (Q3_2026 > Q4_2025)
+  function qKey(q: string) {
+    const m = q.match(/^Q(\d)_(\d{4})$/);
+    return m ? parseInt(m[2]) * 10 + parseInt(m[1]) : 0;
+  }
+  quarters.sort((a, b) => qKey(b) - qKey(a));
   return quarters;
 }
 
