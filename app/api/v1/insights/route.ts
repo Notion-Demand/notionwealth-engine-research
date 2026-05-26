@@ -11,14 +11,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ detail: "Unauthorized" }, { status: 401 });
   }
 
-  let body: { ticker?: string };
+  let body: { ticker?: string; force?: boolean };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ detail: "Invalid JSON" }, { status: 400 });
   }
 
-  const { ticker } = body;
+  const { ticker, force } = body;
   if (!ticker?.trim()) {
     return NextResponse.json({ detail: "ticker is required" }, { status: 422 });
   }
@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
       try {
         const payload = await runInsightsPipeline(tickerUp, (event) => {
           send(event);
-        });
+        }, { force: !!force });
         send({ type: "done", payload });
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);

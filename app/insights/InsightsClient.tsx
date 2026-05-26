@@ -31,6 +31,7 @@ import {
   BookmarkCheck,
   X,
   Upload,
+  RefreshCw,
 } from "lucide-react";
 import clsx from "clsx";
 
@@ -464,7 +465,7 @@ export default function InsightsClient() {
     e.target.value = "";
   }
 
-  async function run(t: string) {
+  async function run(t: string, force = false) {
     if (!t.trim()) return;
     setLoading(true);
     setError(null);
@@ -474,15 +475,19 @@ export default function InsightsClient() {
     setSynthesizing(false);
 
     try {
-      const result = await runInsightsStream(t.trim().toUpperCase(), (event) => {
-        if (event.type === "start") {
-          setQuarters(event.quarters);
-        } else if (event.type === "quarter_done") {
-          setDoneQuarters((prev) => { const s = new Set(prev); s.add(event.quarter); return s; });
-        } else if (event.type === "synthesis_start") {
-          setSynthesizing(true);
-        }
-      });
+      const result = await runInsightsStream(
+        t.trim().toUpperCase(),
+        (event) => {
+          if (event.type === "start") {
+            setQuarters(event.quarters);
+          } else if (event.type === "quarter_done") {
+            setDoneQuarters((prev) => { const s = new Set(prev); s.add(event.quarter); return s; });
+          } else if (event.type === "synthesis_start") {
+            setSynthesizing(true);
+          }
+        },
+        { force }
+      );
       setPayload(result as unknown as InsightsPayload);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Analysis failed");
@@ -655,6 +660,19 @@ export default function InsightsClient() {
         {/* Results */}
         {payload && (
           <div className="space-y-6">
+            {/* Re-analyse toolbar */}
+            <div className="flex justify-end">
+              <button
+                type="button"
+                disabled={loading}
+                onClick={() => run(ticker, true)}
+                className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-500 hover:bg-gray-50 hover:text-gray-700 disabled:opacity-40"
+              >
+                <RefreshCw size={12} />
+                Clear cache &amp; re-analyse
+              </button>
+            </div>
+
             {/* Hero bar */}
             <div className="rounded-xl border border-gray-200 bg-white px-6 py-4 flex items-center justify-between">
               <div>

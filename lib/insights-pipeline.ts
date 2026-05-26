@@ -214,6 +214,50 @@ RULES:
 - Flag when management said something in Q1 but changed tack by Q3.
 - Do NOT make up data not in the briefs.`;
 
+// ── Cache helpers ─────────────────────────────────────────────────────────────
+
+/** Stable cache key: sorted comma-joined quarter list */
+function makeQuartersKey(quarters: string[]): string {
+  return [...quarters].sort().join(",");
+}
+
+const CACHE_TTL_DAYS = 30;
+
+async function getCachedInsights(
+  ticker: string,
+  qKey: string
+): Promise<InsightsPayload | null> {
+  try {
+    const cutoff = new Date(
+      Date.now() - CACHE_TTL_DAYS * 24 * 60 * 60 * 1000
+    ).toISOString();
+    const { data, error } = await supabaseAdmin()
+      .from("insights_cache")
+      .select("payload")
+      .eq("ticker", ticker)
+      .eq("quarters_key", qKey)
+      .gte("created_at", cutoff)
+      .maybeSingle();
+    if (error || !data) return null;
+    return data.payload as InsightsPayload;
+  } catch {
+    return null;
+  }
+}
+
+async function setCachedInsights(
+  ticker: string,
+  qKey: string,
+  payload: InsightsPayload
+): Promise<void> {
+  await supabaseAdmin()
+    .from("insights_cache")
+    .upsert(
+      { ticker, quarters_key: qKey, payload, created_at: new Date().toISOString() },
+      { onConflict: "ticker,quarters_key" }
+    );
+}
+
 // ── Storage helpers ───────────────────────────────────────────────────────────
 
 const BUCKET = "transcripts";
@@ -316,7 +360,8 @@ async function runSynthesisAgent(
 
 export async function runInsightsPipeline(
   ticker: string,
-  onProgress?: InsightsProgressCallback
+  onProgress?: InsightsProgressCallback,
+  options?: { force?: boolean }
 ): Promise<InsightsPayload> {
   // 1. Discover quarters
   const quarters = await getQuartersForTicker(ticker);
@@ -324,16 +369,34 @@ export async function runInsightsPipeline(
 
   // Use up to 8 quarters (2 full fiscal years)
   const targetQuarters = quarters.slice(0, 8);
+  const cacheKey = makeQuartersKey(targetQuarters);
+
+  // 2. Cache check (skip when force=true)
+  if (!options?.force) {
+    const cached = await getCachedInsights(ticker, cacheKey);
+    if (cached) {
+      console.log(`[Insights] Cache hit for ${ticker} (${cacheKey})`);
+      // Replay progress events quickly so the UI still animates
+      onProgress?.({ type: "start", ticker, quarters: targetQuarters });
+      for (const q of targetQuarters) {
+        onProgress?.({ type: "quarter_done", quarter: q });
+      }
+      onProgress?.({ type: "synthesis_start" });
+      return cached;
+    }
+  }
+
+  // 3. Full pipeline run
   onProgress?.({ type: "start", ticker, quarters: targetQuarters });
 
-  // 2. Download + parse all transcripts in parallel
+  // Download + parse all transcripts in parallel
   const texts = await Promise.all(
     targetQuarters.map((q) =>
       fetchTranscriptText(ticker, q).catch(() => "")
     )
   );
 
-  // 3. Run brief agents in parallel
+  // Run brief agents in parallel
   const briefs = await Promise.all(
     targetQuarters.map((q, i) =>
       runQuarterBriefAgent(ticker, q, texts[i]).then((b) => {
@@ -343,14 +406,21 @@ export async function runInsightsPipeline(
     )
   );
 
-  // 4. Synthesis
+  // Synthesis
   onProgress?.({ type: "synthesis_start" });
   const synthesis = await runSynthesisAgent(ticker, briefs);
 
-  return {
+  const payload: InsightsPayload = {
     ticker,
     quarters_analyzed: targetQuarters,
     quarter_briefs: briefs,
     ...synthesis,
   };
+
+  // 4. Persist to cache (non-blocking — don't fail the request if this errors)
+  setCachedInsights(ticker, cacheKey, payload).catch((e) =>
+    console.warn("[Insights] Cache write failed:", e)
+  );
+
+  return payload;
 }

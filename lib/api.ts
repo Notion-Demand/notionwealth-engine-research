@@ -163,7 +163,8 @@ export type InsightsProgressEvent =
 
 export async function runInsightsStream(
   ticker: string,
-  onEvent: (event: InsightsProgressEvent) => void
+  onEvent: (event: InsightsProgressEvent) => void,
+  options?: { force?: boolean }
 ): Promise<Record<string, unknown>> {
   const token = await getToken();
   const response = await fetch(`${API_URL}/insights`, {
@@ -172,7 +173,7 @@ export async function runInsightsStream(
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify({ ticker }),
+    body: JSON.stringify({ ticker, force: options?.force }),
   });
 
   if (!response.ok) {
