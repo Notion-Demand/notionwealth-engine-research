@@ -38,24 +38,6 @@ async function apiFetch<T>(
   return res.json() as Promise<T>;
 }
 
-// ── Connection helpers ────────────────────────────────────────────────────────
-
-export type Connection = {
-  provider: string;
-  connected_at: string;
-  gmail_email?: string;
-  slack_team_id?: string;
-  slack_team_name?: string;
-};
-
-export async function listConnections(): Promise<Connection[]> {
-  return apiFetch<Connection[]>("/connections");
-}
-
-export async function deleteConnection(provider: "gmail" | "slack") {
-  return apiFetch(`/connections/${provider}`, { method: "DELETE" });
-}
-
 // ── Analyze helpers ───────────────────────────────────────────────────────────
 
 export type AnalyzeResult = {
@@ -230,16 +212,3 @@ export async function runInsightsStream(
   return result;
 }
 
-// ── Email helpers ─────────────────────────────────────────────────────────────
-
-export async function sendEmail(params: {
-  to: string;
-  subject: string;
-  body: string;
-  html?: string;
-}) {
-  return apiFetch("/email/send", {
-    method: "POST",
-    body: JSON.stringify(params),
-  });
-}
