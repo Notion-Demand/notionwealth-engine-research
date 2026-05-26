@@ -5,7 +5,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { useEffect, useState, useRef } from "react";
 import {
     LogOut, BarChart2, BarChart3, TrendingUp,
-    Inbox, Layers, CalendarDays, Bell, CheckCircle2, Clock, X,
+    Inbox, Layers, CalendarDays, Bell, CheckCircle2, Clock, X, Youtube,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import clsx from "clsx";
@@ -16,6 +16,7 @@ const NAV_ITEMS = [
     { href: "/sectors",    label: "Sector Intelligence",    icon: Layers },
     { href: "/screener",   label: "Screener",               icon: TrendingUp },
     { href: "/calendar",   label: "Calendar",               icon: CalendarDays },
+    { href: "/videos",     label: "Videos",                 icon: Youtube },
     { href: "/request",    label: "Request",                icon: Inbox },
 ];
 
