@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
 import {
     ChevronLeft, ChevronRight, Calendar, Loader2,
-    CheckCircle2, Clock, ExternalLink,
+    CheckCircle2, Clock, ExternalLink, RefreshCw, AlertCircle,
 } from "lucide-react";
 import clsx from "clsx";
 import type { CalendarEvent, CalendarResponse } from "@/app/api/v1/calendar/route";
@@ -244,8 +244,10 @@ export default function CalendarClient() {
     const [data, setData] = useState<CalendarResponse | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [seeding, setSeeding] = useState(false);
+    const [seedLog, setSeedLog] = useState<string[] | null>(null);
 
-    useEffect(() => {
+    function loadCalendar() {
         setLoading(true);
         setError(null);
         fetch(`/api/v1/calendar?month=${month}&year=${year}`)
@@ -253,7 +255,24 @@ export default function CalendarClient() {
             .then((d: CalendarResponse) => setData(d))
             .catch((e) => setError(e.message))
             .finally(() => setLoading(false));
-    }, [month, year]);
+    }
+
+    useEffect(() => { loadCalendar(); }, [month, year]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    async function handleSeed() {
+        setSeeding(true);
+        setSeedLog(null);
+        try {
+            const resp = await fetch("/api/v1/calendar/seed", { method: "POST" });
+            const result = await resp.json();
+            setSeedLog(result.log ?? []);
+            loadCalendar(); // reload with fresh DB data
+        } catch (e) {
+            setSeedLog([`Error: ${e instanceof Error ? e.message : String(e)}`]);
+        } finally {
+            setSeeding(false);
+        }
+    }
 
     const grid = useMemo(() => buildGrid(year, month), [year, month]);
     const todayStr = today.toISOString().slice(0, 10);
@@ -317,8 +336,36 @@ export default function CalendarClient() {
                                 Today
                             </button>
                         )}
+                        <button
+                            onClick={handleSeed}
+                            disabled={seeding}
+                            title="Fetch board meeting dates from Tickertape, BSE & NSE and seed the calendar database"
+                            className={clsx(
+                                "flex items-center gap-1.5 text-xs font-medium rounded-md px-3 py-1.5 border transition-colors",
+                                seeding
+                                    ? "border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed"
+                                    : "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100"
+                            )}
+                        >
+                            <RefreshCw size={13} className={seeding ? "animate-spin" : ""} />
+                            {seeding ? "Seeding…" : "Seed Calendar"}
+                        </button>
                     </div>
                 </div>
+
+                {/* Not-seeded banner */}
+                {!loading && data && !data.seeded && (
+                    <div className="mb-5 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+                        <AlertCircle size={16} className="text-amber-500 mt-0.5 shrink-0" />
+                        <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-amber-800">Calendar not seeded</p>
+                            <p className="text-xs text-amber-600 mt-0.5">
+                                Dates shown are from live BSE/NSE lookups or transcript upload dates — coverage may be incomplete.
+                                Click <strong>Seed Calendar</strong> to fetch and store board meeting dates from Tickertape, BSE notices, and NSE for all Nifty 200 companies.
+                            </p>
+                        </div>
+                    </div>
+                )}
 
                 {loading ? (
                     <div className="flex items-center justify-center py-32">
@@ -427,6 +474,42 @@ export default function CalendarClient() {
                                     Board meeting dates sourced from BSE/NSE corporate filings calendar.
                                 </p>
                             </div>
+
+                            {/* Seed log */}
+                            {seedLog !== null && (
+                                <div className="rounded-xl border border-gray-200 bg-white p-4">
+                                    <div className="flex items-center justify-between mb-2">
+                                        <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                                            Seed Log
+                                        </h3>
+                                        <button
+                                            onClick={() => setSeedLog(null)}
+                                            className="text-[11px] text-gray-400 hover:text-gray-600"
+                                        >
+                                            clear
+                                        </button>
+                                    </div>
+                                    <div className="space-y-0.5 max-h-56 overflow-y-auto">
+                                        {seedLog.map((line, i) => (
+                                            <p
+                                                key={i}
+                                                className={clsx(
+                                                    "text-[11px] font-mono leading-relaxed",
+                                                    line.startsWith("✓") || line.startsWith("✅")
+                                                        ? "text-emerald-600"
+                                                        : line.startsWith("✗") || line.toLowerCase().includes("error")
+                                                        ? "text-red-500"
+                                                        : line.startsWith("→") || line.startsWith("⏭")
+                                                        ? "text-blue-500"
+                                                        : "text-gray-500"
+                                                )}
+                                            >
+                                                {line}
+                                            </p>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}
