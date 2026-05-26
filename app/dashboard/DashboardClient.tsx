@@ -10,12 +10,19 @@ import AgentPanel, {
   type AgentStatus,
 } from "@/components/AgentPanel";
 import { runAnalysisStream } from "@/lib/api";
-import { quarterLabel, SECTION_NAMES } from "@/lib/nifty50";
-import { NIFTY200_LIST } from "@/lib/nifty200";
+import { quarterLabel, SECTION_NAMES, QUARTERS } from "@/lib/nifty50";
+import { NIFTY200_LIST, NIFTY200 } from "@/lib/nifty200";
 import { BarChart2, RefreshCw, Bookmark, BookmarkCheck, X } from "lucide-react";
 import clsx from "clsx";
 
 const DEFAULT_SECTIONS = [...SECTION_NAMES];
+
+// Module-level set for O(1) Nifty 200 coverage checks
+const NIFTY200_TICKERS = new Set(Object.keys(NIFTY200));
+
+// Fixed global quarter pair — always the two most recent quarters
+const GLOBAL_CURR = QUARTERS[0]; // e.g. Q4_2026
+const GLOBAL_PREV = QUARTERS[1]; // e.g. Q3_2026
 
 // ── Company autocomplete ──────────────────────────────────────────────────────
 
@@ -186,25 +193,15 @@ export default function DashboardClient() {
   const fetchAvailable = useRef<(selectTicker?: string | null) => void>();
   fetchAvailable.current = (selectTicker?: string | null) => {
     setAvailableLoading(true);
-    fetch(`/api/v1/available${selectTicker ? `?ticker=${selectTicker}` : ""}`)
+    fetch("/api/v1/available")
       .then((r) => r.json())
       .then((data: Record<string, string[]>) => {
         setAvailable(data);
-        // Prefer ticker from URL query param (e.g. after Request upload)
-        const preferred = selectTicker && data[selectTicker] ? selectTicker : null;
-        const tickers = Object.keys(data);
-        const selected = preferred ?? (tickers.length > 0 ? tickers[0] : null);
-        if (selected) {
-          const quarters = data[selected] ?? [];
-          setTicker(selected);
-          if (quarters.length >= 2) {
-            setQCurr(quarters[0]);
-            setQPrev(quarters[1]);
-          } else if (quarters.length === 1) {
-            setQCurr(quarters[0]);
-            setQPrev(quarters[0]);
-          }
+        // If a specific ticker was requested (e.g. after Request upload), select it
+        if (selectTicker && data[selectTicker]) {
+          setTicker(selectTicker);
         }
+        // Quarters are always GLOBAL_CURR / GLOBAL_PREV — never changed by fetch
       })
       .catch(() => { })
       .finally(() => setAvailableLoading(false));
@@ -216,36 +213,67 @@ export default function DashboardClient() {
   }, []);
 
   const filteredList = useMemo(() => {
-    if (Object.keys(available).length === 0) return NIFTY200_LIST;
-    const niftyTickers = new Set(NIFTY200_LIST.map((c) => c.ticker));
-    const niftyInStorage = NIFTY200_LIST.filter(({ ticker }) => available[ticker]);
+    // Always show the full Nifty 200 universe; add extras (non-Nifty200 companies in storage) at end
     const extras = Object.keys(available)
-      .filter((t) => !niftyTickers.has(t))
+      .filter((t) => !NIFTY200_TICKERS.has(t))
       .sort()
-      .map((t) => ({ ticker: t, bse: 0, nse: t, name: t }));
-    return [...niftyInStorage, ...extras];
+      .map((t) => ({ ticker: t, bse: 0, nse: t, name: t, sector: "" }));
+    return [...NIFTY200_LIST, ...extras];
   }, [available]);
 
   const { watchlist, toggle: toggleWatchlist, isWatched } = useWatchlist(filteredList);
 
   // ── Picker state ────────────────────────────────────────────────────────────
   const [ticker, setTicker] = useState("BHARTI");
-  const [qCurr, setQCurr] = useState("Q3_2026");
-  const [qPrev, setQPrev] = useState("Q2_2026");
 
-  const quartersForTicker = available[ticker] ?? [];
+  // Quarters are globally fixed — always the two most recent across all stocks
+  const qCurr = GLOBAL_CURR;
+  const qPrev = GLOBAL_PREV;
+
+  // ── Auto-fetch state ─────────────────────────────────────────────────────────
+  const [fetchingTranscripts, setFetchingTranscripts] = useState(false);
+  const [coverageMsg, setCoverageMsg] = useState<string | null>(null);
+  const fetchAttempted = useRef(new Set<string>());
 
   function handleTickerChange(newTicker: string) {
     setTicker(newTicker);
-    const quarters = available[newTicker] ?? [];
-    if (quarters.length >= 2) {
-      setQCurr(quarters[0]);
-      setQPrev(quarters[1]);
-    }
     setResult(null);
     setError(null);
     setAgentState(null);
+    setCoverageMsg(null);
   }
+
+  // ── Auto-fetch transcripts when a ticker has none ────────────────────────────
+  useEffect(() => {
+    if (!ticker || availableLoading) return;
+    if (available[ticker]?.length > 0) return; // already has transcripts
+    if (fetchAttempted.current.has(ticker)) return; // already tried this session
+    if (!NIFTY200_TICKERS.has(ticker)) {
+      setCoverageMsg(`${ticker} is outside our Nifty 200 coverage.`);
+      return;
+    }
+
+    fetchAttempted.current.add(ticker);
+    setFetchingTranscripts(true);
+    setCoverageMsg(null);
+    fetch("/api/v1/request", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ticker }),
+    })
+      .then((r) => {
+        if (!r.ok) throw new Error(`Request API error ${r.status}`);
+        return r.json();
+      })
+      .then(() => {
+        fetchAvailable.current?.();
+      })
+      .catch((e) => {
+        setError(`Failed to fetch transcripts for ${ticker}: ${e instanceof Error ? e.message : String(e)}`);
+      })
+      .finally(() => setFetchingTranscripts(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ticker, available, availableLoading]);
 
   // ── Analysis state ──────────────────────────────────────────────────────────
   const [loading, setLoading] = useState(false);
@@ -439,7 +467,21 @@ export default function DashboardClient() {
                 </button>
               </div>
             </div>
-            {tickerParam && !available[tickerParam] && !availableLoading && (
+            {fetchingTranscripts && (
+              <p className="text-[11px] text-blue-600 flex items-center gap-1">
+                <RefreshCw size={10} className="animate-spin" />
+                Fetching transcripts for {ticker}…
+              </p>
+            )}
+            {!fetchingTranscripts && coverageMsg && (
+              <p className="text-[11px] text-amber-600">
+                {coverageMsg}{" "}
+                <a href="/request" className="underline underline-offset-2 font-medium">
+                  Request transcripts →
+                </a>
+              </p>
+            )}
+            {tickerParam && !available[tickerParam] && !availableLoading && !fetchingTranscripts && (
               <p className="text-[11px] text-amber-600">
                 {tickerParam} not found — try refreshing or wait a moment after uploading.
               </p>
@@ -448,31 +490,29 @@ export default function DashboardClient() {
               options={filteredList}
               value={ticker}
               onChange={handleTickerChange}
-              disabled={loading}
+              disabled={loading || fetchingTranscripts}
             />
           </div>
 
-          {/* Auto-compare label — most recent two quarters */}
-          {qPrev && qCurr && qPrev !== qCurr && (
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">
-                Comparing
-              </label>
-              <div className="flex items-center gap-2 rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700">
-                <span className="font-medium">{quarterLabel(qPrev)}</span>
-                <span className="text-gray-400">→</span>
-                <span className="font-medium">{quarterLabel(qCurr)}</span>
-              </div>
+          {/* Fixed global quarter comparison label */}
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+              Comparing
+            </label>
+            <div className="flex items-center gap-2 rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700">
+              <span className="font-medium">{quarterLabel(qPrev)}</span>
+              <span className="text-gray-400">→</span>
+              <span className="font-medium">{quarterLabel(qCurr)}</span>
             </div>
-          )}
+          </div>
 
           {/* Submit */}
           <button
             type="submit"
-            disabled={loading || !qPrev || !qCurr || qPrev === qCurr}
+            disabled={loading || fetchingTranscripts || !!coverageMsg}
             className="rounded-md bg-brand-600 px-5 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
           >
-            {loading ? "Analyzing…" : "Analyze"}
+            {loading ? "Analyzing…" : fetchingTranscripts ? "Fetching…" : "Analyze"}
           </button>
         </form>
 

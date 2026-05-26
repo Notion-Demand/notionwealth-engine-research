@@ -66,6 +66,7 @@ export const NIFTY50_LIST = Object.entries(NIFTY50)
 
 /** Available quarters for the picker — add new quarters here as they arrive */
 export const QUARTERS = [
+  "Q4_2026",
   "Q3_2026",
   "Q2_2026",
   "Q1_2026",
