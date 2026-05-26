@@ -76,40 +76,113 @@ export const QUARTERS = [
   "Q1_2025",
 ];
 
-/** Top 10 sectors with their top 5-6 companies by market cap — used for sector intelligence */
-export const SECTOR_UNIVERSE: Record<string, { tickers: string[]; label: string }> = {
-  Banking: { tickers: ["HDFC", "ICICI", "SBI", "KOTAKBANK", "AXISBANK", "INDUSINDBK"], label: "Banking" },
-  IT: { tickers: ["TCS", "INFOSYS", "HCLTECH", "WIPRO", "TECHM", "LTIM"], label: "IT Services" },
-  Auto: { tickers: ["MARUTI", "TATAMOTORS", "MM", "BAJAJAUTO", "EICHERMOT", "HEROMOTOCO"], label: "Automobiles" },
-  FMCG: { tickers: ["HUL", "ITC", "NESTLEIND", "TATACONSUM", "BRITANNIA"], label: "FMCG" },
-  Pharma: { tickers: ["SUNPHARMA", "DRREDDY", "CIPLA", "DIVISLAB"], label: "Pharmaceuticals" },
-  "Oil & Gas": { tickers: ["RELIANCE", "ONGC", "BPCL"], label: "Oil & Gas" },
-  Metals: { tickers: ["TATASTEEL", "JSWSTEEL", "HINDALCO"], label: "Metals & Mining" },
-  Infra: { tickers: ["LT", "ADANIPORTS"], label: "Infrastructure" },
-  Insurance: { tickers: ["SBILIFE", "HDFCLIFE", "ICICIPRULI"], label: "Insurance" },
-  Telecom: { tickers: ["BHARTI"], label: "Telecom" },
+/** 17 sectors covering the Nifty 200 universe — used for sector intelligence */
+export const SECTOR_UNIVERSE: Record<string, { tickers: string[]; label: string; subsector?: string }> = {
+  // ── Core Financials ──────────────────────────────────────────────────────────
+  Banking: {
+    tickers: ["HDFC", "ICICI", "SBI", "KOTAKBANK", "AXISBANK", "INDUSINDBK"],
+    label: "Banking",
+  },
+  NBFC: {
+    tickers: ["BAJAJ", "BAJAJFINSV", "MUTHOOTFIN", "CHOLAFIN", "SBICARD"],
+    label: "NBFCs & Consumer Finance",
+  },
+  Insurance: {
+    tickers: ["SBILIFE", "HDFCLIFE", "ICICIPRULI"],
+    label: "Insurance",
+  },
+  // ── Technology ───────────────────────────────────────────────────────────────
+  IT: {
+    tickers: ["TCS", "INFOSYS", "HCLTECH", "WIPRO", "TECHM", "LTIM"],
+    label: "IT Services",
+  },
+  // ── Industrials ─────────────────────────────────────────────────────────────
+  Auto: {
+    tickers: ["MARUTI", "TATAMOTORS", "MM", "BAJAJAUTO", "EICHERMOT", "HEROMOTOCO"],
+    label: "Automobiles",
+  },
+  CapGoods: {
+    tickers: ["LT", "BEL", "SIEMENS", "ABB", "BHEL", "HAVELLS"],
+    label: "Capital Goods",
+  },
+  Infra: {
+    tickers: ["ADANIPORTS", "DLF", "GODREJPROP", "OBEROIRLTY"],
+    label: "Infrastructure & Real Estate",
+  },
+  // ── Consumption ──────────────────────────────────────────────────────────────
+  FMCG: {
+    tickers: ["HUL", "ITC", "NESTLEIND", "TATACONSUM", "BRITANNIA"],
+    label: "FMCG",
+  },
+  Consumer: {
+    tickers: ["TITAN", "ASIANPAINT", "DMART", "TRENT"],
+    label: "Consumer & Retail",
+  },
+  // ── Healthcare ───────────────────────────────────────────────────────────────
+  Pharma: {
+    tickers: ["SUNPHARMA", "DRREDDY", "CIPLA", "DIVISLAB"],
+    label: "Pharmaceuticals",
+  },
+  Healthcare: {
+    tickers: ["APOLLOHOSP", "FORTIS", "MAXHEALTH"],
+    label: "Healthcare & Hospitals",
+  },
+  // ── Energy & Materials ────────────────────────────────────────────────────────
+  "Oil & Gas": {
+    tickers: ["RELIANCE", "ONGC", "BPCL"],
+    label: "Oil & Gas",
+  },
+  Power: {
+    tickers: ["NTPC", "POWERGRID", "TATAPOWER", "ADANIGREEN"],
+    label: "Power & Utilities",
+  },
+  Metals: {
+    tickers: ["TATASTEEL", "JSWSTEEL", "HINDALCO"],
+    label: "Metals & Mining",
+  },
+  Cement: {
+    tickers: ["ULTRACEMCO", "GRASIM", "AMBUJACEM", "SHREECEM"],
+    label: "Cement",
+  },
+  // ── Telecom ──────────────────────────────────────────────────────────────────
+  Telecom: {
+    tickers: ["BHARTI"],
+    label: "Telecom",
+  },
 };
 
 /** Approximate market caps in ₹ Lakh Cr — used for weighted signal aggregation */
 export const MARKET_CAPS: Record<string, number> = {
   // Banking
   HDFC: 13.5, ICICI: 9.5, SBI: 7.5, KOTAKBANK: 4.0, AXISBANK: 3.8, INDUSINDBK: 1.0,
+  // NBFCs
+  BAJAJ: 5.8, BAJAJFINSV: 2.5, MUTHOOTFIN: 0.8, CHOLAFIN: 1.0, SBICARD: 0.5,
+  // Insurance
+  SBILIFE: 1.5, HDFCLIFE: 1.4, ICICIPRULI: 0.8,
   // IT
   TCS: 15.0, INFOSYS: 7.5, HCLTECH: 4.5, WIPRO: 2.8, TECHM: 1.5, LTIM: 1.8,
   // Auto
   MARUTI: 4.2, TATAMOTORS: 3.0, MM: 3.8, BAJAJAUTO: 2.5, EICHERMOT: 1.2, HEROMOTOCO: 1.0,
+  // Capital Goods
+  LT: 5.0, BEL: 1.8, SIEMENS: 1.4, ABB: 0.8, BHEL: 1.2, HAVELLS: 1.2,
+  // Infra & Real Estate
+  ADANIPORTS: 3.2, DLF: 2.0, GODREJPROP: 0.9, OBEROIRLTY: 0.8,
   // FMCG
   HUL: 5.8, ITC: 5.5, NESTLEIND: 1.8, TATACONSUM: 1.0, BRITANNIA: 1.2,
+  // Consumer & Retail
+  TITAN: 3.2, ASIANPAINT: 2.2, DMART: 2.8, TRENT: 1.5,
   // Pharma
   SUNPHARMA: 4.0, DRREDDY: 1.1, CIPLA: 1.2, DIVISLAB: 0.9,
+  // Healthcare
+  APOLLOHOSP: 1.0, FORTIS: 0.3, MAXHEALTH: 0.4,
   // Oil & Gas
   RELIANCE: 17.0, ONGC: 3.5, BPCL: 1.5,
+  // Power
+  NTPC: 3.5, POWERGRID: 3.0, TATAPOWER: 1.4, ADANIGREEN: 2.5,
   // Metals
   TATASTEEL: 1.8, JSWSTEEL: 2.3, HINDALCO: 1.5,
-  // Infra
-  LT: 5.0, ADANIPORTS: 3.2,
-  // Insurance
-  SBILIFE: 1.5, HDFCLIFE: 1.4, ICICIPRULI: 0.8,
+  // Cement
+  ULTRACEMCO: 2.5, GRASIM: 1.8, AMBUJACEM: 1.2, SHREECEM: 0.8,
   // Telecom
   BHARTI: 9.5,
 };
@@ -173,21 +246,42 @@ export const SCREENER_SLUGS: Record<string, string> = {
   // NBFC
   BAJAJ: "/company/BAJFINANCE/consolidated/",
   BAJAJFINSV: "/company/BAJAJFINSV/consolidated/",
+  MUTHOOTFIN: "/company/MUTHOOTFIN/consolidated/",
+  CHOLAFIN: "/company/CHOLAFIN/consolidated/",
+  SBICARD: "/company/SBICARD/consolidated/",
   // Conglomerate
   ADANIENT: "/company/ADANIENT/consolidated/",
   // Consumer
   TITAN: "/company/TITAN/consolidated/",
   ASIANPAINT: "/company/ASIANPAINT/consolidated/",
+  DMART: "/company/DMART/consolidated/",
+  TRENT: "/company/TRENT/consolidated/",
+  // Capital Goods
+  BEL: "/company/BEL/consolidated/",
+  SIEMENS: "/company/SIEMENS/consolidated/",
+  ABB: "/company/ABB/consolidated/",
+  BHEL: "/company/BHEL/standalone/",
+  HAVELLS: "/company/HAVELLS/consolidated/",
   // Power
   NTPC: "/company/NTPC/consolidated/",
   POWERGRID: "/company/POWERGRID/consolidated/",
+  TATAPOWER: "/company/TATAPOWER/consolidated/",
+  ADANIGREEN: "/company/ADANIGREEN/consolidated/",
   // Mining
   COALINDIA: "/company/COALINDIA/consolidated/",
   // Cement
   ULTRACEMCO: "/company/ULTRACEMCO/consolidated/",
   GRASIM: "/company/GRASIM/consolidated/",
+  AMBUJACEM: "/company/AMBUJACEM/consolidated/",
+  SHREECEM: "/company/SHREECEM/consolidated/",
   // Healthcare
   APOLLOHOSP: "/company/APOLLOHOSP/consolidated/",
+  FORTIS: "/company/FORTIS/consolidated/",
+  MAXHEALTH: "/company/MAXHEALT/consolidated/",
+  // Real Estate
+  DLF: "/company/DLF/consolidated/",
+  GODREJPROP: "/company/GODREJPROP/standalone/",
+  OBEROIRLTY: "/company/OBEROIRLTY/standalone/",
 };
 
 /** The 5 thematic analysis sections — exported for both pipeline and UI */
