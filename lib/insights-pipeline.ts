@@ -25,19 +25,8 @@ export type InsightsProgressCallback = (e: InsightsProgressEvent) => void;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export interface QuarterFinancials {
-  revenue?: string;
-  revenue_growth?: string;
-  ebitda_margin?: string;
-  pat?: string;
-  pat_growth?: string;
-  capex?: string;
-  capacity_utilization?: string;
-}
-
 export interface QuarterBrief {
   quarter: string;
-  financials: QuarterFinancials;
   key_points: string[];
   segment_highlights: { segment: string; description: string; direction: string }[];
   guidance_statements: { statement: string; topic: string; specificity: string; timeframe?: string }[];
@@ -105,18 +94,6 @@ async function invokeStructured<T>(system: string, user: string, schema: Schema)
 const QUARTER_BRIEF_SCHEMA: Schema = {
   type: SchemaType.OBJECT,
   properties: {
-    financials: {
-      type: SchemaType.OBJECT,
-      properties: {
-        revenue:              { type: SchemaType.STRING },
-        revenue_growth:       { type: SchemaType.STRING },
-        ebitda_margin:        { type: SchemaType.STRING },
-        pat:                  { type: SchemaType.STRING },
-        pat_growth:           { type: SchemaType.STRING },
-        capex:                { type: SchemaType.STRING },
-        capacity_utilization: { type: SchemaType.STRING },
-      },
-    },
     key_points: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
     segment_highlights: {
       type: SchemaType.ARRAY,
@@ -156,26 +133,24 @@ const QUARTER_BRIEF_SCHEMA: Schema = {
     },
     management_tone: { type: SchemaType.STRING },
   },
-  required: ["financials", "key_points", "segment_highlights", "guidance_statements", "new_developments", "management_tone"],
+  required: ["key_points", "segment_highlights", "guidance_statements", "new_developments", "management_tone"],
 };
 
 const QUARTER_BRIEF_SYSTEM = `You are a senior buy-side analyst building a quarterly research dossier.
 
 Extract the following from this earnings call transcript:
 
-1. **financials** — Revenue (₹/$ amount), revenue growth %, EBITDA margin %, PAT amount, PAT growth %, CapEx for the quarter, capacity utilisation % if mentioned. Use exact numbers from transcript. Leave blank if not stated.
+1. **key_points** — 5-7 most important factual points from this quarter (not opinions — facts, numbers, decisions, specific statements).
 
-2. **key_points** — 5-7 most important factual points from this quarter (not opinions — facts, numbers, decisions, specific statements).
+2. **segment_highlights** — For each business segment/product line discussed: brief description + direction (growing/stable/declining/new). Only include segments explicitly discussed.
 
-3. **segment_highlights** — For each business segment/product line discussed: brief description + direction (growing/stable/declining/new). Only include segments explicitly discussed.
+3. **guidance_statements** — Every forward-looking statement management made. Include verbatim quote as the "statement", the topic it relates to (e.g. "Revenue growth", "Margin expansion", "CapEx"), and specificity ("vague", "moderate", or "specific"). Include timeframe if stated (e.g. "FY26", "next 2 quarters").
 
-4. **guidance_statements** — Every forward-looking statement management made. Include verbatim quote as the "statement", the topic it relates to (e.g. "Revenue growth", "Margin expansion", "CapEx"), and specificity ("vague", "moderate", or "specific"). Include timeframe if stated (e.g. "FY26", "next 2 quarters").
+4. **new_developments** — Any NEW developments first mentioned this quarter: new customer wins, new geographies entered, new product launches, new partnerships, new technology investments. Type must be one of: customer, geography, product, technology, partnership.
 
-5. **new_developments** — Any NEW developments first mentioned this quarter: new customer wins, new geographies entered, new product launches, new partnerships, new technology investments. Type must be one of: customer, geography, product, technology, partnership.
+5. **management_tone** — Overall tone: "optimistic", "cautious", "neutral", or "defensive".
 
-6. **management_tone** — Overall tone: "optimistic", "cautious", "neutral", or "defensive".
-
-RULES: Use exact numbers. Never fabricate. Leave optional fields blank rather than guessing.`;
+RULES: Never fabricate. Extract only what is explicitly stated in the transcript.`;
 
 const SYNTHESIS_SCHEMA: Schema = {
   type: SchemaType.OBJECT,
@@ -295,7 +270,6 @@ async function runQuarterBriefAgent(
     console.error(`[Insights] Brief failed for ${quarter}:`, e);
     return {
       quarter,
-      financials: {},
       key_points: [],
       segment_highlights: [],
       guidance_statements: [],
@@ -314,15 +288,7 @@ async function runSynthesisAgent(
     const segs = b.segment_highlights.map((s) => `  • ${s.segment} (${s.direction}): ${s.description}`).join("\n");
     const guidance = b.guidance_statements.map((g) => `  • [${g.specificity}] ${g.topic}: "${g.statement}"${g.timeframe ? ` (${g.timeframe})` : ""}`).join("\n");
     const newDevs = b.new_developments.map((d) => `  • [${d.type}] ${d.description}`).join("\n");
-    const fins = b.financials;
-    const finLine = [
-      fins.revenue && `Rev: ${fins.revenue}${fins.revenue_growth ? ` (${fins.revenue_growth})` : ""}`,
-      fins.ebitda_margin && `EBITDA: ${fins.ebitda_margin}`,
-      fins.pat && `PAT: ${fins.pat}${fins.pat_growth ? ` (${fins.pat_growth})` : ""}`,
-      fins.capex && `CapEx: ${fins.capex}`,
-      fins.capacity_utilization && `Cap.Util: ${fins.capacity_utilization}`,
-    ].filter(Boolean).join(" | ");
-    return `=== ${b.quarter} (tone: ${b.management_tone}) ===\nFinancials: ${finLine || "not stated"}\nKey points:\n${b.key_points.map((p) => `  • ${p}`).join("\n")}\nSegments:\n${segs || "  none stated"}\nGuidance:\n${guidance || "  none stated"}\nNew developments:\n${newDevs || "  none"}`;
+    return `=== ${b.quarter} (tone: ${b.management_tone}) ===\nKey points:\n${b.key_points.map((p) => `  • ${p}`).join("\n")}\nSegments:\n${segs || "  none stated"}\nGuidance:\n${guidance || "  none stated"}\nNew developments:\n${newDevs || "  none"}`;
   }).join("\n\n");
 
   const user = `Company: ${ticker}\nQuarters analyzed (newest first): ${briefs.map((b) => b.quarter).join(", ")}\n\n${briefTexts}`;

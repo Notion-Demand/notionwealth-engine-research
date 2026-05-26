@@ -74,84 +74,6 @@ function SignalDot({ signal }: { signal: string }) {
 
 // ── Financials table ──────────────────────────────────────────────────────────
 
-function FinancialsTable({ briefs }: { briefs: QuarterBrief[] }) {
-  const sorted = [...briefs].sort((a, b) => qKey(a.quarter) - qKey(b.quarter)); // oldest → newest
-  return (
-    <div className="overflow-x-auto rounded-xl border border-gray-200">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="bg-gray-50 border-b border-gray-200">
-            <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-gray-400 w-28">Metric</th>
-            {sorted.map((b) => (
-              <th key={b.quarter} className="text-right px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                {quarterLabel(b.quarter)}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-gray-100">
-          {(["revenue", "ebitda_margin", "pat", "capex", "capacity_utilization"] as const).map((key) => {
-            const labels: Record<string, string> = {
-              revenue: "Revenue",
-              ebitda_margin: "EBITDA Margin",
-              pat: "PAT",
-              capex: "CapEx",
-              capacity_utilization: "Cap. Utilisation",
-            };
-            const growthKey: Partial<Record<string, string>> = {
-              revenue: "revenue_growth",
-              pat: "pat_growth",
-            };
-            return (
-              <tr key={key} className="hover:bg-gray-50/50">
-                <td className="px-4 py-3 font-medium text-gray-600 text-xs">{labels[key]}</td>
-                {sorted.map((b) => {
-                  const val = b.financials[key];
-                  const gk = growthKey[key];
-                  const growth = gk ? (b.financials as Record<string, string | undefined>)[gk] : undefined;
-                  return (
-                    <td key={b.quarter} className="px-4 py-3 text-right">
-                      {val ? (
-                        <div>
-                          <span className="font-medium text-gray-900">{val}</span>
-                          {growth && (
-                            <span className={clsx(
-                              "ml-1.5 text-[11px] font-medium",
-                              growth.startsWith("+") ? "text-emerald-600" : "text-red-500"
-                            )}>
-                              {growth}
-                            </span>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-gray-300">—</span>
-                      )}
-                    </td>
-                  );
-                })}
-              </tr>
-            );
-          })}
-          <tr className="hover:bg-gray-50/50">
-            <td className="px-4 py-3 font-medium text-gray-600 text-xs">Tone</td>
-            {sorted.map((b) => (
-              <td key={b.quarter} className="px-4 py-3 text-right">
-                <span className={clsx(
-                  "text-xs font-medium capitalize",
-                  b.management_tone === "optimistic" ? "text-emerald-600"
-                  : b.management_tone === "cautious" || b.management_tone === "defensive" ? "text-amber-600"
-                  : "text-gray-500"
-                )}>
-                  {b.management_tone}
-                </span>
-              </td>
-            ))}
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  );
-}
 
 // ── Recurring themes ──────────────────────────────────────────────────────────
 
@@ -581,10 +503,6 @@ export default function InsightsClient() {
               {/* OVERVIEW */}
               {tab === "overview" && (
                 <div className="space-y-6">
-                  <div>
-                    <h4 className="text-sm font-semibold text-gray-700 mb-3">Quarterly Financials</h4>
-                    <FinancialsTable briefs={payload.quarter_briefs} />
-                  </div>
                   {payload.new_business_signals.length > 0 && (
                     <div>
                       <h4 className="text-sm font-semibold text-gray-700 mb-3">New Business Signals</h4>
