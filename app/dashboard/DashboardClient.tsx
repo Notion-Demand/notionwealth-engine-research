@@ -552,18 +552,18 @@ export default function DashboardClient() {
             Concall Analysis
           </h2>
           <p className="mt-1 text-sm text-gray-500">
-            Track what management says — not the numbers. Detect language shifts, evasiveness, and narrative changes quarter-over-quarter for any Nifty 200 company.
+            Track what management says — not the numbers. Detect language shifts, evasiveness, and narrative changes quarter-over-quarter. Covers all <span className="font-medium text-gray-700">Nifty 200</span> companies.
           </p>
-          <p className="mt-2 text-xs text-gray-400 flex items-center gap-1.5">
+          <p className="mt-1.5 text-xs text-gray-400 flex items-center gap-1.5">
             <span className="inline-block h-1 w-1 rounded-full bg-gray-300" />
-            Can&apos;t find a company?{" "}
+            Stock not in Nifty 200?{" "}
             <a
               href="/request"
               className="text-brand-500 hover:text-brand-600 font-medium underline underline-offset-2 transition-colors"
             >
               Request transcripts
             </a>{" "}
-            to add it to the dashboard.
+            to add it — or search and type any ticker to add it to your personal list.
           </p>
         </div>
 

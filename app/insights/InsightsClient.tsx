@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import Nav from "@/components/Nav";
 import { runInsightsStream } from "@/lib/api";
+import { NIFTY200 } from "@/lib/nifty200";
 import { quarterLabel } from "@/lib/nifty50";
 import type {
   InsightsPayload,
@@ -429,10 +430,10 @@ export default function InsightsClient() {
       if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) return;
       if (e.key === "ArrowRight") {
         const next = cycleRef.current.cycleNext(cycleRef.current.inputTicker);
-        if (next) { setInputTicker(next); setTicker(next); run(next); }
+        if (next) { setInputTicker(next); setTicker(next); }
       } else if (e.key === "ArrowLeft") {
         const prev = cycleRef.current.cyclePrev(cycleRef.current.inputTicker);
-        if (prev) { setInputTicker(prev); setTicker(prev); run(prev); }
+        if (prev) { setInputTicker(prev); setTicker(prev); }
       }
     }
     document.addEventListener("keydown", onKeyDown);
@@ -521,7 +522,15 @@ export default function InsightsClient() {
             Multi-Quarter Insights
           </h2>
           <p className="mt-1 text-sm text-gray-500">
-            Cross-quarter synthesis — recurring themes, guidance tracking, segment evolution, and new business signals.
+            Cross-quarter synthesis — recurring themes, guidance tracking, segment evolution, and new business signals. Covers all <span className="font-medium text-gray-700">Nifty 200</span> companies.
+          </p>
+          <p className="mt-1.5 text-xs text-gray-400 flex items-center gap-1.5">
+            <span className="inline-block h-1 w-1 rounded-full bg-gray-300" />
+            Stock not in Nifty 200?{" "}
+            <a href="/request" className="text-brand-500 hover:text-brand-600 font-medium underline underline-offset-2 transition-colors">
+              Request transcripts
+            </a>{" "}
+            to add it.
           </p>
         </div>
 
@@ -544,7 +553,7 @@ export default function InsightsClient() {
                 title="Previous stock (←)"
                 onClick={() => {
                   const t = cyclePrev(inputTicker);
-                  if (t) { setInputTicker(t); setTicker(t); run(t); }
+                  if (t) { setInputTicker(t); setTicker(t); }
                 }}
                 className="inline-flex items-center justify-center h-6 w-6 rounded border border-gray-200 bg-white text-gray-400 hover:text-gray-600 hover:border-gray-300 transition-colors"
               >
@@ -555,7 +564,7 @@ export default function InsightsClient() {
                 title="Next stock (→)"
                 onClick={() => {
                   const t = cycleNext(inputTicker);
-                  if (t) { setInputTicker(t); setTicker(t); run(t); }
+                  if (t) { setInputTicker(t); setTicker(t); }
                 }}
                 className="inline-flex items-center justify-center h-6 w-6 rounded border border-gray-200 bg-white text-gray-400 hover:text-gray-600 hover:border-gray-300 transition-colors"
               >
@@ -568,7 +577,7 @@ export default function InsightsClient() {
             <button
               key={w.ticker}
               type="button"
-              onClick={() => { setInputTicker(w.ticker); setTicker(w.ticker); run(w.ticker); }}
+              onClick={() => { setInputTicker(w.ticker); setTicker(w.ticker); }}
               className={clsx(
                 "group inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors",
                 inputTicker === w.ticker
@@ -612,35 +621,44 @@ export default function InsightsClient() {
         {/* Search bar */}
         <form
           onSubmit={(e) => { e.preventDefault(); setTicker(inputTicker); run(inputTicker); }}
-          className="flex gap-2 mb-8"
+          className="flex flex-wrap items-center gap-2 mb-8"
         >
-          <input
-            type="text"
-            value={inputTicker}
-            onChange={(e) => setInputTicker(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))}
-            placeholder="Ticker (e.g. RELIANCE)"
-            maxLength={12}
-            className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-500 w-44"
-          />
-          <button
-            type="submit"
-            disabled={loading || !inputTicker.trim()}
-            className="rounded-md bg-brand-600 px-5 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
-          >
-            {loading ? "Analysing…" : "Analyse"}
-          </button>
-          {inputTicker && (
-            <button
-              type="button"
-              onClick={() => toggleWatchlist(inputTicker)}
-              title={isWatched(inputTicker) ? "Remove from watchlist" : "Add to watchlist"}
-              className="flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-500 hover:text-brand-600 hover:border-brand-300"
-            >
-              {isWatched(inputTicker)
-                ? <BookmarkCheck size={14} className="text-brand-500" />
-                : <Bookmark size={14} />}
-            </button>
-          )}
+          <div className="flex flex-col gap-0.5">
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={inputTicker}
+                onChange={(e) => setInputTicker(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))}
+                placeholder="Ticker (e.g. RELIANCE)"
+                maxLength={12}
+                className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-500 w-44"
+              />
+              <button
+                type="submit"
+                disabled={loading || !inputTicker.trim()}
+                className="rounded-md bg-brand-600 px-5 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
+              >
+                {loading ? "Analysing…" : "Analyse"}
+              </button>
+              {inputTicker && (
+                <button
+                  type="button"
+                  onClick={() => toggleWatchlist(inputTicker)}
+                  title={isWatched(inputTicker) ? "Remove from watchlist" : "Add to watchlist"}
+                  className="flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-500 hover:text-brand-600 hover:border-brand-300"
+                >
+                  {isWatched(inputTicker)
+                    ? <BookmarkCheck size={14} className="text-brand-500" />
+                    : <Bookmark size={14} />}
+                </button>
+              )}
+            </div>
+            {/* Company name display */}
+            {inputTicker && (NIFTY200[inputTicker]?.name
+              ? <p className="text-xs text-gray-500 pl-0.5 mt-0.5">{NIFTY200[inputTicker].name}</p>
+              : <p className="text-xs text-gray-400 pl-0.5 mt-0.5">Outside Nifty 200 — <a href="/request" className="text-brand-500 hover:underline">request transcripts</a></p>
+            )}
+          </div>
         </form>
 
         {/* Error */}
