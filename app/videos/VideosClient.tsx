@@ -1,24 +1,18 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
 import { NIFTY200 } from "@/lib/nifty200";
 import { QUARTERS, quarterLabel } from "@/lib/nifty50";
-import { Youtube, ExternalLink, BarChart2, Search } from "lucide-react";
+import { Youtube, BarChart2, Search, Play, Loader2 } from "lucide-react";
 import clsx from "clsx";
+import type { ConcallResult } from "@/app/api/v1/concall/route";
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+// ── Types & constants ─────────────────────────────────────────────────────────
 
-interface Company {
-    ticker: string;
-    name: string;
-    sector: string;
-}
+interface Company { ticker: string; name: string; sector: string }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-/** Build grouped sector → companies map, sorted by company name within each sector */
 function buildSectorMap(): Map<string, Company[]> {
     const map = new Map<string, Company[]>();
     for (const [ticker, info] of Object.entries(NIFTY200)) {
@@ -26,7 +20,6 @@ function buildSectorMap(): Map<string, Company[]> {
         list.push({ ticker, name: info.name, sector: info.sector });
         map.set(info.sector, list);
     }
-    // Sort sectors by descending size, then alphabetically within same size
     const sorted = Array.from(map.entries()).sort(
         (a: [string, Company[]], b: [string, Company[]]) =>
             b[1].length - a[1].length || a[0].localeCompare(b[0])
@@ -38,93 +31,127 @@ function buildSectorMap(): Map<string, Company[]> {
 const SECTOR_MAP = buildSectorMap();
 const SECTORS = Array.from(SECTOR_MAP.keys());
 
-/** Build YouTube search URL for a company's earnings concall */
-function concallSearchUrl(companyName: string, quarter: string): string {
-    // e.g. "Reliance Industries Q4 FY26 FY2026 earnings concall"
-    const ql = quarterLabel(quarter); // "Q4 FY26"
-    const fyFull = quarter.match(/\d{4}/)?.[0] ?? "";
-    const q = `${companyName} ${ql} FY${fyFull} earnings concall`;
-    return `https://www.youtube.com/results?search_query=${encodeURIComponent(q)}`;
+function concallSearchUrl(companyName: string, quarter: string) {
+    const ql = quarterLabel(quarter);
+    const fy = quarter.match(/\d{4}/)?.[0] ?? "";
+    return `https://www.youtube.com/results?search_query=${encodeURIComponent(
+        `${companyName} ${ql} FY${fy} earnings concall`
+    )}`;
 }
 
-/** Sector colour accents */
-const SECTOR_COLOURS: Record<string, string> = {
-    Banking:            "bg-blue-50 border-blue-200 text-blue-700",
-    "Financial Services": "bg-indigo-50 border-indigo-200 text-indigo-700",
-    IT:                 "bg-violet-50 border-violet-200 text-violet-700",
-    Auto:               "bg-orange-50 border-orange-200 text-orange-700",
-    FMCG:               "bg-yellow-50 border-yellow-200 text-yellow-700",
-    Pharma:             "bg-teal-50 border-teal-200 text-teal-700",
-    "Oil & Gas":        "bg-amber-50 border-amber-200 text-amber-700",
-    Metals:             "bg-stone-50 border-stone-200 text-stone-700",
-    "Capital Goods":    "bg-cyan-50 border-cyan-200 text-cyan-700",
-    Consumer:           "bg-pink-50 border-pink-200 text-pink-700",
-    Power:              "bg-lime-50 border-lime-200 text-lime-700",
-    Infra:              "bg-emerald-50 border-emerald-200 text-emerald-700",
-    NBFC:               "bg-sky-50 border-sky-200 text-sky-700",
-    Insurance:          "bg-purple-50 border-purple-200 text-purple-700",
-    Telecom:            "bg-rose-50 border-rose-200 text-rose-700",
-    Realty:             "bg-fuchsia-50 border-fuchsia-200 text-fuchsia-700",
-    Chemicals:          "bg-green-50 border-green-200 text-green-700",
-    Cement:             "bg-gray-50 border-gray-200 text-gray-700",
-    Healthcare:         "bg-red-50 border-red-200 text-red-700",
-    Mining:             "bg-zinc-50 border-zinc-200 text-zinc-700",
-    Conglomerate:       "bg-slate-50 border-slate-200 text-slate-700",
-};
+function thumbnailUrl(videoId: string) {
+    return `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`;
+}
+
+// ── Fetch with concurrency cap ────────────────────────────────────────────────
+
+async function fetchConcurrent<T>(
+    tasks: (() => Promise<T>)[],
+    limit = 5
+): Promise<T[]> {
+    const results: T[] = new Array(tasks.length);
+    let idx = 0;
+    async function worker() {
+        while (idx < tasks.length) {
+            const i = idx++;
+            results[i] = await tasks[i]();
+        }
+    }
+    await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, worker));
+    return results;
+}
 
 // ── Company card ──────────────────────────────────────────────────────────────
 
 function CompanyCard({
     company,
     quarter,
+    result,
+    loading,
     onAnalyse,
 }: {
     company: Company;
     quarter: string;
-    onAnalyse: (ticker: string) => void;
+    result: ConcallResult | null;
+    loading: boolean;
+    onAnalyse: (t: string) => void;
 }) {
-    const ql = quarterLabel(quarter);
-    const youtubeUrl = concallSearchUrl(company.name, quarter);
-    const accent = SECTOR_COLOURS[company.sector] ?? "bg-gray-50 border-gray-200 text-gray-700";
+    const fallbackUrl = result?.url ?? concallSearchUrl(company.name, quarter);
+    const hasThumb = !!result?.videoId;
 
     return (
-        <div className="group rounded-xl border border-gray-200 bg-white p-4 hover:shadow-sm hover:border-gray-300 transition-all flex flex-col gap-3">
-            {/* Top row */}
-            <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                    <p className="text-sm font-bold text-gray-900 truncate">{company.name}</p>
-                    <p className="text-xs text-gray-400 mt-0.5 font-mono">{company.ticker}</p>
+        <div className="group rounded-xl border border-gray-200 bg-white overflow-hidden hover:shadow-md hover:border-gray-300 transition-all flex flex-col">
+
+            {/* Thumbnail / skeleton */}
+            <a
+                href={fallbackUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="relative block bg-gray-100 aspect-video overflow-hidden"
+            >
+                {loading && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-gray-100 animate-pulse">
+                        <Loader2 size={20} className="text-gray-300 animate-spin" />
+                    </div>
+                )}
+                {hasThumb && (
+                    <>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                            src={thumbnailUrl(result!.videoId!)}
+                            alt={result?.title ?? company.name}
+                            className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
+                        />
+                        {/* Play overlay */}
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/20 transition-colors">
+                            <span className="opacity-0 group-hover:opacity-100 transition-opacity bg-red-600 rounded-full p-2.5 shadow-lg">
+                                <Play size={16} className="text-white fill-white" />
+                            </span>
+                        </div>
+                    </>
+                )}
+                {!loading && !hasThumb && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-gray-50">
+                        <Youtube size={28} className="text-gray-300" />
+                        <p className="text-[11px] text-gray-400 text-center px-3">Search on YouTube</p>
+                    </div>
+                )}
+            </a>
+
+            {/* Card body */}
+            <div className="p-3 flex flex-col gap-2 flex-1">
+                {/* Company info */}
+                <div>
+                    <p className="text-[13px] font-bold text-gray-900 leading-snug line-clamp-1">{company.name}</p>
+                    {result?.title ? (
+                        <p className="text-[11px] text-gray-500 line-clamp-2 mt-0.5 leading-snug">{result.title}</p>
+                    ) : (
+                        <p className="text-[11px] text-gray-400 font-mono mt-0.5">{company.ticker} · {quarterLabel(quarter)}</p>
+                    )}
+                    {result?.channel && (
+                        <p className="text-[10px] text-gray-400 mt-0.5 truncate">{result.channel}</p>
+                    )}
                 </div>
-                <span className={clsx(
-                    "shrink-0 text-[10px] font-semibold rounded-full px-2 py-0.5 border",
-                    accent
-                )}>
-                    {ql}
-                </span>
-            </div>
 
-            {/* Action buttons */}
-            <div className="flex items-center gap-2 mt-auto">
-                {/* YouTube — primary action */}
-                <a
-                    href={youtubeUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex-1 flex items-center justify-center gap-1.5 rounded-lg bg-red-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-red-700 transition-colors"
-                >
-                    <Youtube size={13} />
-                    Watch Concall
-                </a>
-
-                {/* Analyse — secondary action */}
-                <button
-                    onClick={() => onAnalyse(company.ticker)}
-                    title="Open in Earnings Analysis"
-                    className="flex items-center justify-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-gray-500 hover:bg-gray-50 hover:text-gray-700 transition-colors"
-                >
-                    <BarChart2 size={12} />
-                    Analyse
-                </button>
+                {/* Actions */}
+                <div className="flex items-center gap-1.5 mt-auto">
+                    <a
+                        href={fallbackUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex-1 flex items-center justify-center gap-1.5 rounded-lg bg-red-600 px-2 py-1.5 text-[11px] font-semibold text-white hover:bg-red-700 transition-colors"
+                    >
+                        <Youtube size={11} />
+                        {result?.direct ? "Watch" : "Search"}
+                    </a>
+                    <button
+                        onClick={() => onAnalyse(company.ticker)}
+                        title="Earnings Analysis"
+                        className="flex items-center justify-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-[11px] text-gray-500 hover:bg-gray-50 hover:text-gray-700 transition-colors"
+                    >
+                        <BarChart2 size={11} />
+                    </button>
+                </div>
             </div>
         </div>
     );
@@ -138,15 +165,64 @@ export default function VideosClient() {
     const [quarter, setQuarter] = useState(QUARTERS[0]);
     const [search, setSearch] = useState("");
 
+    // videoData: ticker → ConcallResult | "loading"
+    const [videoData, setVideoData] = useState<Record<string, ConcallResult | "loading">>({});
+
     const companies = SECTOR_MAP.get(activeSector) ?? [];
 
     const filtered = useMemo(() => {
         if (!search.trim()) return companies;
         const q = search.toLowerCase();
-        return companies.filter(
-            (c) => c.name.toLowerCase().includes(q) || c.ticker.toLowerCase().includes(q)
+        return companies.filter(c =>
+            c.name.toLowerCase().includes(q) || c.ticker.toLowerCase().includes(q)
         );
     }, [companies, search]);
+
+    // Fetch concall data for every company in the active sector
+    const fetchSector = useCallback((sector: string, qtr: string) => {
+        const list = SECTOR_MAP.get(sector) ?? [];
+
+        // Mark all as loading
+        setVideoData((prev) => {
+            const next = { ...prev };
+            for (const c of list) {
+                if (!prev[`${c.ticker}::${qtr}`]) {
+                    next[`${c.ticker}::${qtr}`] = "loading";
+                }
+            }
+            return next;
+        });
+
+        // Only fetch companies not yet cached in state
+        const toFetch = list.filter(
+            (c) => !videoData[`${c.ticker}::${qtr}`] || videoData[`${c.ticker}::${qtr}`] === "loading"
+        );
+
+        if (toFetch.length === 0) return;
+
+        const tasks = toFetch.map((c) => async () => {
+            try {
+                const res = await fetch(`/api/v1/concall?ticker=${c.ticker}&quarter=${qtr}`);
+                const data: ConcallResult = await res.json();
+                setVideoData((prev) => ({ ...prev, [`${c.ticker}::${qtr}`]: data }));
+            } catch {
+                // Leave as "loading" — card shows fallback search link
+            }
+        });
+
+        fetchConcurrent(tasks, 5);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    // Fetch when sector or quarter changes
+    useEffect(() => {
+        fetchSector(activeSector, quarter);
+    }, [activeSector, quarter, fetchSector]);
+
+    function handleSectorChange(sector: string) {
+        setActiveSector(sector);
+        setSearch("");
+    }
 
     function handleAnalyse(ticker: string) {
         router.push(`/dashboard?ticker=${ticker}`);
@@ -165,7 +241,7 @@ export default function VideosClient() {
                             Earnings Concall Videos
                         </h1>
                         <p className="text-sm text-gray-500 mt-1">
-                            YouTube earnings concall recordings for all Nifty 200 companies, by sector.
+                            Earnings concall recordings for all Nifty 200 companies — AlphaStreet India, CNBCTV18, Zerodha, Motilal & more.
                         </p>
                     </div>
 
@@ -181,15 +257,15 @@ export default function VideosClient() {
                     </select>
                 </div>
 
-                {/* Sector tabs — scrollable row */}
-                <div className="mb-6 flex gap-2 overflow-x-auto pb-1 scrollbar-thin">
+                {/* Sector tabs */}
+                <div className="mb-5 flex gap-2 overflow-x-auto pb-1">
                     {SECTORS.map((sector) => {
                         const count = SECTOR_MAP.get(sector)?.length ?? 0;
                         const active = sector === activeSector;
                         return (
                             <button
                                 key={sector}
-                                onClick={() => { setActiveSector(sector); setSearch(""); }}
+                                onClick={() => handleSectorChange(sector)}
                                 className={clsx(
                                     "shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold border transition-colors whitespace-nowrap",
                                     active
@@ -221,29 +297,31 @@ export default function VideosClient() {
                     />
                 </div>
 
-                {/* Company grid */}
+                {/* Grid */}
                 {filtered.length === 0 ? (
                     <div className="py-20 text-center text-sm text-gray-400">
                         No companies match &ldquo;{search}&rdquo; in {activeSector}.
                     </div>
                 ) : (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-                        {filtered.map((c) => (
-                            <CompanyCard
-                                key={c.ticker}
-                                company={c}
-                                quarter={quarter}
-                                onAnalyse={handleAnalyse}
-                            />
-                        ))}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                        {filtered.map((c) => {
+                            const key = `${c.ticker}::${quarter}`;
+                            const raw = videoData[key];
+                            const result = raw && raw !== "loading" ? raw : null;
+                            const loading = raw === "loading";
+                            return (
+                                <CompanyCard
+                                    key={c.ticker}
+                                    company={c}
+                                    quarter={quarter}
+                                    result={result}
+                                    loading={loading}
+                                    onAnalyse={handleAnalyse}
+                                />
+                            );
+                        })}
                     </div>
                 )}
-
-                {/* Footer note */}
-                <p className="mt-8 text-xs text-gray-400 text-center">
-                    "Watch Concall" opens a YouTube search for that company&apos;s earnings call.
-                    Sources include AlphaStreet India, CNBCTV18, Zerodha, Motilal Oswal, and others.
-                </p>
 
             </main>
         </>

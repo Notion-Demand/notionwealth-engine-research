@@ -1,41 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
 import { NIFTY200 } from "@/lib/nifty200";
 import { quarterLabel } from "@/lib/nifty50";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
-/**
- * GET /api/v1/concall?ticker=RELIANCE&quarter=Q4_2026
- *
- * Returns a YouTube link for the company's earnings concall.
- *  - If YOUTUBE_API_KEY is set: searches YouTube Data API v3 and returns
- *    the best-matching direct video URL.
- *  - Otherwise: returns a YouTube search URL (opens search results page).
- *
- * Response: { url: string; direct: boolean; query: string }
- */
+// ── Types ─────────────────────────────────────────────────────────────────────
 
-// ── Search query builder ──────────────────────────────────────────────────────
+export interface ConcallResult {
+    url: string;
+    videoId: string | null;
+    title: string | null;
+    channel: string | null;
+    direct: boolean;       // true = real video, false = search page
+    query: string;
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function buildQuery(companyName: string, quarter: string): string {
-    // "Q4_2026" → "Q4 FY26"  (matches how channels title their videos)
-    const ql = quarterLabel(quarter); // e.g. "Q4 FY26"
-
-    // Full FY year as well — some channels write "FY2026" not "FY26"
+    const ql = quarterLabel(quarter);               // "Q4 FY26"
     const fyFull = quarter.match(/\d{4}/)?.[0] ?? "";
-
-    // Primary query: company name + quarter + earnings concall
     return `${companyName} ${ql} FY${fyFull} earnings concall`;
 }
 
-// ── YouTube Data API search ───────────────────────────────────────────────────
-
-interface YtSearchItem {
-    id: { videoId: string };
-    snippet: { title: string; channelTitle: string };
-}
-
-async function searchYouTube(query: string, apiKey: string): Promise<string | null> {
+async function searchYouTube(query: string, apiKey: string): Promise<{
+    videoId: string; title: string; channel: string;
+} | null> {
     try {
         const url = new URL("https://www.googleapis.com/youtube/v3/search");
         url.searchParams.set("part", "snippet");
@@ -45,20 +36,26 @@ async function searchYouTube(query: string, apiKey: string): Promise<string | nu
         url.searchParams.set("relevanceLanguage", "en");
         url.searchParams.set("key", apiKey);
 
-        const resp = await fetch(url.toString(), { signal: AbortSignal.timeout(6_000) });
+        const resp = await fetch(url.toString(), { signal: AbortSignal.timeout(8_000) });
         if (!resp.ok) return null;
 
         const data = await resp.json();
-        const items: YtSearchItem[] = data.items ?? [];
+        const items: Array<{
+            id: { videoId: string };
+            snippet: { title: string; channelTitle: string };
+        }> = data.items ?? [];
         if (items.length === 0) return null;
 
-        // Prefer items whose title contains the company name and "concall" or "earnings call"
+        // Prefer items whose title contains "concall" / "earnings call" / "conference call"
         const preferred = items.find((it) =>
-            /concall|earnings call|conference call/i.test(it.snippet.title)
+            /concall|earnings call|conference call|results/i.test(it.snippet.title)
         );
-
         const best = preferred ?? items[0];
-        return `https://www.youtube.com/watch?v=${best.id.videoId}`;
+        return {
+            videoId: best.id.videoId,
+            title: best.snippet.title,
+            channel: best.snippet.channelTitle,
+        };
     } catch {
         return null;
     }
@@ -72,10 +69,7 @@ export async function GET(req: NextRequest) {
     const quarter = searchParams.get("quarter");
 
     if (!ticker || !quarter) {
-        return NextResponse.json(
-            { error: "ticker and quarter are required" },
-            { status: 400 }
-        );
+        return NextResponse.json({ error: "ticker and quarter required" }, { status: 400 });
     }
 
     const info = NIFTY200[ticker];
@@ -84,16 +78,57 @@ export async function GET(req: NextRequest) {
     }
 
     const query = buildQuery(info.name, quarter);
-    const apiKey = process.env.YOUTUBE_API_KEY;
 
-    if (apiKey) {
-        const directUrl = await searchYouTube(query, apiKey);
-        if (directUrl) {
-            return NextResponse.json({ url: directUrl, direct: true, query });
-        }
+    // ── 1. Check DB cache ─────────────────────────────────────────────────────
+    const { data: cached } = await supabaseAdmin()
+        .from("concall_links")
+        .select("youtube_url, video_id, video_title, channel_title")
+        .eq("ticker", ticker)
+        .eq("quarter", quarter)
+        .maybeSingle();
+
+    if (cached) {
+        const result: ConcallResult = {
+            url:     cached.youtube_url,
+            videoId: cached.video_id ?? null,
+            title:   cached.video_title ?? null,
+            channel: cached.channel_title ?? null,
+            direct:  !!cached.video_id,
+            query,
+        };
+        return NextResponse.json(result, { headers: { "Cache-Control": "no-store" } });
     }
 
-    // Fallback: YouTube search page — still useful, user sees all matching videos
-    const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`;
-    return NextResponse.json({ url: searchUrl, direct: false, query });
+    // ── 2. Search YouTube API (if key present) ────────────────────────────────
+    const apiKey = process.env.YOUTUBE_API_KEY;
+    let result: ConcallResult;
+
+    if (apiKey) {
+        const yt = await searchYouTube(query, apiKey);
+        if (yt) {
+            const watchUrl = `https://www.youtube.com/watch?v=${yt.videoId}`;
+            result = { url: watchUrl, videoId: yt.videoId, title: yt.title, channel: yt.channel, direct: true, query };
+        } else {
+            const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`;
+            result = { url: searchUrl, videoId: null, title: null, channel: null, direct: false, query };
+        }
+    } else {
+        const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`;
+        result = { url: searchUrl, videoId: null, title: null, channel: null, direct: false, query };
+    }
+
+    // ── 3. Cache result in DB ─────────────────────────────────────────────────
+    await supabaseAdmin()
+        .from("concall_links")
+        .upsert({
+            ticker,
+            quarter,
+            youtube_url:   result.url,
+            video_id:      result.videoId,
+            video_title:   result.title,
+            channel_title: result.channel,
+            fetched_at:    new Date().toISOString(),
+        }, { onConflict: "ticker,quarter" });
+
+    return NextResponse.json(result, { headers: { "Cache-Control": "no-store" } });
 }
