@@ -285,13 +285,11 @@ export async function POST(request: Request) {
         );
     }
 
-    // Only delete the specific sector row(s) being re-seeded
+    // NOTE: old code deleted rows up-front then inserted later — if the function
+    // timed out between DELETE and INSERT the sector would vanish from the DB.
+    // Instead, we now delete immediately before each sector's INSERT (atomic swap).
     const sectorsBeingSeeded = sectorsToProcess.map(([s]) => s);
-    await supabaseAdmin()
-        .from("sector_intelligence")
-        .delete()
-        .in("sector", sectorsBeingSeeded);
-    log.push(`Cleared old rows for: ${sectorsBeingSeeded.join(", ")} | skipFetch=${skipFetch}`);
+    log.push(`Will seed: ${sectorsBeingSeeded.join(", ")} | skipFetch=${skipFetch}`);
 
     for (const [sector, config] of sectorsToProcess) {
         log.push(`\n=== Processing sector: ${sector} (${config.tickers.join(", ")}) ===`);
@@ -402,16 +400,15 @@ export async function POST(request: Request) {
             const sectorIntel = computeSectorIntelligence(sector, config.label, companyPayloads);
             sectorResults.push(sectorIntel);
 
-            // Save to DB — explicit delete (already done above) + insert pattern
-            // avoids any upsert / onConflict issues entirely
+            // Save to DB — delete-then-insert (atomic swap, right before write).
+            // Keeps existing data if the function times out during pipeline runs above.
             const quarter = companyPayloads[0].quarter;
 
-            // Belt-and-suspenders: delete any leftover row for this (sector, quarter)
+            // Delete ALL existing rows for this sector (any quarter) then insert fresh.
             await supabaseAdmin()
                 .from("sector_intelligence")
                 .delete()
-                .eq("sector", sector)
-                .eq("quarter", quarter);
+                .eq("sector", sector);
 
             const { data: insertData, error: insertErr } = await supabaseAdmin()
                 .from("sector_intelligence")
