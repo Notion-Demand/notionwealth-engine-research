@@ -349,18 +349,29 @@ export async function POST(request: Request) {
                 continue;
             }
 
-            // Use the two most recent quarters
-            const qCurr = quarters[0];
-            const qPrev = quarters[1];
+            // Try each consecutive quarter pair from most recent backwards until we find a cache hit.
+            // This means BHARTI at (Q1_2026→Q2_2026) still contributes even if (Q2_2026→Q3_2026)
+            // hasn't been analyzed yet — avoids empty sectors just because the newest pair isn't cached.
+            let foundCached: { payload: DashboardPayload; qCurr: string; qPrev: string } | null = null;
+            for (let qi = 0; qi < quarters.length - 1; qi++) {
+                const qC = quarters[qi];     // newer
+                const qP = quarters[qi + 1]; // older
+                const hit = await getCachedAnalysis(ticker, qP, qC, { strict: false });
+                if (hit) {
+                    foundCached = { payload: hit, qCurr: qC, qPrev: qP };
+                    break;
+                }
+            }
 
-            // Check cache — use strict=false for sector seeding so old-format results
-            // (pre-earnings_delta) are still usable for aggregation.
-            const cached = await getCachedAnalysis(ticker, qPrev, qCurr, { strict: false });
-            if (cached) {
-                log.push(`[${sector}/${ticker}] Cache HIT for ${qPrev}→${qCurr}`);
-                companyPayloads.push({ ticker, payload: cached, quarter: qCurr, quarterPrev: qPrev });
+            if (foundCached) {
+                log.push(`[${sector}/${ticker}] Cache HIT for ${foundCached.qPrev}→${foundCached.qCurr}`);
+                companyPayloads.push({ ticker, payload: foundCached.payload, quarter: foundCached.qCurr, quarterPrev: foundCached.qPrev });
                 continue;
             }
+
+            // No cached analysis found for any quarter pair — fall through to pipeline
+            const qCurr = quarters[0];
+            const qPrev = quarters[1];
 
             // maxNew=0 means cache-only — never run the pipeline
             // maxNew>0 (default 999) allows up to N fresh analyses this call
