@@ -263,13 +263,15 @@ export async function POST(request: Request) {
     const sectorResults: SectorIntelligence[] = [];
 
     // Query params:
-    //   ?sector=Banking   → seed only that one sector
-    //   ?skipFetch=true   → skip transcript download (use existing storage + cache only)
-    //                       much faster; use when transcripts are already uploaded
+    //   ?sector=Banking   → seed only that one sector (required for Vercel)
+    //   ?skipFetch=true   → skip transcript download; use existing storage + cache only
+    //   ?maxNew=N         → run at most N fresh pipeline analyses per call (default: unlimited)
+    //                       use maxNew=1 to run one ticker at a time without timing out
     // No params           → seed all sectors, fetch new transcripts (local use only)
     const { searchParams } = new URL(request.url);
     const sectorParam = searchParams.get("sector");
     const skipFetch = searchParams.get("skipFetch") === "true";
+    const maxNew = parseInt(searchParams.get("maxNew") ?? "999", 10);
 
     const sectorsToProcess = sectorParam
         ? Object.entries(SECTOR_UNIVERSE).filter(([s]) => s === sectorParam)
@@ -313,6 +315,7 @@ export async function POST(request: Request) {
 
         // Step 2: For each company, find available quarter pairs and run analysis
         const companyPayloads: { ticker: string; payload: DashboardPayload; quarter: string; quarterPrev: string }[] = [];
+        let newPipelineRuns = 0; // counts fresh pipeline runs this call (for maxNew enforcement)
 
         for (const ticker of config.tickers) {
             log.push(`[${sector}/${ticker}] Looking for available transcripts...`);
@@ -365,6 +368,12 @@ export async function POST(request: Request) {
                 continue;
             }
 
+            // maxNew limit: stop running new pipeline analyses once we've hit the cap
+            if (newPipelineRuns >= maxNew) {
+                log.push(`[${sector}/${ticker}] maxNew=${maxNew} reached — deferring to next call`);
+                continue;
+            }
+
             // Run analysis pipeline
             log.push(`[${sector}/${ticker}] Running analysis pipeline for ${qPrev}→${qCurr}...`);
             try {
@@ -375,6 +384,7 @@ export async function POST(request: Request) {
                 // Save to cache
                 await saveAnalysis(null, ticker, qPrev, qCurr, payload);
                 companyPayloads.push({ ticker, payload, quarter: qCurr, quarterPrev: qPrev });
+                newPipelineRuns++;
                 log.push(`[${sector}/${ticker}] Analysis complete. Overall: ${payload.overall_signal} (${payload.overall_score})`);
             } catch (e) {
                 log.push(`[${sector}/${ticker}] PIPELINE FAILED: ${e instanceof Error ? e.message : String(e)}`);
