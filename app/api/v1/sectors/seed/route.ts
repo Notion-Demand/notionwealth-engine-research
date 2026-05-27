@@ -263,11 +263,12 @@ export async function POST(request: Request) {
     const sectorResults: SectorIntelligence[] = [];
 
     // Query params:
-    //   ?sector=Banking   → seed only that one sector (required for Vercel)
-    //   ?skipFetch=true   → skip transcript download; use existing storage + cache only
-    //   ?maxNew=N         → run at most N fresh pipeline analyses per call (default: unlimited)
-    //                       use maxNew=1 to run one ticker at a time without timing out
-    // No params           → seed all sectors, fetch new transcripts (local use only)
+    //   ?sector=Banking      → seed only that one sector (required for Vercel)
+    //   ?skipFetch=true      → skip transcript download step (use existing storage files)
+    //   ?maxNew=N            → run at most N fresh pipeline (Gemini) analyses per call
+    //                          use skipFetch=true&maxNew=1 to fill cache one ticker at a time
+    //                          use skipFetch=true&maxNew=0 for pure cache-only aggregation
+    // No params              → seed all sectors, download new transcripts (local use only)
     const { searchParams } = new URL(request.url);
     const sectorParam = searchParams.get("sector");
     const skipFetch = searchParams.get("skipFetch") === "true";
@@ -361,14 +362,8 @@ export async function POST(request: Request) {
                 continue;
             }
 
-            // skipFetch mode: only use cached analysis — don't run the pipeline
-            // (avoids Gemini calls that would push the request over Vercel's 60s limit)
-            if (skipFetch) {
-                log.push(`[${sector}/${ticker}] No cache — skipFetch=true, skipping pipeline`);
-                continue;
-            }
-
-            // maxNew limit: stop running new pipeline analyses once we've hit the cap
+            // maxNew=0 means cache-only — never run the pipeline
+            // maxNew>0 (default 999) allows up to N fresh analyses this call
             if (newPipelineRuns >= maxNew) {
                 log.push(`[${sector}/${ticker}] maxNew=${maxNew} reached — deferring to next call`);
                 continue;
