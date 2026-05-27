@@ -93,6 +93,13 @@ export async function GET(request: Request) {
     }
     console.log(`[sectors GET] Selected:`, Array.from(latestBySector).map(([k, v]) => `${k}:${v.quarter}`));
 
+    // Raw all-rows debug (bypass validSectors filter) — helps identify rows missing from the filtered query
+    const { data: allRowsRaw } = await supabaseAdmin()
+        .from("sector_intelligence")
+        .select("sector, quarter, created_at")
+        .order("created_at", { ascending: false })
+        .limit(50);
+
     // Parse payloads
     const sectors: SectorIntelligence[] = [];
     for (const [, row] of Array.from(latestBySector)) {
@@ -115,6 +122,7 @@ export async function GET(request: Request) {
             available_sectors: Object.keys(SECTOR_UNIVERSE).sort(),
             _debug: {
                 total_db_rows: rows.length,
+                all_rows_unfiltered: (allRowsRaw ?? []).map(r => ({ sector: r.sector, quarter: r.quarter, created_at: r.created_at })),
                 raw_rows: rows.map(r => ({ sector: r.sector, quarter: r.quarter, qIdx: qIdx(r.quarter), created_at: r.created_at })),
                 selected: Array.from(latestBySector).map(([k, v]) => ({
                     sector: k,
