@@ -5,6 +5,8 @@ import { fetchAndUploadTranscripts } from "@/lib/transcript-fetcher";
 import { runPipeline, resolvePdfKey } from "@/lib/pipeline";
 import type { DashboardPayload } from "@/lib/pipeline";
 import { getCachedAnalysis, saveAnalysis } from "@/lib/analysis-cache";
+import { generateSectorNarrative } from "@/lib/sector-narrative";
+import type { SectorNarrative } from "@/lib/sector-narrative";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60; // 60s per sector call — pass ?sector=Banking to seed one at a time
@@ -36,6 +38,7 @@ interface SectorIntelligence {
     quarter: string;
     quarter_previous: string;
     dimensions: SectorDimension[];
+    narrative?: SectorNarrative | null;
 }
 
 // ── Dimension extraction from analysis payloads ───────────────────────────────
@@ -263,16 +266,19 @@ export async function POST(request: Request) {
     const sectorResults: SectorIntelligence[] = [];
 
     // Query params:
-    //   ?sector=Banking      → seed only that one sector (required for Vercel)
-    //   ?skipFetch=true      → skip transcript download step (use existing storage files)
-    //   ?maxNew=N            → run at most N fresh pipeline (Gemini) analyses per call
-    //                          use skipFetch=true&maxNew=1 to fill cache one ticker at a time
-    //                          use skipFetch=true&maxNew=0 for pure cache-only aggregation
-    // No params              → seed all sectors, download new transcripts (local use only)
+    //   ?sector=Banking       → seed only that one sector (required for Vercel)
+    //   ?skipFetch=true       → skip transcript download step (use existing storage files)
+    //   ?maxNew=N             → run at most N fresh pipeline (Gemini) analyses per call
+    //                           use skipFetch=true&maxNew=1 to fill cache one ticker at a time
+    //                           use skipFetch=true&maxNew=0 for pure cache-only aggregation
+    //   ?narrative=true       → generate sector narrative (Gemini) after company analysis
+    //                           adds ~20s; only use when not running fresh pipeline (maxNew=0)
+    // No params               → seed all sectors, download new transcripts (local use only)
     const { searchParams } = new URL(request.url);
     const sectorParam = searchParams.get("sector");
     const skipFetch = searchParams.get("skipFetch") === "true";
     const maxNew = parseInt(searchParams.get("maxNew") ?? "999", 10);
+    const generateNarrative = searchParams.get("narrative") === "true";
 
     const sectorsToProcess = sectorParam
         ? Object.entries(SECTOR_UNIVERSE).filter(([s]) => s === sectorParam)
@@ -398,6 +404,39 @@ export async function POST(request: Request) {
         // Step 3: Compute market-cap weighted sector intelligence
         if (companyPayloads.length >= 1) {
             const sectorIntel = computeSectorIntelligence(sector, config.label, companyPayloads);
+
+            // Step 4: Generate sector narrative (optional, adds ~20s via Gemini)
+            // Must run BEFORE the delete+insert so we never orphan sector data.
+            if (generateNarrative) {
+                log.push(`[${sector}] Generating sector narrative...`);
+                const narrative = await generateSectorNarrative(
+                    sector,
+                    sectorIntel.quarter,
+                    companyPayloads
+                );
+                sectorIntel.narrative = narrative;
+                if (narrative) {
+                    log.push(`[${sector}] Narrative generated OK`);
+                } else {
+                    log.push(`[${sector}] Narrative generation failed/skipped`);
+                }
+            } else {
+                // Re-use existing narrative from the current DB row so it isn't wiped
+                // when we re-seed without ?narrative=true
+                const { data: existingRow } = await supabaseAdmin()
+                    .from("sector_intelligence")
+                    .select("payload")
+                    .eq("sector", sector)
+                    .maybeSingle();
+                if (existingRow?.payload) {
+                    const existingPayload = existingRow.payload as unknown as SectorIntelligence;
+                    if (existingPayload.narrative) {
+                        sectorIntel.narrative = existingPayload.narrative;
+                        log.push(`[${sector}] Carried over existing narrative`);
+                    }
+                }
+            }
+
             sectorResults.push(sectorIntel);
 
             // Save to DB — delete-then-insert (atomic swap, right before write).

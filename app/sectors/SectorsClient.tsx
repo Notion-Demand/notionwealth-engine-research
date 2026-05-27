@@ -11,6 +11,12 @@ import {
     Minus,
     Layers,
     BarChart3,
+    Wind,
+    AlertTriangle,
+    Zap,
+    Globe,
+    Shuffle,
+    Building2,
 } from "lucide-react";
 import clsx from "clsx";
 
@@ -34,6 +40,16 @@ interface SectorDimension {
     company_signals: CompanySignal[];
 }
 
+interface SectorNarrative {
+    competitive_structure: string;
+    strategic_theme: string;
+    tailwinds: string[];
+    headwinds: string[];
+    key_triggers: string[];
+    macro_sensitivity: string;
+    transformation_signal: string;
+}
+
 interface SectorIntelligence {
     sector: string;
     sector_label: string;
@@ -41,6 +57,7 @@ interface SectorIntelligence {
     quarter: string;
     quarter_previous: string;
     dimensions: SectorDimension[];
+    narrative?: SectorNarrative | null;
 }
 
 // ── Dimension display order & metadata ────────────────────────────────────────
@@ -420,6 +437,126 @@ function DimDetail({ dim }: { dim: SectorDimension }) {
     );
 }
 
+// ── Sector Narrative card ─────────────────────────────────────────────────────
+
+function NarrativeCard({ narrative, sector }: { narrative: SectorNarrative; sector: string }) {
+    const [open, setOpen] = useState(true);
+
+    return (
+        <div className="rounded-xl border border-indigo-100 bg-gradient-to-br from-indigo-50/60 to-white overflow-hidden shadow-sm">
+            {/* Header */}
+            <button
+                onClick={() => setOpen((o) => !o)}
+                className="w-full flex items-center justify-between px-4 py-2.5 text-left hover:bg-indigo-50/50 transition-colors"
+            >
+                <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-indigo-500">
+                        Sector Intelligence
+                    </span>
+                    <span className="text-[10px] text-indigo-300 font-medium">· {sector}</span>
+                </div>
+                {open
+                    ? <ChevronUp size={13} className="text-indigo-400 shrink-0" />
+                    : <ChevronDown size={13} className="text-indigo-400 shrink-0" />
+                }
+            </button>
+
+            {open && (
+                <div className="px-4 pb-4 space-y-3.5">
+
+                    {/* Structure + Strategy — two short statements up top */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        <div className="flex items-start gap-2.5 rounded-lg bg-white border border-indigo-100 px-3 py-2.5">
+                            <Building2 size={13} className="text-indigo-400 mt-0.5 shrink-0" />
+                            <div>
+                                <p className="text-[9px] font-bold uppercase tracking-widest text-indigo-400 mb-0.5">Structure</p>
+                                <p className="text-[11.5px] text-gray-700 leading-relaxed">{narrative.competitive_structure}</p>
+                            </div>
+                        </div>
+                        <div className="flex items-start gap-2.5 rounded-lg bg-white border border-indigo-100 px-3 py-2.5">
+                            <Shuffle size={13} className="text-violet-400 mt-0.5 shrink-0" />
+                            <div>
+                                <p className="text-[9px] font-bold uppercase tracking-widest text-violet-400 mb-0.5">Strategic Theme</p>
+                                <p className="text-[11.5px] text-gray-700 leading-relaxed">{narrative.strategic_theme}</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Tailwinds / Headwinds / Triggers — three-column */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                        {/* Tailwinds */}
+                        <div className="rounded-lg bg-emerald-50 border border-emerald-100 px-3 py-2.5">
+                            <div className="flex items-center gap-1.5 mb-1.5">
+                                <Wind size={11} className="text-emerald-500 shrink-0" />
+                                <p className="text-[9px] font-bold uppercase tracking-widest text-emerald-600">Tailwinds</p>
+                            </div>
+                            <ul className="space-y-1">
+                                {narrative.tailwinds.map((t, i) => (
+                                    <li key={i} className="flex items-start gap-1.5 text-[11px] text-emerald-800 leading-snug">
+                                        <span className="text-emerald-400 font-bold shrink-0 mt-0.5">↑</span>
+                                        {t}
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+
+                        {/* Headwinds */}
+                        <div className="rounded-lg bg-red-50 border border-red-100 px-3 py-2.5">
+                            <div className="flex items-center gap-1.5 mb-1.5">
+                                <AlertTriangle size={11} className="text-red-400 shrink-0" />
+                                <p className="text-[9px] font-bold uppercase tracking-widest text-red-500">Headwinds</p>
+                            </div>
+                            <ul className="space-y-1">
+                                {narrative.headwinds.map((h, i) => (
+                                    <li key={i} className="flex items-start gap-1.5 text-[11px] text-red-800 leading-snug">
+                                        <span className="text-red-400 font-bold shrink-0 mt-0.5">↓</span>
+                                        {h}
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+
+                        {/* Triggers to Watch */}
+                        <div className="rounded-lg bg-amber-50 border border-amber-100 px-3 py-2.5">
+                            <div className="flex items-center gap-1.5 mb-1.5">
+                                <Zap size={11} className="text-amber-500 shrink-0" />
+                                <p className="text-[9px] font-bold uppercase tracking-widest text-amber-600">Triggers to Watch</p>
+                            </div>
+                            <ul className="space-y-1">
+                                {narrative.key_triggers.map((tr, i) => (
+                                    <li key={i} className="flex items-start gap-1.5 text-[11px] text-amber-900 leading-snug">
+                                        <span className="text-amber-500 font-bold shrink-0 mt-0.5">⚡</span>
+                                        {tr}
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    </div>
+
+                    {/* Macro + Transformation — two sentences each */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        <div className="flex items-start gap-2.5 rounded-lg bg-white border border-indigo-100 px-3 py-2.5">
+                            <Globe size={13} className="text-sky-400 mt-0.5 shrink-0" />
+                            <div>
+                                <p className="text-[9px] font-bold uppercase tracking-widest text-sky-500 mb-0.5">Macro Sensitivity</p>
+                                <p className="text-[11.5px] text-gray-700 leading-relaxed">{narrative.macro_sensitivity}</p>
+                            </div>
+                        </div>
+                        <div className="flex items-start gap-2.5 rounded-lg bg-white border border-indigo-100 px-3 py-2.5">
+                            <TrendingUp size={13} className="text-purple-400 mt-0.5 shrink-0" />
+                            <div>
+                                <p className="text-[9px] font-bold uppercase tracking-widest text-purple-500 mb-0.5">Transformation</p>
+                                <p className="text-[11.5px] text-gray-700 leading-relaxed">{narrative.transformation_signal}</p>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            )}
+        </div>
+    );
+}
+
 // ── Sector dashboard (per-sector view) ────────────────────────────────────────
 
 function SectorDashboard({ sector }: { sector: SectorIntelligence }) {
@@ -483,6 +620,11 @@ function SectorDashboard({ sector }: { sector: SectorIntelligence }) {
                     </div>
                 </div>
             </div>
+
+            {/* Sector narrative — shown when available */}
+            {sector.narrative && (
+                <NarrativeCard narrative={sector.narrative} sector={sector.sector_label || sector.sector} />
+            )}
 
             {/* Dimension score tiles — 4 per row on desktop */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
