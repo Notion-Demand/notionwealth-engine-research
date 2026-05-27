@@ -404,7 +404,7 @@ export async function POST(request: Request) {
 
             // Save to DB
             const quarter = companyPayloads[0].quarter;
-            await supabaseAdmin()
+            const { error: upsertErr } = await supabaseAdmin()
                 .from("sector_intelligence")
                 .upsert(
                     {
@@ -415,7 +415,11 @@ export async function POST(request: Request) {
                     { onConflict: "sector,quarter" }
                 );
 
-            log.push(`[${sector}] Stored sector intelligence: ${companyPayloads.length} companies, quarter=${quarter}`);
+            if (upsertErr) {
+                log.push(`[${sector}] DB UPSERT ERROR: ${upsertErr.message} (code=${upsertErr.code})`);
+            } else {
+                log.push(`[${sector}] Stored sector intelligence: ${companyPayloads.length} companies, quarter=${quarter}`);
+            }
         } else {
             log.push(`[${sector}] No company data available. Skipping sector.`);
         }
