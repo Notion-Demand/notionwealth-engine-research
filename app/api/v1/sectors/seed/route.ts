@@ -356,6 +356,13 @@ export async function POST(request: Request) {
                 continue;
             }
 
+            // skipFetch mode: only use cached analysis — don't run the pipeline
+            // (avoids Gemini calls that would push the request over Vercel's 60s limit)
+            if (skipFetch) {
+                log.push(`[${sector}/${ticker}] No cache — skipFetch=true, skipping pipeline`);
+                continue;
+            }
+
             // Run analysis pipeline
             log.push(`[${sector}/${ticker}] Running analysis pipeline for ${qPrev}→${qCurr}...`);
             try {
