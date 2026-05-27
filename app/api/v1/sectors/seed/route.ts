@@ -317,26 +317,27 @@ export async function POST(request: Request) {
         for (const ticker of config.tickers) {
             log.push(`[${sector}/${ticker}] Looking for available transcripts...`);
 
-            // List available PDFs for this ticker
-            const allFiles: { name: string }[] = [];
+            // List available PDFs for this ticker.
+            // Stop as soon as we have ≥2 matching quarters — avoids paging through hundreds
+            // of files for large-cap tickers like HDFC/SBI that have many transcripts uploaded.
+            const fileRe = new RegExp(`^${ticker}_Q(\\d)_(\\d{4})\\.pdf$`, "i");
+            const foundQuarters: string[] = [];
             let off = 0;
-            while (true) {
+            outer: while (true) {
                 const { data: page } = await supabaseAdmin()
                     .storage.from("transcripts")
                     .list("", { limit: 100, offset: off, search: ticker });
                 if (!page || page.length === 0) break;
-                allFiles.push(...page);
+                for (const f of page) {
+                    const m = f.name.match(fileRe);
+                    if (m) foundQuarters.push(`Q${m[1]}_${m[2]}`);
+                    if (foundQuarters.length >= 8) break outer; // have enough, stop paging
+                }
+                if (page.length < 100) break; // last page
                 off += page.length;
             }
 
-            const fileRe = new RegExp(`^${ticker}_Q(\\d)_(\\d{4})\\.pdf$`, "i");
-
-            const quarters = allFiles
-                .map((f) => {
-                    const m = f.name.match(fileRe);
-                    return m ? `Q${m[1]}_${m[2]}` : null;
-                })
-                .filter((q): q is string => q !== null)
+            const quarters = foundQuarters
                 .sort((a, b) => quarterToCalendarIndex(b) - quarterToCalendarIndex(a)); // newest first
 
             if (quarters.length < 2) {
@@ -348,8 +349,9 @@ export async function POST(request: Request) {
             const qCurr = quarters[0];
             const qPrev = quarters[1];
 
-            // Check cache first
-            const cached = await getCachedAnalysis(ticker, qPrev, qCurr);
+            // Check cache — use strict=false for sector seeding so old-format results
+            // (pre-earnings_delta) are still usable for aggregation.
+            const cached = await getCachedAnalysis(ticker, qPrev, qCurr, { strict: false });
             if (cached) {
                 log.push(`[${sector}/${ticker}] Cache HIT for ${qPrev}→${qCurr}`);
                 companyPayloads.push({ ticker, payload: cached, quarter: qCurr, quarterPrev: qPrev });

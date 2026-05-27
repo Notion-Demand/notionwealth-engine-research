@@ -5,11 +5,16 @@ import type { DashboardPayload } from "@/lib/pipeline";
  * Look up a previously computed analysis result.
  * Cache key = (company_ticker, q_prev, q_curr) — results are deterministic
  * across users since all users run against the same PDF files.
+ *
+ * strict (default true): enforces that newer pipeline fields (earnings_delta) exist.
+ *   Pass strict=false for sector seeding — those fields aren't needed for aggregation,
+ *   and rejecting old-format results causes sectors to show 0 companies.
  */
 export async function getCachedAnalysis(
   ticker: string,
   qPrev: string,
-  qCurr: string
+  qCurr: string,
+  { strict = true }: { strict?: boolean } = {}
 ): Promise<DashboardPayload | null> {
   const { data } = await supabaseAdmin()
     .from("analysis_results")
@@ -41,9 +46,11 @@ export async function getCachedAnalysis(
   if (!Array.isArray(parsed.insights) || parsed.insights.length === 0) {
     return null;
   }
-  // Don't serve results missing synthesis fields added in a later pipeline version.
-  // Old cached results won't have earnings_delta/fcf_implications, so re-run to populate them.
-  if (!Array.isArray(parsed.earnings_delta)) {
+  // Strict mode (dashboard): reject results missing synthesis fields added in a later
+  // pipeline version so the dashboard always shows fully-populated results.
+  // Non-strict (sector seed): accept any result with insights — aggregation doesn't
+  // need earnings_delta/fcf_implications.
+  if (strict && !Array.isArray(parsed.earnings_delta)) {
     return null;
   }
   return parsed;
