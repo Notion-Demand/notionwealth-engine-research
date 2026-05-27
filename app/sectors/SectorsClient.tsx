@@ -58,6 +58,9 @@ interface SectorIntelligence {
     quarter_previous: string;
     dimensions: SectorDimension[];
     narrative?: SectorNarrative | null;
+    parent_sector?: string;
+    thesis?: string;
+    is_sub_sector?: boolean;
 }
 
 // ── Dimension display order & metadata ────────────────────────────────────────
@@ -557,6 +560,27 @@ function NarrativeCard({ narrative, sector }: { narrative: SectorNarrative; sect
     );
 }
 
+// ── Sub-sector thesis card ────────────────────────────────────────────────────
+
+function ThesisCard({ thesis, parentSector, label }: { thesis: string; parentSector?: string; label: string }) {
+    return (
+        <div className="flex items-start gap-2.5 rounded-xl border border-violet-100 bg-gradient-to-r from-violet-50/70 to-white px-4 py-3">
+            <Shuffle size={14} className="text-violet-400 mt-0.5 shrink-0" />
+            <div>
+                <div className="flex items-center gap-2 mb-1">
+                    <p className="text-[9px] font-bold uppercase tracking-widest text-violet-500">Investment Thesis</p>
+                    {parentSector && (
+                        <span className="rounded border border-violet-200 bg-violet-100 px-1.5 py-0.5 text-[9px] font-semibold text-violet-600">
+                            sub-sector of {parentSector}
+                        </span>
+                    )}
+                </div>
+                <p className="text-[12px] text-gray-700 leading-relaxed">{thesis}</p>
+            </div>
+        </div>
+    );
+}
+
 // ── Sector dashboard (per-sector view) ────────────────────────────────────────
 
 function SectorDashboard({ sector }: { sector: SectorIntelligence }) {
@@ -620,6 +644,15 @@ function SectorDashboard({ sector }: { sector: SectorIntelligence }) {
                     </div>
                 </div>
             </div>
+
+            {/* Sub-sector thesis — shown for sub-sectors */}
+            {sector.is_sub_sector && sector.thesis && (
+                <ThesisCard
+                    thesis={sector.thesis}
+                    parentSector={sector.parent_sector}
+                    label={sector.sector_label || sector.sector}
+                />
+            )}
 
             {/* Sector narrative — shown when available */}
             {sector.narrative && (
@@ -758,6 +791,7 @@ export default function SectorsClient() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [selectedSector, setSelectedSector] = useState<string | null>(null);
+    const [showSubSectors, setShowSubSectors] = useState(false);
 
     useEffect(() => {
         setLoading(true);
@@ -785,11 +819,18 @@ export default function SectorsClient() {
     );
 
     const totalCompanies = sectors.reduce((sum, s) => sum + s.company_count, 0);
-    const seededCount = sectors.length;
+    const seededCount = sectors.filter((s) => !s.is_sub_sector).length;
     const totalSectors = availableSectors.length;
 
-    // Sector tab labels — show seeded count as a dot indicator
+    // Separate top-level sectors from sub-sectors for tab display
     const seededSet = useMemo(() => new Set(sectors.map((s) => s.sector)), [sectors]);
+    const subSectorKeys = useMemo(
+        () => new Set(sectors.filter((s) => s.is_sub_sector).map((s) => s.sector)),
+        [sectors]
+    );
+    // Build set from API-provided available list — need to know which are sub-sectors
+    // We use the seeded sectors' is_sub_sector flag as proxy; unseeded ones show as top-level tabs
+    const seededSubSectorSet = subSectorKeys;
 
     return (
         <div className="min-h-screen bg-gray-50">
@@ -810,59 +851,120 @@ export default function SectorsClient() {
 
                 {/* Sector tabs */}
                 {!loading && (
-                    <div className="mb-6 flex flex-wrap gap-1.5">
-                        {/* All Sectors overview */}
-                        <button
-                            onClick={() => setSelectedSector(null)}
-                            className={clsx(
-                                "rounded-full px-3 py-1.5 text-xs font-semibold border transition-colors",
-                                selectedSector === null
-                                    ? "bg-gray-900 text-white border-gray-900"
-                                    : "bg-white text-gray-600 border-gray-200 hover:border-gray-400"
-                            )}
-                        >
-                            All Sectors
-                            <span className={clsx(
-                                "ml-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-bold",
-                                selectedSector === null ? "bg-white/20 text-white" : "bg-gray-100 text-gray-500"
-                            )}>
-                                {totalSectors}
-                            </span>
-                        </button>
-                        {/* Seeded sectors first, then unseeded */}
-                        {availableSectors.map((s) => {
-                            const seeded = seededSet.has(s);
-                            const sectorData = sectors.find((sec) => sec.sector === s);
-                            const active = selectedSector === s;
-                            return (
+                    <div className="mb-6 space-y-2">
+                        {/* Row 1: All + top-level sectors */}
+                        <div className="flex flex-wrap gap-1.5">
+                            {/* All Sectors overview */}
+                            <button
+                                onClick={() => setSelectedSector(null)}
+                                className={clsx(
+                                    "rounded-full px-3 py-1.5 text-xs font-semibold border transition-colors",
+                                    selectedSector === null
+                                        ? "bg-gray-900 text-white border-gray-900"
+                                        : "bg-white text-gray-600 border-gray-200 hover:border-gray-400"
+                                )}
+                            >
+                                All Sectors
+                                <span className={clsx(
+                                    "ml-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-bold",
+                                    selectedSector === null ? "bg-white/20 text-white" : "bg-gray-100 text-gray-500"
+                                )}>
+                                    {totalSectors}
+                                </span>
+                            </button>
+
+                            {/* Top-level sectors only */}
+                            {availableSectors.filter((s) => !seededSubSectorSet.has(s)).map((s) => {
+                                const seeded = seededSet.has(s);
+                                const sectorData = sectors.find((sec) => sec.sector === s);
+                                const active = selectedSector === s;
+                                return (
+                                    <button
+                                        key={s}
+                                        onClick={() => seeded && setSelectedSector(s)}
+                                        className={clsx(
+                                            "rounded-full px-3 py-1.5 text-xs font-semibold border transition-colors",
+                                            active
+                                                ? "bg-gray-900 text-white border-gray-900"
+                                                : seeded
+                                                    ? "bg-white text-gray-600 border-gray-200 hover:border-gray-400"
+                                                    : "bg-white text-gray-300 border-gray-100 cursor-default"
+                                        )}
+                                        title={seeded ? sectorData?.sector_label ?? s : `${s} — not yet seeded`}
+                                    >
+                                        {s}
+                                        {seeded && (
+                                            <span className={clsx(
+                                                "ml-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-bold",
+                                                active ? "bg-white/20 text-white" : "bg-gray-100 text-gray-500"
+                                            )}>
+                                                {sectorData?.company_count ?? 0}
+                                            </span>
+                                        )}
+                                        {!seeded && (
+                                            <span className="ml-1.5 text-[10px] text-gray-300">·</span>
+                                        )}
+                                    </button>
+                                );
+                            })}
+                        </div>
+
+                        {/* Row 2: Sub-sectors (collapsible) */}
+                        {seededSubSectorSet.size > 0 && (
+                            <div>
                                 <button
-                                    key={s}
-                                    onClick={() => seeded && setSelectedSector(s)}
-                                    className={clsx(
-                                        "rounded-full px-3 py-1.5 text-xs font-semibold border transition-colors",
-                                        active
-                                            ? "bg-gray-900 text-white border-gray-900"
-                                            : seeded
-                                                ? "bg-white text-gray-600 border-gray-200 hover:border-gray-400"
-                                                : "bg-white text-gray-300 border-gray-100 cursor-default"
-                                    )}
-                                    title={seeded ? sectorData?.sector_label ?? s : `${s} — not yet seeded`}
+                                    onClick={() => setShowSubSectors((v) => !v)}
+                                    className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-violet-500 hover:text-violet-700 transition-colors mb-1.5"
                                 >
-                                    {s}
-                                    {seeded && (
-                                        <span className={clsx(
-                                            "ml-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-bold",
-                                            active ? "bg-white/20 text-white" : "bg-gray-100 text-gray-500"
-                                        )}>
-                                            {sectorData?.company_count ?? 0}
-                                        </span>
-                                    )}
-                                    {!seeded && (
-                                        <span className="ml-1.5 text-[10px] text-gray-300">·</span>
-                                    )}
+                                    <Layers size={11} />
+                                    Sub-sectors ({seededSubSectorSet.size})
+                                    {showSubSectors
+                                        ? <ChevronUp size={10} />
+                                        : <ChevronDown size={10} />
+                                    }
                                 </button>
-                            );
-                        })}
+                                {showSubSectors && (
+                                    <div className="flex flex-wrap gap-1.5 pl-1">
+                                        {availableSectors.filter((s) => seededSubSectorSet.has(s)).map((s) => {
+                                            const seeded = seededSet.has(s);
+                                            const sectorData = sectors.find((sec) => sec.sector === s);
+                                            const active = selectedSector === s;
+                                            return (
+                                                <button
+                                                    key={s}
+                                                    onClick={() => seeded && setSelectedSector(s)}
+                                                    className={clsx(
+                                                        "rounded-full px-3 py-1.5 text-xs font-semibold border transition-colors",
+                                                        active
+                                                            ? "bg-violet-600 text-white border-violet-600"
+                                                            : seeded
+                                                                ? "bg-violet-50 text-violet-700 border-violet-200 hover:border-violet-400"
+                                                                : "bg-white text-gray-300 border-gray-100 cursor-default"
+                                                    )}
+                                                    title={seeded
+                                                        ? `${sectorData?.sector_label ?? s}${sectorData?.parent_sector ? ` (sub-sector of ${sectorData.parent_sector})` : ""}`
+                                                        : `${s} — not yet seeded`
+                                                    }
+                                                >
+                                                    {s}
+                                                    {seeded && (
+                                                        <span className={clsx(
+                                                            "ml-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-bold",
+                                                            active ? "bg-white/20 text-white" : "bg-violet-100 text-violet-600"
+                                                        )}>
+                                                            {sectorData?.company_count ?? 0}
+                                                        </span>
+                                                    )}
+                                                    {!seeded && (
+                                                        <span className="ml-1.5 text-[10px] text-gray-300">·</span>
+                                                    )}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </div>
                 )}
 
@@ -885,7 +987,7 @@ export default function SectorsClient() {
                 {!loading && !error && (
                     <>
                         {selectedSector === null ? (
-                            /* All Sectors — scorecard matrix only */
+                            /* All Sectors — scorecard matrix (top-level sectors only) */
                             sectors.length === 0 ? (
                                 <div className="rounded-xl border border-dashed border-gray-300 py-16 text-center">
                                     <Layers className="mx-auto h-10 w-10 text-gray-300" />
@@ -893,7 +995,7 @@ export default function SectorsClient() {
                                 </div>
                             ) : (
                                 <SectorMatrix
-                                    sectors={sectors}
+                                    sectors={sectors.filter((s) => !s.is_sub_sector)}
                                     onSelectSector={(s) => setSelectedSector(s)}
                                 />
                             )

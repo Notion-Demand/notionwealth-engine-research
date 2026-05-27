@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { SECTOR_UNIVERSE } from "@/lib/nifty50";
+import { ALL_SECTOR_UNIVERSE } from "@/lib/sub-sectors";
 
 export const dynamic = "force-dynamic";
 
@@ -39,8 +39,8 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const sectorFilter = searchParams.get("sector");
 
-    // Fetch pre-computed sector intelligence — only sectors in SECTOR_UNIVERSE
-    const validSectors = Object.keys(SECTOR_UNIVERSE);
+    // Fetch pre-computed sector intelligence — sectors + sub-sectors in ALL_SECTOR_UNIVERSE
+    const validSectors = Object.keys(ALL_SECTOR_UNIVERSE);
     const query = supabaseAdmin()
         .from("sector_intelligence")
         .select("sector, quarter, payload, created_at")
@@ -57,7 +57,7 @@ export async function GET(request: Request) {
     if (!rows || rows.length === 0) {
         return NextResponse.json({
             sectors: [],
-            available_sectors: validSectors.sort(),
+            available_sectors: Object.keys(ALL_SECTOR_UNIVERSE).sort(),
         });
     }
 
@@ -112,7 +112,7 @@ export async function GET(request: Request) {
     return NextResponse.json(
         {
             sectors,
-            available_sectors: Object.keys(SECTOR_UNIVERSE).sort(),
+            available_sectors: Object.keys(ALL_SECTOR_UNIVERSE).sort(),
             _debug: {
                 total_db_rows: rows.length,
 raw_rows: rows.map(r => ({ sector: r.sector, quarter: r.quarter, qIdx: qIdx(r.quarter), created_at: r.created_at })),

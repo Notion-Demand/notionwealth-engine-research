@@ -13,6 +13,7 @@
 
 import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
 import type { DashboardPayload } from "./pipeline";
+import type { CompactSignal } from "./nifty200-sampler";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -50,7 +51,7 @@ const NARRATIVE_SCHEMA = {
   ],
 };
 
-// ── Company brief builder ─────────────────────────────────────────────────────
+// ── Brief builders ────────────────────────────────────────────────────────────
 
 /**
  * Compress one company's DashboardPayload into a compact brief for the Gemini prompt.
@@ -78,6 +79,14 @@ function buildCompanyBrief(ticker: string, payload: DashboardPayload): string {
   return brief;
 }
 
+/**
+ * Build a 1-line brief from a CompactSignal (Nifty 200 extended context).
+ */
+function buildExtendedBrief(s: CompactSignal): string {
+  const sign = s.overall_score > 0 ? "+" : "";
+  return `${s.ticker} [${s.overall_signal} (${sign}${s.overall_score.toFixed(1)})]: ${s.summary}`;
+}
+
 // ── Main export ───────────────────────────────────────────────────────────────
 
 const NARRATIVE_TIMEOUT_MS = 22_000;
@@ -86,14 +95,16 @@ const NARRATIVE_TIMEOUT_MS = 22_000;
  * Generate sector-level narrative for a PM audience.
  * Returns null on failure — callers should degrade gracefully.
  *
- * @param sector  e.g. "Banking"
- * @param quarter e.g. "Q3_2026"
- * @param companyPayloads  Array of { ticker, payload } objects (≥1 required)
+ * @param sector          e.g. "Banking"
+ * @param quarter         e.g. "Q3_2026"
+ * @param companyPayloads Primary company payloads (≥1 required)
+ * @param extendedSignals Optional additional Nifty 200 signals for broader context
  */
 export async function generateSectorNarrative(
   sector: string,
   quarter: string,
-  companyPayloads: { ticker: string; payload: DashboardPayload }[]
+  companyPayloads: { ticker: string; payload: DashboardPayload }[],
+  extendedSignals?: CompactSignal[]
 ): Promise<SectorNarrative | null> {
   if (companyPayloads.length === 0) return null;
 
@@ -125,12 +136,21 @@ export async function generateSectorNarrative(
       .map(({ ticker, payload }) => buildCompanyBrief(ticker, payload))
       .join("\n");
 
+    // Extended Nifty 200 context block — appended when sampler found additional signals
+    const extendedBlock =
+      extendedSignals && extendedSignals.length > 0
+        ? `\nExtended Nifty 200 context (${extendedSignals.length} additional companies — use for sector-level breadth, not headline signals):\n` +
+          extendedSignals.map(buildExtendedBrief).join("\n") + "\n"
+        : "";
+
     const qLabel = quarter.replace("_", " FY");
 
     const prompt =
       `Sector: ${sector} (India, ${qLabel})\n` +
-      `Companies covered (${companyPayloads.length}):\n` +
-      `${companyBriefs}\n\n` +
+      `Primary companies (${companyPayloads.length}):\n` +
+      `${companyBriefs}` +
+      extendedBlock +
+      `\n` +
       `Synthesise SECTOR-LEVEL intelligence:\n\n` +
       `competitive_structure: 1-2 sentences. Is this sector consolidating ` +
       `(few dominant profitable players taking share) or fragmented (intense price competition)? ` +

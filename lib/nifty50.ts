@@ -221,6 +221,16 @@ export const MARKET_CAPS: Record<string, number> = {
   ULTRACEMCO: 2.5, GRASIM: 1.8, AMBUJACEM: 1.2, SHREECEM: 0.8, ACC: 0.4,
   // Telecom
   BHARTI: 9.5, BHARTIHEXA: 0.5, INDUSTOWER: 0.9, TATACOMM: 0.3,
+  // Sub-sector: PSU Banks (additional)
+  CANBK: 0.8, BANKINDIA: 0.6, UNIONBANK: 0.7, INDIANB: 0.5,
+  // Sub-sector: Private Banks (additional)
+  IDFCFIRSTB: 0.5, FEDERALBNK: 0.4,
+  // Sub-sector: Capital Markets
+  BSE: 0.6, HDFCAMC: 0.9, MOTILALOFS: 0.5, "360ONE": 0.4, POLICYBZR: 0.5,
+  // Sub-sector: IT Mid-caps (additional)
+  COFORGE: 0.4, KPITTECH: 0.5,
+  // Sub-sector: Renewables (additional)
+  NTPCGREEN: 0.6, NHPC: 0.5, TORNTPOWER: 0.4,
 };
 
 /**

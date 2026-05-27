@@ -1,12 +1,14 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { SECTOR_UNIVERSE, MARKET_CAPS } from "@/lib/nifty50";
+import { MARKET_CAPS } from "@/lib/nifty50";
+import { ALL_SECTOR_UNIVERSE } from "@/lib/sub-sectors";
 import { fetchAndUploadTranscripts } from "@/lib/transcript-fetcher";
 import { runPipeline, resolvePdfKey } from "@/lib/pipeline";
 import type { DashboardPayload } from "@/lib/pipeline";
 import { getCachedAnalysis, saveAnalysis } from "@/lib/analysis-cache";
 import { generateSectorNarrative } from "@/lib/sector-narrative";
 import type { SectorNarrative } from "@/lib/sector-narrative";
+import { sampleNifty200Signals } from "@/lib/nifty200-sampler";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60; // 60s per sector call — pass ?sector=Banking to seed one at a time
@@ -39,6 +41,12 @@ interface SectorIntelligence {
     quarter_previous: string;
     dimensions: SectorDimension[];
     narrative?: SectorNarrative | null;
+    /** Set for sub-sectors — the parent SECTOR_UNIVERSE key */
+    parent_sector?: string;
+    /** PM-grade investment thesis for this sector / sub-sector */
+    thesis?: string;
+    /** true for sub-sectors */
+    is_sub_sector?: boolean;
 }
 
 // ── Dimension extraction from analysis payloads ───────────────────────────────
@@ -281,12 +289,12 @@ export async function POST(request: Request) {
     const generateNarrative = searchParams.get("narrative") === "true";
 
     const sectorsToProcess = sectorParam
-        ? Object.entries(SECTOR_UNIVERSE).filter(([s]) => s === sectorParam)
-        : Object.entries(SECTOR_UNIVERSE);
+        ? Object.entries(ALL_SECTOR_UNIVERSE).filter(([s]) => s === sectorParam)
+        : Object.entries(ALL_SECTOR_UNIVERSE);
 
     if (sectorParam && sectorsToProcess.length === 0) {
         return NextResponse.json(
-            { error: `Unknown sector: ${sectorParam}`, available: Object.keys(SECTOR_UNIVERSE) },
+            { error: `Unknown sector: ${sectorParam}`, available: Object.keys(ALL_SECTOR_UNIVERSE) },
             { status: 400 }
         );
     }
@@ -405,14 +413,32 @@ export async function POST(request: Request) {
         if (companyPayloads.length >= 1) {
             const sectorIntel = computeSectorIntelligence(sector, config.label, companyPayloads);
 
-            // Step 4: Generate sector narrative (optional, adds ~20s via Gemini)
+            // Propagate sub-sector metadata
+            if (config.is_sub_sector) {
+                sectorIntel.is_sub_sector = true;
+                sectorIntel.parent_sector  = config.parent_sector;
+                sectorIntel.thesis         = config.thesis;
+            }
+
+            // Step 4: Generate sector narrative (optional, adds ~20-25s via Gemini)
             // Must run BEFORE the delete+insert so we never orphan sector data.
             if (generateNarrative) {
+                // Sample additional Nifty 200 signals for richer narrative context
+                const extendedSignals = await sampleNifty200Signals(
+                    sector,
+                    sectorIntel.quarter,
+                    config.tickers
+                );
+                if (extendedSignals.length > 0) {
+                    log.push(`[${sector}] Sampled ${extendedSignals.length} extended Nifty200 signals for narrative`);
+                }
+
                 log.push(`[${sector}] Generating sector narrative...`);
                 const narrative = await generateSectorNarrative(
                     sector,
                     sectorIntel.quarter,
-                    companyPayloads
+                    companyPayloads,
+                    extendedSignals
                 );
                 sectorIntel.narrative = narrative;
                 if (narrative) {
