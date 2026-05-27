@@ -25,7 +25,7 @@ interface ScreenerSignal {
     subtopic: string;
     language_shift: string;
     score: number;
-    signal: "Positive" | "Negative" | "Noise";
+    signal: "Positive" | "Negative" | "Mixed" | "Noise";
     section: string;
     overall_score: number;
     overall_signal: "Positive" | "Negative" | "Mixed" | "Noise";
@@ -37,6 +37,8 @@ interface ScreenerSignal {
     confidence_pct: number;
     adjusted_score: number;
     flags: SignalFlag[];
+    is_current_quarter: boolean;
+    is_nifty50: boolean;
 }
 
 // ── Section → Category mapping (current pipeline section names) ───────────────
@@ -226,12 +228,24 @@ function SignalRow({ signal, rank }: { signal: ScreenerSignal; rank: number }) {
                 </td>
 
                 {/* Company + flags */}
-                <td className="px-3 py-3.5 min-w-[130px]">
+                <td className="px-3 py-3.5 min-w-[140px]">
                     <div className="flex flex-col gap-1">
-                        <span className="text-sm font-semibold text-gray-900">{signal.ticker}</span>
-                        <span className="text-[11px] text-gray-400">
-                            {signal.quarter_previous} → {signal.quarter}
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                            <span className="text-sm font-semibold text-gray-900">{signal.ticker}</span>
+                            {signal.is_nifty50 && (
+                                <span className="rounded bg-gray-100 px-1 py-0.5 text-[9px] font-bold text-gray-500 tracking-wide">N50</span>
+                            )}
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                            <span className="text-[11px] text-gray-400">
+                                {signal.quarter_previous?.replace("_", " ")} → {signal.quarter?.replace("_", " ")}
+                            </span>
+                            {!signal.is_current_quarter && (
+                                <span className="rounded border border-amber-200 bg-amber-50 px-1 py-0.5 text-[9px] font-semibold text-amber-600 leading-none">
+                                    prev qtr
+                                </span>
+                            )}
+                        </div>
                         {/* Flag chips */}
                         {(warningFlags.length > 0 || infoFlags.length > 0) && (
                             <div className="flex flex-wrap gap-1 mt-0.5">
@@ -394,6 +408,7 @@ export default function ScreenerClient() {
     const [error, setError] = useState<string | null>(null);
     const [quarter, setQuarter] = useState("");
     const [quarterPrev, setQuarterPrev] = useState("");
+    const [currentQCount, setCurrentQCount] = useState(0);
 
     const [selectedCategory, setSelectedCategory] = useState<string>("All");
     const [selectedSignal, setSelectedSignal] = useState<string>("All");
@@ -409,6 +424,7 @@ export default function ScreenerClient() {
                 setSignals(addConsensusFlags(raw));
                 setQuarter(data.quarter ?? "");
                 setQuarterPrev(data.quarter_previous ?? "");
+                setCurrentQCount(data.current_quarter_count ?? raw.length);
             })
             .catch((e) => setError(e.message))
             .finally(() => setLoading(false));
@@ -458,12 +474,13 @@ export default function ScreenerClient() {
                         Narrative Change Screener
                     </h1>
                     <p className="text-sm text-gray-500 mt-1 max-w-2xl">
-                        Confidence-adjusted narrative signals across the Nifty 200 universe.
-                        Raw scores are penalised for disclosure inflation, management evasion,
-                        earnings quality, and one-time items. Peer consensus is detected automatically.
-                        {quarter && (
-                            <span className="ml-2 font-medium text-gray-700">
-                                Comparing {quarterPrev} → {quarter}.
+                        Confidence-adjusted narrative signals across Nifty 50 + Nifty 200.
+                        Nifty 50 companies always appear using their latest available analysis.
+                        Scores penalised for disclosure inflation, management evasion, earnings
+                        quality, and one-time items. Peer consensus detected automatically.
+                        {quarter && currentQCount > 0 && (
+                            <span className="ml-1 font-medium text-gray-700">
+                                {currentQCount} companies at current quarter ({quarterPrev?.replace("_", " ")} → {quarter?.replace("_", " ")}).
                             </span>
                         )}
                     </p>
@@ -644,6 +661,9 @@ export default function ScreenerClient() {
                             </p>
                             <p className="text-[11px] text-gray-400">
                                 <span className="font-semibold text-gray-500">Industry Consensus</span> = same narrative theme in 4+ companies → limited alpha.
+                            </p>
+                            <p className="text-[11px] text-gray-400">
+                                <span className="font-semibold text-amber-600">prev qtr</span> badge = Nifty 50 company shown at their most recent analyzed quarter (not the latest global quarter yet).
                             </p>
                         </div>
                     </div>

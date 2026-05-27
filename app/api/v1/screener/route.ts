@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { NIFTY200 } from "@/lib/nifty200";
-import { QUARTERS } from "@/lib/nifty50";
+import { NIFTY50, QUARTERS } from "@/lib/nifty50";
 
 export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
@@ -56,6 +56,10 @@ export interface ScreenerSignal {
     confidence_pct: number;           // 0–100: how trustworthy the signal is
     adjusted_score: number;           // score × confidence_multiplier
     flags: SignalFlag[];              // warning flags that reduced confidence
+    /** true = this is the global current quarter pair (Q_CURR/Q_PREV) */
+    is_current_quarter: boolean;
+    /** true = this ticker is in the Nifty 50 */
+    is_nifty50: boolean;
 }
 
 export type SignalFlag =
@@ -127,131 +131,184 @@ function computeConfidence(
     return { multiplier, pct, flags };
 }
 
+// ── Quarter → sortable calendar index ────────────────────────────────────────
+
+function qIdx(q: string): number {
+    const m = q.match(/^Q(\d)_(\d{4})$/);
+    if (!m) return 0;
+    const qNum = parseInt(m[1]);
+    const fy = parseInt(m[2]);
+    const calMonth = ({ 1: 4, 2: 7, 3: 10, 4: 1 } as Record<number, number>)[qNum] ?? 1;
+    return (qNum <= 3 ? fy - 1 : fy) * 100 + calMonth;
+}
+
+// ── Signal builder ────────────────────────────────────────────────────────────
+
+type DbRow = { company_ticker: string; q_curr: string; q_prev: string; payload: unknown; created_at: string };
+
+function buildSignal(
+    ticker: string,
+    row: DbRow,
+    isNifty50: boolean,
+): ScreenerSignal | null {
+    let payload: StoredPayload;
+    try {
+        payload = typeof row.payload === "string" ? JSON.parse(row.payload) : row.payload as StoredPayload;
+    } catch {
+        return null;
+    }
+    if (!payload?.insights || !Array.isArray(payload.insights)) return null;
+
+    // Collect all non-Noise metrics
+    const allMetrics: { metric: MetricDelta; section: string }[] = [];
+    for (const insight of payload.insights) {
+        if (!insight.metrics) continue;
+        for (const m of insight.metrics) {
+            if (m.signal_classification !== "Noise" && Math.abs(m.signal_score) > 0.5) {
+                allMetrics.push({ metric: m, section: insight.section_name });
+            }
+        }
+    }
+    if (allMetrics.length === 0) return null;
+
+    allMetrics.sort((a, b) => Math.abs(b.metric.signal_score) - Math.abs(a.metric.signal_score));
+    const top = allMetrics[0];
+
+    const validationScore = payload.validation_score ?? 70;
+    const flaggedCount = payload.flagged_count ?? 0;
+    const evasiveness = payload.executive_evasiveness_score ?? 5;
+    const disclosureInflation = detectDisclosureInflation(
+        payload.summary ?? "",
+        payload.earnings_delta ?? []
+    );
+    const confidence = computeConfidence(
+        validationScore,
+        flaggedCount,
+        evasiveness,
+        disclosureInflation,
+        top.metric.signal_score
+    );
+
+    return {
+        ticker,
+        subtopic: top.metric.subtopic,
+        language_shift: top.metric.language_shift,
+        score: top.metric.signal_score,
+        signal: top.metric.signal_classification,
+        section: top.section,
+        overall_score: payload.overall_score ?? 0,
+        overall_signal: payload.overall_signal ?? "Noise",
+        summary: payload.summary ?? "",
+        quarter: row.q_curr,
+        quarter_previous: row.q_prev,
+        earnings_delta: payload.earnings_delta ?? [],
+        confidence_pct: confidence.pct,
+        adjusted_score: Math.round(top.metric.signal_score * confidence.multiplier * 100) / 100,
+        flags: confidence.flags,
+        is_current_quarter: row.q_curr === Q_CURR && row.q_prev === Q_PREV,
+        is_nifty50: isNifty50,
+    };
+}
+
 // ── Main handler ──────────────────────────────────────────────────────────────
 
-/** GET /api/v1/screener — returns confidence-adjusted narrative change signals across Nifty 200 */
+/**
+ * GET /api/v1/screener
+ *
+ * Two-pass strategy:
+ *  Pass 1 — Nifty 50: fetch ALL analysis_results rows per ticker (any quarter),
+ *            pick the highest q_curr per ticker. Guarantees all 50 appear even
+ *            if most recent quarter hasn't been analyzed yet.
+ *  Pass 2 — Nifty 200 (non-Nifty50): strict current quarter pair only.
+ *            These appear as a bonus when they happen to have current data.
+ *
+ * Result: screener always shows ≥ N50 companies with data, plus whatever
+ *         Nifty 200 companies are freshly analyzed at the current quarter.
+ */
 export async function GET() {
-    const nifty200Tickers = Object.keys(NIFTY200);
+    const nifty50Tickers   = Object.keys(NIFTY50);
+    const nifty50Set       = new Set(nifty50Tickers);
+    const nifty200Tickers  = Object.keys(NIFTY200);
+    // Nifty 200 tickers NOT already in Nifty 50 (avoid double-counting)
+    const nifty200OnlyTickers = nifty200Tickers.filter((t) => !nifty50Set.has(t));
 
-    const { data: rows, error } = await supabaseAdmin()
+    // ── Pass 1: Nifty 50 — best available analysis per ticker ─────────────────
+    const { data: n50Rows, error: n50Err } = await supabaseAdmin()
+        .from("analysis_results")
+        .select("company_ticker, q_curr, q_prev, payload, created_at")
+        .in("company_ticker", nifty50Tickers)
+        .order("created_at", { ascending: false });
+
+    if (n50Err) {
+        console.error("[screener] Nifty50 DB error:", n50Err);
+        return NextResponse.json({ error: "Failed to fetch results" }, { status: 500 });
+    }
+
+    // Keep the row with the highest q_curr per ticker
+    const n50Best = new Map<string, DbRow>();
+    for (const row of (n50Rows ?? [])) {
+        const existing = n50Best.get(row.company_ticker);
+        if (!existing || qIdx(row.q_curr) > qIdx(existing.q_curr)) {
+            n50Best.set(row.company_ticker, row as DbRow);
+        }
+    }
+
+    // ── Pass 2: Nifty 200 (non-N50) — current quarter pair only ──────────────
+    const { data: n200Rows } = await supabaseAdmin()
         .from("analysis_results")
         .select("company_ticker, q_curr, q_prev, payload, created_at")
         .eq("q_prev", Q_PREV)
         .eq("q_curr", Q_CURR)
-        .in("company_ticker", nifty200Tickers)
+        .in("company_ticker", nifty200OnlyTickers)
         .order("created_at", { ascending: false });
 
-    if (error) {
-        console.error("[screener] DB error:", error);
-        return NextResponse.json({ error: "Failed to fetch results" }, { status: 500 });
-    }
-
-    // Fall back to the previous quarter pair if the latest has no data yet
-    let effectiveRows = rows ?? [];
-    let effectiveQCurr = Q_CURR;
-    let effectiveQPrev = Q_PREV;
-
-    if (effectiveRows.length === 0 && QUARTERS.length >= 3) {
-        const fallbackCurr = QUARTERS[1];
-        const fallbackPrev = QUARTERS[2];
-        const { data: fallbackRows } = await supabaseAdmin()
-            .from("analysis_results")
-            .select("company_ticker, q_curr, q_prev, payload, created_at")
-            .eq("q_prev", fallbackPrev)
-            .eq("q_curr", fallbackCurr)
-            .in("company_ticker", nifty200Tickers)
-            .order("created_at", { ascending: false });
-        if (fallbackRows && fallbackRows.length > 0) {
-            effectiveRows = fallbackRows;
-            effectiveQCurr = fallbackCurr;
-            effectiveQPrev = fallbackPrev;
+    const n200Best = new Map<string, DbRow>();
+    for (const row of (n200Rows ?? [])) {
+        if (!n200Best.has(row.company_ticker)) {
+            n200Best.set(row.company_ticker, row as DbRow);
         }
     }
 
-    if (effectiveRows.length === 0) {
-        return NextResponse.json({ signals: [], quarter: Q_CURR, quarter_previous: Q_PREV });
-    }
-
-    // Keep only the most recent result per ticker
-    const latestByTicker = new Map<string, typeof effectiveRows[0]>();
-    for (const row of effectiveRows) {
-        if (!latestByTicker.has(row.company_ticker)) {
-            latestByTicker.set(row.company_ticker, row);
-        }
-    }
-
+    // ── Merge & build signals ─────────────────────────────────────────────────
     const signals: ScreenerSignal[] = [];
 
-    for (const [ticker, row] of Array.from(latestByTicker)) {
-        let payload: StoredPayload;
-        try {
-            payload = typeof row.payload === "string" ? JSON.parse(row.payload) : row.payload;
-        } catch {
-            continue;
-        }
+    for (const [ticker, row] of Array.from(n50Best)) {
+        const s = buildSignal(ticker, row, true);
+        if (s) signals.push(s);
+    }
+    for (const [ticker, row] of Array.from(n200Best)) {
+        const s = buildSignal(ticker, row, false);
+        if (s) signals.push(s);
+    }
 
-        if (!payload?.insights || !Array.isArray(payload.insights)) continue;
-
-        // Collect all non-Noise metrics
-        const allMetrics: { metric: MetricDelta; section: string }[] = [];
-        for (const insight of payload.insights) {
-            if (!insight.metrics) continue;
-            for (const m of insight.metrics) {
-                if (m.signal_classification !== "Noise" && Math.abs(m.signal_score) > 0.5) {
-                    allMetrics.push({ metric: m, section: insight.section_name });
-                }
-            }
-        }
-        if (allMetrics.length === 0) continue;
-
-        // Sort by |score| descending — pick top signal
-        allMetrics.sort((a, b) => Math.abs(b.metric.signal_score) - Math.abs(a.metric.signal_score));
-        const top = allMetrics[0];
-
-        // Confidence computation
-        const validationScore = payload.validation_score ?? 70;
-        const flaggedCount = payload.flagged_count ?? 0;
-        const evasiveness = payload.executive_evasiveness_score ?? 5;
-        const disclosureInflation = detectDisclosureInflation(
-            payload.summary ?? "",
-            payload.earnings_delta ?? []
-        );
-        const confidence = computeConfidence(
-            validationScore,
-            flaggedCount,
-            evasiveness,
-            disclosureInflation,
-            top.metric.signal_score
-        );
-
-        signals.push({
-            ticker,
-            subtopic: top.metric.subtopic,
-            language_shift: top.metric.language_shift,
-            score: top.metric.signal_score,
-            signal: top.metric.signal_classification,
-            section: top.section,
-            overall_score: payload.overall_score ?? 0,
-            overall_signal: payload.overall_signal ?? "Noise",
-            summary: payload.summary ?? "",
-            quarter: effectiveQCurr,
-            quarter_previous: effectiveQPrev,
-            earnings_delta: payload.earnings_delta ?? [],
-            confidence_pct: confidence.pct,
-            adjusted_score: Math.round(top.metric.signal_score * confidence.multiplier * 100) / 100,
-            flags: confidence.flags,
+    if (signals.length === 0) {
+        return NextResponse.json({
+            signals: [],
+            quarter: Q_CURR,
+            quarter_previous: Q_PREV,
+            companies_analyzed: 0,
         });
     }
 
-    // Rank by |adjusted_score| descending (confidence-weighted)
-    signals.sort((a, b) => Math.abs(b.adjusted_score) - Math.abs(a.adjusted_score));
+    // Rank: current-quarter signals first (within each tier by |adjusted_score|),
+    // then stale-quarter signals sorted the same way.
+    signals.sort((a, b) => {
+        // Current quarter rows come before stale rows
+        if (a.is_current_quarter !== b.is_current_quarter) {
+            return a.is_current_quarter ? -1 : 1;
+        }
+        return Math.abs(b.adjusted_score) - Math.abs(a.adjusted_score);
+    });
+
+    const currentQCount = signals.filter((s) => s.is_current_quarter).length;
 
     return NextResponse.json(
         {
             signals,
-            quarter: effectiveQCurr,
-            quarter_previous: effectiveQPrev,
+            quarter: Q_CURR,
+            quarter_previous: Q_PREV,
             companies_analyzed: signals.length,
+            current_quarter_count: currentQCount,
         },
         { headers: { "Cache-Control": "no-store" } }
     );
