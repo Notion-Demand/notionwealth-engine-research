@@ -402,23 +402,31 @@ export async function POST(request: Request) {
             const sectorIntel = computeSectorIntelligence(sector, config.label, companyPayloads);
             sectorResults.push(sectorIntel);
 
-            // Save to DB
+            // Save to DB — explicit delete (already done above) + insert pattern
+            // avoids any upsert / onConflict issues entirely
             const quarter = companyPayloads[0].quarter;
-            const { error: upsertErr } = await supabaseAdmin()
-                .from("sector_intelligence")
-                .upsert(
-                    {
-                        sector,
-                        quarter,
-                        payload: sectorIntel as unknown as Record<string, unknown>,
-                    },
-                    { onConflict: "sector,quarter" }
-                );
 
-            if (upsertErr) {
-                log.push(`[${sector}] DB UPSERT ERROR: ${upsertErr.message} (code=${upsertErr.code})`);
+            // Belt-and-suspenders: delete any leftover row for this (sector, quarter)
+            await supabaseAdmin()
+                .from("sector_intelligence")
+                .delete()
+                .eq("sector", sector)
+                .eq("quarter", quarter);
+
+            const { data: insertData, error: insertErr } = await supabaseAdmin()
+                .from("sector_intelligence")
+                .insert({
+                    sector,
+                    quarter,
+                    payload: sectorIntel as unknown as Record<string, unknown>,
+                })
+                .select("id")
+                .single();
+
+            if (insertErr) {
+                log.push(`[${sector}] DB INSERT ERROR: ${insertErr.message} (code=${insertErr.code})`);
             } else {
-                log.push(`[${sector}] Stored sector intelligence: ${companyPayloads.length} companies, quarter=${quarter}`);
+                log.push(`[${sector}] Stored sector intelligence: ${companyPayloads.length} companies, quarter=${quarter} id=${insertData?.id}`);
             }
         } else {
             log.push(`[${sector}] No company data available. Skipping sector.`);
