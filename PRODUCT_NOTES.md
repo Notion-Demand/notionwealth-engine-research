@@ -5,6 +5,147 @@ Newest entries at the top.
 
 ---
 
+## 2026-05-27 — Sector Intelligence: Sub-Sectors + Nifty 200 Narrative Enrichment
+
+### Context
+After building the 17-sector intelligence system, two gaps remained:
+1. Broad sectors (e.g. "Banking") blend PSU and private bank dynamics — investors care about each separately.
+2. Narratives were generated from 2–8 primary tickers only; additional Nifty 200 companies in the same sector sitting in `analysis_results` were unused.
+
+### Decision: Nifty 200 Sampler for Narrative Enrichment
+
+`lib/nifty200-sampler.ts` — `sampleNifty200Signals(sector, qCurr, primaryTickers, maxSamples=6)`
+
+On every `?narrative=true` seed call, the sampler runs first:
+- Looks up Nifty 200 companies matching the sector (via `SECTOR_TO_NIFTY200_TAGS` map)
+- Excludes tickers already in the primary list
+- Batch-queries `analysis_results` for those tickers at `q_curr`
+- Returns up to 6 `CompactSignal` objects (ticker, name, signal, score, summary)
+
+These are appended to the Gemini prompt as **"Extended Nifty 200 context — use for sector-level breadth, not headline signals."** This gives the model broader signal coverage without inflating the primary company list.
+
+Why this approach over adding all Nifty 200 companies to the primary sector lists:
+- Primary list drives the **quantitative score aggregation** (market-cap weighted). Adding illiquid companies or those not yet analyzed would dilute or zero-out scores.
+- Extended context is qualitative only — Gemini uses it to enrich narratives but it doesn't affect dimension scores.
+
+### Decision: 5 Thematic Sub-Sectors
+
+`lib/sub-sectors.ts` — `SUB_SECTOR_UNIVERSE`
+
+| Sub-sector | Tickers | Parent |
+|---|---|---|
+| PSU Banks | SBI, PNB, BANKBARODA, CANBK, BANKINDIA, UNIONBANK, INDIANB | Banking |
+| Private Banks | HDFC, ICICI, KOTAKBANK, AXISBANK, INDUSINDBK, IDFCFIRSTB, FEDERALBNK | Banking |
+| Capital Markets | BSE, HDFCAMC, MOTILALOFS, 360ONE, SBICARD, POLICYBZR | NBFC |
+| IT Midcap | LTIM, PERSISTENT, MPHASIS, COFORGE, KPITTECH | IT |
+| Renewables | ADANIGREEN, JSWENERGY, TORNTPOWER, NTPCGREEN, NHPC | Power |
+
+Sub-sectors are seeded identically to main sectors:
+```
+POST /api/v1/sectors/seed?sector=PSU+Banks&skipFetch=true&maxNew=0&narrative=true
+```
+
+Each sub-sector payload carries `is_sub_sector: true`, `parent_sector`, and a PM-grade `thesis` string that explains the investment angle (e.g. "Government-owned lenders: credit cost normalisation vs. NIM compression as rate cycle turns...").
+
+### Decision: `ALL_SECTOR_UNIVERSE` as Single Source of Truth
+
+Both the seed route and GET route now import `ALL_SECTOR_UNIVERSE` from `lib/sub-sectors.ts` instead of `SECTOR_UNIVERSE` from `nifty50.ts`. This means:
+- New sub-sectors are automatically picked up in the seed endpoint's available list
+- The GET endpoint returns sub-sector rows without code changes
+- `SECTOR_UNIVERSE` stays unchanged (only broad sectors) — sub-sectors are additive
+
+### Decision: UI Separation — Sub-Sectors in Collapsible Violet Row
+
+Sub-sectors appear in a **separate collapsible row** below the main sector tab strip:
+- Collapsed by default (not shown until toggled) — avoids cluttering the tab bar for users who only care about broad sectors
+- Violet color scheme to distinguish from top-level sector tabs (gray)
+- `SectorMatrix` (All Sectors overview) **excludes sub-sectors** — the cross-sector scorecard compares apples to apples (17 top-level sectors)
+
+`ThesisCard` appears at the top of every sub-sector dashboard showing the investment thesis and parent sector badge.
+
+### Decision: Start with 5 Sub-Sectors, Add More as Cache Grows
+
+Sub-sectors will show low coverage initially (e.g. Capital Markets companies like BSE and HDFCAMC are in Nifty 200 but may not have cached analyses yet). Coverage grows organically as users analyze those companies individually. No special handling needed — same behavior as FMCG or Healthcare which started with 2/8 coverage.
+
+---
+
+## 2026-05-27 — Sector Intelligence: PM-Grade Narrative Layer
+
+### Problem
+The sector intelligence dashboard showed 8 quantitative dimension scores per sector but lacked **qualitative context** — a PM looking at Banking couldn't immediately understand whether the sector is consolidating, what the key macro risks are, or what triggers could re-rate it. The numbers alone don't answer "should I be OW or UW this sector?"
+
+### Decision: 7-Field Sector Narrative via Gemini
+
+`lib/sector-narrative.ts` — `generateSectorNarrative(sector, quarter, companyPayloads)`
+
+Generates a `SectorNarrative` with 7 PM-grade fields:
+
+| Field | What it answers |
+|---|---|
+| `competitive_structure` | Consolidated (few dominant players taking share) vs. fragmented (intense competition)? |
+| `strategic_theme` | Are managements prioritizing GROWTH or PROFITABILITY this cycle? Why? |
+| `tailwinds` | 2–3 specific structural tailwinds (demand drivers, policy, pricing cycle) |
+| `headwinds` | 2–3 specific structural headwinds (input costs, regulatory risk, competition) |
+| `key_triggers` | 2–3 events that could materially re-rate the sector (not generic risks) |
+| `macro_sensitivity` | Which specific macro variables matter (RBI rates, INR, crude, budget)? |
+| `transformation_signal` | Structural shift underway — PLI, technology disruption, consolidation wave |
+
+Model: `gemini-2.5-flash-lite` with structured JSON output (`responseSchema`). Temperature 0.1 (deterministic). 22s timeout with `Promise.race`.
+
+**Why structured schema over free-text**: The UI renders each field in a dedicated card (tailwinds → green, headwinds → red, triggers → amber). Free-text would require regex parsing and break unpredictably.
+
+**Why Flash Lite**: Narrative generation adds ~4–8s to a seed call. Flash Lite stays within the Vercel 60s function limit when `maxNew=0` (no pipeline runs). Flash Pro would push this to ~15s and risk timeouts.
+
+### Decision: Triggered by `?narrative=true` Param
+
+Narratives are not generated on every seed — only when `?narrative=true` is explicitly passed. Reason:
+- Most re-seeds are triggered to pick up new company analyses (`maxNew=0`). These should be fast (<5s).
+- Narrative generation adds 4–25s (including sampler). Running it on every re-seed would be wasteful and timeout-prone.
+- When re-seeding *without* `?narrative=true`, the existing narrative is **automatically carried over** from the DB row — no data is lost.
+
+### Decision: NarrativeCard UI Design
+
+The `NarrativeCard` uses a collapsible indigo-gradient panel (open by default) with 4 sub-sections:
+- **Row 1**: Structure (indigo) + Strategic Theme (violet) — 2-column
+- **Row 2**: Tailwinds (emerald) / Headwinds (red) / Triggers to Watch (amber) — 3-column
+- **Row 3**: Macro Sensitivity (sky) + Transformation (purple) — 2-column
+
+This layout was chosen over a prose block because PMs scan, they don't read. Color-coded grids allow eyes to jump directly to the relevant quadrant. Tailwinds and headwinds as bullet lists (not paragraphs) make the balance of forces immediately visible.
+
+---
+
+## 2026-05-27 — Sector Intelligence: All 17 Sectors Seeded (Cache Fix)
+
+### Problem
+After building the sector intelligence system, 15/17 sectors appeared but FMCG and Telecom were missing — even though INSERT returned a valid row ID. An unfiltered debug query confirmed the rows existed in the DB. The filtered query (with `.in("sector", validSectors)` and the `payload` column selected) returned 15 rows only.
+
+### Root Cause: Next.js Fetch Cache
+Next.js 14 transparently caches `fetch()` calls. The Supabase JS client uses `fetch` internally. The filtered query had been called many times before FMCG was inserted — Next.js was serving a stale cached response from before those rows existed.
+
+The unfiltered debug query (added that same session) had never been called before — no cache entry → real DB response.
+
+### Fix: `cache: 'no-store'` in `supabaseAdmin()`
+
+```typescript
+_client = createClient(url, key, {
+  global: {
+    fetch: (url, options) => fetch(url, { ...options, cache: "no-store" }),
+  },
+});
+```
+
+This applies to all Supabase calls from the admin client globally — no per-query annotations needed. `cache: 'no-store'` tells Next.js to bypass the fetch cache entirely for every Supabase request.
+
+**Why not `revalidate: 0`**: `no-store` is stronger than `revalidate: 0`. The latter still stores the response in cache (just expires immediately). `no-store` never caches — correct for a DB that can be mutated at any time.
+
+### Fix: Atomic Delete-Insert (Timeout-Wipe Protection)
+
+Old code ran `DELETE WHERE sector IN (...)` for all sectors **before** the pipeline loop. If the function timed out mid-loop, the DELETE had already run but the INSERT hadn't — sectors vanished from the DB.
+
+New code runs DELETE immediately before each sector's INSERT (atomic per-sector swap). A timeout during pipeline runs leaves all previously-inserted sectors intact.
+
+---
+
 ## 2026-05-27 — Multi-Quarter Insights: Response Caching
 
 ### Problem
