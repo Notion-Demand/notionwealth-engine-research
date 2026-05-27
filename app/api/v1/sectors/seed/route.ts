@@ -262,10 +262,14 @@ export async function POST(request: Request) {
     const log: string[] = [];
     const sectorResults: SectorIntelligence[] = [];
 
-    // ?sector=Banking  → seed only that one sector (fits in Vercel's 60s timeout)
-    // no param          → seed all (use locally only; will timeout on Vercel)
+    // Query params:
+    //   ?sector=Banking   → seed only that one sector
+    //   ?skipFetch=true   → skip transcript download (use existing storage + cache only)
+    //                       much faster; use when transcripts are already uploaded
+    // No params           → seed all sectors, fetch new transcripts (local use only)
     const { searchParams } = new URL(request.url);
     const sectorParam = searchParams.get("sector");
+    const skipFetch = searchParams.get("skipFetch") === "true";
 
     const sectorsToProcess = sectorParam
         ? Object.entries(SECTOR_UNIVERSE).filter(([s]) => s === sectorParam)
@@ -284,23 +288,27 @@ export async function POST(request: Request) {
         .from("sector_intelligence")
         .delete()
         .in("sector", sectorsBeingSeeded);
-    log.push(`Cleared old rows for: ${sectorsBeingSeeded.join(", ")}`);
+    log.push(`Cleared old rows for: ${sectorsBeingSeeded.join(", ")} | skipFetch=${skipFetch}`);
 
     for (const [sector, config] of sectorsToProcess) {
         log.push(`\n=== Processing sector: ${sector} (${config.tickers.join(", ")}) ===`);
 
-        // Step 1: Fetch & upload transcripts for each company
-        for (const ticker of config.tickers) {
-            log.push(`[${sector}/${ticker}] Fetching transcripts...`);
-            try {
-                const result = await fetchAndUploadTranscripts(ticker, 4);
-                log.push(`[${sector}/${ticker}] uploaded=${result.uploaded.length} skipped=${result.skipped.length} errors=${result.errors.length}`);
-                if (result.errors.length > 0) {
-                    log.push(`[${sector}/${ticker}] errors: ${result.errors.join(", ")}`);
+        // Step 1: Fetch & upload transcripts (skip if ?skipFetch=true)
+        if (!skipFetch) {
+            for (const ticker of config.tickers) {
+                log.push(`[${sector}/${ticker}] Fetching transcripts...`);
+                try {
+                    const result = await fetchAndUploadTranscripts(ticker, 4);
+                    log.push(`[${sector}/${ticker}] uploaded=${result.uploaded.length} skipped=${result.skipped.length} errors=${result.errors.length}`);
+                    if (result.errors.length > 0) {
+                        log.push(`[${sector}/${ticker}] errors: ${result.errors.join(", ")}`);
+                    }
+                } catch (e) {
+                    log.push(`[${sector}/${ticker}] FETCH FAILED: ${e instanceof Error ? e.message : String(e)}`);
                 }
-            } catch (e) {
-                log.push(`[${sector}/${ticker}] FETCH FAILED: ${e instanceof Error ? e.message : String(e)}`);
             }
+        } else {
+            log.push(`[${sector}] Skipping transcript fetch (skipFetch=true)`);
         }
 
         // Step 2: For each company, find available quarter pairs and run analysis
