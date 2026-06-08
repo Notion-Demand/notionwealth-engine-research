@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
 import { NIFTY200 } from "@/lib/nifty200";
 import { QUARTERS, quarterLabel } from "@/lib/nifty50";
-import { Youtube, BarChart2, Search, Play, Loader2 } from "lucide-react";
+import { Youtube, BarChart2, Search, Play, Loader2, X, ExternalLink } from "lucide-react";
 import clsx from "clsx";
 import type { ConcallResult } from "@/app/api/v1/concall/route";
 
@@ -61,6 +61,118 @@ async function fetchConcurrent<T>(
     return results;
 }
 
+// ── Video modal ───────────────────────────────────────────────────────────────
+
+function VideoModal({
+    company,
+    quarter,
+    result,
+    onClose,
+    onAnalyse,
+}: {
+    company: Company;
+    quarter: string;
+    result: ConcallResult;
+    onClose: () => void;
+    onAnalyse: (t: string) => void;
+}) {
+    useEffect(() => {
+        function onKey(e: KeyboardEvent) { if (e.key === "Escape") onClose(); }
+        document.addEventListener("keydown", onKey);
+        return () => document.removeEventListener("keydown", onKey);
+    }, [onClose]);
+
+    // Prevent body scroll while modal is open
+    useEffect(() => {
+        document.body.style.overflow = "hidden";
+        return () => { document.body.style.overflow = ""; };
+    }, []);
+
+    const embedUrl = result.videoId
+        ? `https://www.youtube.com/embed/${result.videoId}?autoplay=1&rel=0&modestbranding=1`
+        : null;
+
+    const fallbackUrl = result.url ?? concallSearchUrl(company.name, quarter);
+
+    return (
+        <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4 sm:p-8"
+            onClick={onClose}
+        >
+            <div
+                className="relative w-full max-w-4xl"
+                onClick={(e) => e.stopPropagation()}
+            >
+                {/* Close button */}
+                <button
+                    onClick={onClose}
+                    className="absolute -top-9 right-0 flex items-center gap-1.5 text-gray-300 hover:text-white text-xs transition-colors"
+                >
+                    <X size={16} />
+                    <span>Close</span>
+                </button>
+
+                {/* Video embed */}
+                <div className="aspect-video w-full rounded-xl overflow-hidden bg-black shadow-2xl">
+                    {embedUrl ? (
+                        <iframe
+                            src={embedUrl}
+                            title={result.title ?? company.name}
+                            allow="autoplay; encrypted-media; picture-in-picture"
+                            allowFullScreen
+                            className="w-full h-full"
+                        />
+                    ) : (
+                        // No direct video ID — show YouTube search in an iframe
+                        <iframe
+                            src={fallbackUrl}
+                            title={`${company.name} concall search`}
+                            className="w-full h-full"
+                        />
+                    )}
+                </div>
+
+                {/* Info bar */}
+                <div className="mt-4 flex items-start justify-between gap-4">
+                    <div className="min-w-0">
+                        <p className="text-white font-semibold text-base leading-snug">
+                            {company.name}
+                            <span className="ml-2 text-sm font-normal text-gray-400">
+                                {quarterLabel(quarter)}
+                            </span>
+                        </p>
+                        {result.title && (
+                            <p className="text-gray-400 text-sm mt-0.5 line-clamp-1">{result.title}</p>
+                        )}
+                        {result.channel && (
+                            <p className="text-gray-500 text-xs mt-0.5">{result.channel}</p>
+                        )}
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                        <a
+                            href={fallbackUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1.5 rounded-lg border border-white/20 px-3 py-1.5 text-xs font-medium text-gray-300 hover:text-white hover:border-white/40 transition-colors"
+                        >
+                            <ExternalLink size={12} />
+                            YouTube
+                        </a>
+                        <button
+                            onClick={() => { onClose(); onAnalyse(company.ticker); }}
+                            className="flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 transition-colors"
+                        >
+                            <BarChart2 size={12} />
+                            View Analysis
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 // ── Company card ──────────────────────────────────────────────────────────────
 
 function CompanyCard({
@@ -68,26 +180,27 @@ function CompanyCard({
     quarter,
     result,
     loading,
+    onPlay,
     onAnalyse,
 }: {
     company: Company;
     quarter: string;
     result: ConcallResult | null;
     loading: boolean;
+    onPlay: () => void;
     onAnalyse: (t: string) => void;
 }) {
-    const fallbackUrl = result?.url ?? concallSearchUrl(company.name, quarter);
     const hasThumb = !!result?.videoId;
+    const fallbackUrl = result?.url ?? concallSearchUrl(company.name, quarter);
 
     return (
         <div className="group rounded-xl border border-gray-200 bg-white overflow-hidden hover:shadow-md hover:border-gray-300 transition-all flex flex-col">
 
-            {/* Thumbnail / skeleton */}
-            <a
-                href={fallbackUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="relative block bg-gray-100 aspect-video overflow-hidden"
+            {/* Thumbnail / play button */}
+            <button
+                type="button"
+                onClick={result ? onPlay : undefined}
+                className="relative block w-full bg-gray-100 aspect-video overflow-hidden cursor-pointer"
             >
                 {loading && (
                     <div className="absolute inset-0 flex items-center justify-center bg-gray-100 animate-pulse">
@@ -102,25 +215,29 @@ function CompanyCard({
                             alt={result?.title ?? company.name}
                             className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
                         />
-                        {/* Play overlay */}
-                        <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/20 transition-colors">
-                            <span className="opacity-0 group-hover:opacity-100 transition-opacity bg-red-600 rounded-full p-2.5 shadow-lg">
-                                <Play size={16} className="text-white fill-white" />
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/30 transition-colors">
+                            <span className="opacity-0 group-hover:opacity-100 transition-opacity bg-red-600 rounded-full p-3 shadow-lg">
+                                <Play size={18} className="text-white fill-white" />
                             </span>
                         </div>
                     </>
                 )}
                 {!loading && !hasThumb && (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-gray-50">
+                    <a
+                        href={fallbackUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-gray-50 hover:bg-gray-100 transition-colors"
+                        onClick={(e) => e.stopPropagation()}
+                    >
                         <Youtube size={28} className="text-gray-300" />
                         <p className="text-[11px] text-gray-400 text-center px-3">Search on YouTube</p>
-                    </div>
+                    </a>
                 )}
-            </a>
+            </button>
 
             {/* Card body */}
             <div className="p-3 flex flex-col gap-2 flex-1">
-                {/* Company info */}
                 <div>
                     <p className="text-[13px] font-bold text-gray-900 leading-snug line-clamp-1">{company.name}</p>
                     {result?.title ? (
@@ -135,15 +252,17 @@ function CompanyCard({
 
                 {/* Actions */}
                 <div className="flex items-center gap-1.5 mt-auto">
-                    <a
-                        href={fallbackUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex-1 flex items-center justify-center gap-1.5 rounded-lg bg-red-600 px-2 py-1.5 text-[11px] font-semibold text-white hover:bg-red-700 transition-colors"
+                    <button
+                        type="button"
+                        onClick={result ? onPlay : undefined}
+                        className={clsx(
+                            "flex-1 flex items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-[11px] font-semibold text-white transition-colors",
+                            result ? "bg-red-600 hover:bg-red-700" : "bg-gray-200 text-gray-400 cursor-default"
+                        )}
                     >
-                        <Youtube size={11} />
-                        {result?.direct ? "Watch" : "Search"}
-                    </a>
+                        <Play size={11} className="fill-current" />
+                        {result?.direct ? "Watch" : result ? "Search" : "Loading…"}
+                    </button>
                     <button
                         onClick={() => onAnalyse(company.ticker)}
                         title="Concall Analysis"
@@ -168,6 +287,9 @@ export default function VideosClient() {
     // videoData: ticker → ConcallResult | "loading"
     const [videoData, setVideoData] = useState<Record<string, ConcallResult | "loading">>({});
 
+    // Active modal
+    const [activeVideo, setActiveVideo] = useState<{ company: Company; result: ConcallResult } | null>(null);
+
     const companies = SECTOR_MAP.get(activeSector) ?? [];
 
     const filtered = useMemo(() => {
@@ -182,7 +304,6 @@ export default function VideosClient() {
     const fetchSector = useCallback((sector: string, qtr: string) => {
         const list = SECTOR_MAP.get(sector) ?? [];
 
-        // Mark all as loading
         setVideoData((prev) => {
             const next = { ...prev };
             for (const c of list) {
@@ -193,7 +314,6 @@ export default function VideosClient() {
             return next;
         });
 
-        // Only fetch companies not yet cached in state
         const toFetch = list.filter(
             (c) => !videoData[`${c.ticker}::${qtr}`] || videoData[`${c.ticker}::${qtr}`] === "loading"
         );
@@ -206,7 +326,7 @@ export default function VideosClient() {
                 const data: ConcallResult = await res.json();
                 setVideoData((prev) => ({ ...prev, [`${c.ticker}::${qtr}`]: data }));
             } catch {
-                // Leave as "loading" — card shows fallback search link
+                // Leave as "loading" — card shows fallback
             }
         });
 
@@ -214,7 +334,6 @@ export default function VideosClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // Fetch when sector or quarter changes
     useEffect(() => {
         fetchSector(activeSector, quarter);
     }, [activeSector, quarter, fetchSector]);
@@ -228,9 +347,25 @@ export default function VideosClient() {
         router.push(`/dashboard?ticker=${ticker}`);
     }
 
+    function handlePlay(company: Company, result: ConcallResult) {
+        setActiveVideo({ company, result });
+    }
+
     return (
         <>
             <Nav />
+
+            {/* Inline video modal */}
+            {activeVideo && (
+                <VideoModal
+                    company={activeVideo.company}
+                    quarter={quarter}
+                    result={activeVideo.result}
+                    onClose={() => setActiveVideo(null)}
+                    onAnalyse={handleAnalyse}
+                />
+            )}
+
             <main className="mx-auto max-w-7xl px-6 py-8">
 
                 {/* Header */}
@@ -316,6 +451,7 @@ export default function VideosClient() {
                                     quarter={quarter}
                                     result={result}
                                     loading={loading}
+                                    onPlay={() => result && handlePlay(c, result)}
                                     onAnalyse={handleAnalyse}
                                 />
                             );
