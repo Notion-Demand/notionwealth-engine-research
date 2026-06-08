@@ -416,11 +416,22 @@ export default function DashboardClient() {
   // Wire handleTickerChange into cycleRef after it's defined
   cycleRef.current.handleTickerChange = handleTickerChange;
 
-  // ── Auto-fetch transcripts when a ticker has none ────────────────────────────
+  // ── Auto-fetch transcripts when required quarters are missing ────────────────
   useEffect(() => {
     if (!ticker || availableLoading) return;
-    if (available[ticker]?.length > 0) return;
-    if (fetchAttempted.current.has(ticker)) return;
+    const quarters = available[ticker] ?? [];
+    const hasBothQuarters = quarters.includes(qCurr) && quarters.includes(qPrev);
+    if (hasBothQuarters) { setCoverageMsg(null); return; }
+    if (fetchAttempted.current.has(ticker)) {
+      // Already pulled — if quarters are still missing, surface a message
+      const missing = [qPrev, qCurr].filter((q) => !quarters.includes(q));
+      if (missing.length > 0) {
+        setCoverageMsg(
+          `${missing.map(quarterLabel).join(" & ")} transcript${missing.length > 1 ? "s" : ""} not yet available`
+        );
+      }
+      return;
+    }
 
     fetchAttempted.current.add(ticker);
     setFetchingTranscripts(true);
