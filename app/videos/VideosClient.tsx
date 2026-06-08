@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
 import { NIFTY200 } from "@/lib/nifty200";
 import { QUARTERS, quarterLabel } from "@/lib/nifty50";
-import { Youtube, BarChart2, Search, Play, Loader2, X, ExternalLink } from "lucide-react";
+import { Youtube, BarChart2, Search, Play, Loader2, X } from "lucide-react";
 import clsx from "clsx";
 import type { ConcallResult } from "@/app/api/v1/concall/route";
 
@@ -149,24 +149,13 @@ function VideoModal({
                         )}
                     </div>
 
-                    <div className="flex items-center gap-2 shrink-0">
-                        <a
-                            href={fallbackUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-1.5 rounded-lg border border-white/20 px-3 py-1.5 text-xs font-medium text-gray-300 hover:text-white hover:border-white/40 transition-colors"
-                        >
-                            <ExternalLink size={12} />
-                            YouTube
-                        </a>
-                        <button
-                            onClick={() => { onClose(); onAnalyse(company.ticker); }}
-                            className="flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 transition-colors"
-                        >
-                            <BarChart2 size={12} />
-                            View Analysis
-                        </button>
-                    </div>
+                    <button
+                        onClick={() => { onClose(); onAnalyse(company.ticker); }}
+                        className="flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 transition-colors shrink-0"
+                    >
+                        <BarChart2 size={12} />
+                        View Analysis
+                    </button>
                 </div>
             </div>
         </div>
