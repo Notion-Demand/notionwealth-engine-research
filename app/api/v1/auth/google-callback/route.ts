@@ -81,6 +81,23 @@ export async function GET(req: NextRequest) {
     }
   );
 
+  // Allowlist check — decode JWT payload (Google already verified the signature).
+  const googleEmail = (() => {
+    try {
+      const payload = JSON.parse(Buffer.from(tokens.id_token.split(".")[1], "base64url").toString());
+      return typeof payload.email === "string" ? (payload.email as string) : null;
+    } catch { return null; }
+  })();
+
+  const allowedEmails = process.env.ALLOWED_EMAILS;
+  if (allowedEmails?.trim()) {
+    const list = allowedEmails.split(",").map((e) => e.trim().toLowerCase());
+    if (!googleEmail || !list.includes(googleEmail.toLowerCase())) {
+      console.warn("[google-callback] Blocked unauthorized sign-in for:", googleEmail);
+      return NextResponse.redirect(`${origin}/login?error=not_authorized`);
+    }
+  }
+
   const { error: signInError } = await supabase.auth.signInWithIdToken({
     provider: "google",
     token: tokens.id_token,

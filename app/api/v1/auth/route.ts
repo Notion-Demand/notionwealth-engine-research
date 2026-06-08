@@ -16,6 +16,14 @@ import { cookies } from "next/headers";
 
 export const dynamic = "force-dynamic";
 
+/** Returns true if the email is on the ALLOWED_EMAILS allowlist.
+ *  If the env var is not set, falls back to open access (backwards-compat). */
+function isEmailAllowed(email: string): boolean {
+  const raw = process.env.ALLOWED_EMAILS;
+  if (!raw?.trim()) return true;
+  return raw.split(",").map((e) => e.trim().toLowerCase()).includes(email.toLowerCase());
+}
+
 async function makeSupabase() {
   const cookieStore = await cookies();
   return createServerClient(
@@ -58,6 +66,12 @@ export async function POST(req: NextRequest) {
     }
 
     case "signup": {
+      if (!isEmailAllowed(body.email ?? "")) {
+        return NextResponse.json(
+          { error: "Sign-ups are by invitation only. Contact us to request access." },
+          { status: 403 }
+        );
+      }
       const { data, error } = await supabase.auth.signUp({
         email: body.email!,
         password: body.password!,

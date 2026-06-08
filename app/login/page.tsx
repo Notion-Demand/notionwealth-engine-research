@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
-type Mode = "signin" | "signup" | "forgot";
+type Mode = "signin" | "forgot";
 
 async function authProxy(body: Record<string, string>) {
   const res = await fetch("/api/v1/auth", {
@@ -18,11 +18,20 @@ async function authProxy(body: Record<string, string>) {
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+
+  const urlError = searchParams.get("error");
+  const initialError =
+    urlError === "not_authorized"
+      ? "Access is by invitation only. Contact us to request access."
+      : urlError
+      ? "Authentication failed. Please try again."
+      : null;
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [mode, setMode] = useState<Mode>("signin");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(initialError);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -39,15 +48,7 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      if (mode === "signup") {
-        const data = await authProxy({ action: "signup", email, password });
-        if (data.needsConfirmation) {
-          setMessage("Check your email to confirm your account.");
-        } else {
-          router.push("/dashboard");
-          router.refresh();
-        }
-      } else if (mode === "forgot") {
+      if (mode === "forgot") {
         await authProxy({
           action: "reset",
           email,
@@ -74,8 +75,6 @@ export default function LoginPage() {
 
   const submitLabel = loading
     ? "Please wait…"
-    : mode === "signup"
-    ? "Create account"
     : mode === "forgot"
     ? "Send reset link"
     : "Sign in";
@@ -110,15 +109,13 @@ export default function LoginPage() {
                 <label className="block text-sm font-medium text-gray-700">
                   Password
                 </label>
-                {mode === "signin" && (
-                  <button
-                    type="button"
-                    onClick={() => switchMode("forgot")}
-                    className="text-xs text-brand-600 hover:underline"
-                  >
-                    Forgot password?
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={() => switchMode("forgot")}
+                  className="text-xs text-brand-600 hover:underline"
+                >
+                  Forgot password?
+                </button>
               </div>
               <input
                 type="password"
@@ -166,14 +163,8 @@ export default function LoginPage() {
               Continue with Google
             </button>
 
-            <p className="mt-6 text-center text-sm text-gray-500">
-              {mode === "signup" ? "Already have an account?" : "Don't have an account?"}{" "}
-              <button
-                onClick={() => switchMode(mode === "signup" ? "signin" : "signup")}
-                className="font-medium text-brand-600 hover:underline"
-              >
-                {mode === "signup" ? "Sign in" : "Sign up"}
-              </button>
+            <p className="mt-6 text-center text-sm text-gray-400">
+              Access is by invitation only.
             </p>
           </>
         )}
