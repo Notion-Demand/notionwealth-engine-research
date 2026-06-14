@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronDown, ChevronRight, AlertTriangle, Download, FileText, Layers } from "lucide-react";
 import { getTranscriptDownloadUrl } from "@/lib/api";
@@ -92,6 +92,51 @@ function SignalBadge({
           {score > 0 ? "+" : ""}{score.toFixed(1)}
         </span>
       )}
+    </span>
+  );
+}
+
+// ── Promoter pledge-activity badge ──────────────────────────────────────────
+
+interface DivergenceResult {
+  pledgeActivityLevel: "quiet" | "normal" | "elevated";
+  flag: boolean;
+  note: string;
+}
+
+const PROMOTER_BADGE_STYLES = {
+  flag:     { style: "bg-red-100 text-red-700 border-red-200", dot: "bg-red-500", label: "Pledge activity ↑" },
+  elevated: { style: "bg-amber-100 text-amber-700 border-amber-200", dot: "bg-amber-500", label: "Pledge activity ↑" },
+  normal:   { style: "bg-blue-50 text-blue-600 border-blue-200", dot: "bg-blue-400", label: "Pledge filings: normal" },
+  quiet:    { style: "bg-gray-100 text-gray-500 border-gray-200", dot: "bg-gray-400", label: "Promoter: quiet" },
+} as const;
+
+function PromoterActivityBadge({ ticker }: { ticker: string }) {
+  const [data, setData] = useState<DivergenceResult | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/v1/divergence?ticker=${ticker}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (!cancelled) setData(d); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [ticker]);
+
+  if (!data) return null;
+
+  const badge = PROMOTER_BADGE_STYLES[data.flag ? "flag" : data.pledgeActivityLevel];
+
+  return (
+    <span
+      title={data.note}
+      className={clsx(
+        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium",
+        badge.style
+      )}
+    >
+      <span className={clsx("h-1.5 w-1.5 rounded-full", badge.dot)} />
+      {badge.label}
     </span>
   );
 }
@@ -665,6 +710,9 @@ export default function EarningsReport({ payload }: EarningsReportProps) {
                 {d.overall_score.toFixed(1)}
               </span>
             </p>
+            <div className="flex justify-end pt-1">
+              <PromoterActivityBadge ticker={d.company_ticker} />
+            </div>
           </div>
         </div>
       </div>
