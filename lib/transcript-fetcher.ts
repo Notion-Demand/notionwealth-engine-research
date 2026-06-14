@@ -95,6 +95,7 @@ export async function getCompanyPageUrl(ticker: string): Promise<string | null> 
 const TRANSCRIPT_PREFIXES = [
     'href="https://nsearchives.nseindia.com/corporate/',
     'href="https://www.bseindia.com/xml-data/corpfiling/AttachHis/',
+    'href="https://www.bseindia.com/stockinfo/AnnPdfOpen.aspx?Pname=',
 ];
 
 function extractRawTranscriptUrls(html: string): TranscriptLink[] {
@@ -284,7 +285,6 @@ export function quarterFromMonthYear(mo: number, y: number): [number, number] | 
     if (mo >= 4 && mo <= 7) return [4, y];
     if (mo >= 8 && mo <= 10) return [1, y + 1];
     if (mo >= 11) return [2, y + 1];
-    if (mo === 1) return [2, y];
     return [3, y];
 }
 

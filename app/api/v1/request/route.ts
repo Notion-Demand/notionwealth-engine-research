@@ -69,6 +69,7 @@ async function getCompanyPageUrl(ticker: string): Promise<string | null> {
 const TRANSCRIPT_PREFIXES = [
   'href="https://nsearchives.nseindia.com/corporate/',
   'href="https://www.bseindia.com/xml-data/corpfiling/AttachHis/',
+  'href="https://www.bseindia.com/stockinfo/AnnPdfOpen.aspx?Pname=',
 ];
 
 interface TranscriptLink {
@@ -303,8 +304,7 @@ function quarterFromMonthYear(mo: number, y: number): [number, number] | null {
   if (mo >= 4 && mo <= 7) return [4, y];      // Apr-Jul  → Q4 results
   if (mo >= 8 && mo <= 10) return [1, y + 1]; // Aug-Oct  → Q1 results
   if (mo >= 11) return [2, y + 1];            // Nov-Dec  → Q2 results
-  if (mo === 1) return [2, y];                // Jan      → Q2 results (late)
-  return [3, y];                              // Feb-Mar  → Q3 results
+  return [3, y];                              // Jan-Mar  → Q3 results
 }
 
 // ── PDF download ──────────────────────────────────────────────────────────────
