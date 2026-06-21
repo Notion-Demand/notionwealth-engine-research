@@ -124,20 +124,21 @@ function PromoterActivityBadge({ ticker }: { ticker: string }) {
   }, [ticker]);
 
   if (!data) return null;
+  if (data.pledgeActivityLevel === "quiet" && !data.flag) return null;
 
   const badge = PROMOTER_BADGE_STYLES[data.flag ? "flag" : data.pledgeActivityLevel];
 
   return (
-    <span
-      title={data.note}
-      className={clsx(
-        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium",
-        badge.style
-      )}
-    >
-      <span className={clsx("h-1.5 w-1.5 rounded-full", badge.dot)} />
-      {badge.label}
-    </span>
+    <div className={clsx(
+      "rounded-xl border px-4 py-3 flex items-center gap-3",
+      badge.style
+    )}>
+      <span className={clsx("h-2.5 w-2.5 rounded-full shrink-0", badge.dot)} />
+      <div>
+        <p className="text-sm font-semibold">{badge.label}</p>
+        <p className="text-xs opacity-80">{data.note}</p>
+      </div>
+    </div>
   );
 }
 
@@ -682,6 +683,9 @@ export default function EarningsReport({ payload }: EarningsReportProps) {
     <div className="space-y-4">
       <div ref={reportRef} className="space-y-4">
 
+      {/* ── Promoter Pledge Activity ─────────────────────────────────────── */}
+      <PromoterActivityBadge ticker={d.company_ticker} />
+
       {/* ── Key Metrics bar ─────────────────────────────────────────────── */}
       {d.key_metrics && Object.keys(d.key_metrics).length > 0 && (
         <KeyMetricsBar km={d.key_metrics} quarter={d.quarter} />
@@ -720,9 +724,6 @@ export default function EarningsReport({ payload }: EarningsReportProps) {
                 {d.overall_score.toFixed(1)}
               </span>
             </p>
-            <div className="flex justify-end pt-1">
-              <PromoterActivityBadge ticker={d.company_ticker} />
-            </div>
           </div>
         </div>
       </div>
