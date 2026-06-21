@@ -186,9 +186,7 @@ function getGenAI(): GoogleGenerativeAI {
   return new GoogleGenerativeAI(apiKey);
 }
 
-// Each Gemini call must complete within this window. If it doesn't, the agent
-// returns null and the pipeline continues with whatever other agents produced.
-const AGENT_TIMEOUT_MS = 45_000;
+const AGENT_TIMEOUT_MS = 25_000;
 
 async function invokeStructured<T>(
   systemPrompt: string,

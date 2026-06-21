@@ -3,8 +3,7 @@ import { getUserId } from "@/lib/auth";
 import { runPipeline, resolvePdfKey } from "@/lib/pipeline";
 import { getCachedAnalysis, saveAnalysis } from "@/lib/analysis-cache";
 
-// Allow up to 60 seconds (Vercel Hobby limit; set to 300 on Pro)
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
   // Validate auth + params before opening the stream
@@ -76,25 +75,36 @@ export async function POST(req: NextRequest) {
 
   // ── Cache miss: run pipeline, stream progress, save result ────────────────
   console.log(`[Cache] MISS for ${tickerUp} ${q_prev}→${q_curr} — running pipeline`);
+  const PIPELINE_TIMEOUT_MS = 270_000; // Must finish before maxDuration kills the function
   const stream = new ReadableStream({
     async start(controller) {
+      let closed = false;
       const send = (data: object) => {
-        controller.enqueue(encoder.encode(JSON.stringify(data) + "\n"));
+        if (closed) return;
+        try {
+          controller.enqueue(encoder.encode(JSON.stringify(data) + "\n"));
+        } catch {
+          closed = true;
+        }
       };
+
+      const timeout = setTimeout(() => {
+        send({ type: "error", detail: "Pipeline timed out — try again or use a smaller transcript" });
+        closed = true;
+        controller.close();
+      }, PIPELINE_TIMEOUT_MS);
 
       try {
         const payload = await runPipeline(qPrevKey, qCurrKey, send);
-
-        // Save to cache (non-blocking — DB failure must not block the client)
         const savedId = await saveAnalysis(userId, tickerUp, q_prev, q_curr, payload);
-
         send({ type: "done", payload, id: savedId });
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         console.error("Pipeline error:", e);
         send({ type: "error", detail: `Pipeline error: ${msg}` });
       } finally {
-        controller.close();
+        clearTimeout(timeout);
+        if (!closed) controller.close();
       }
     },
   });
