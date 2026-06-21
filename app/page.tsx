@@ -150,6 +150,20 @@ export default async function RootPage() {
         </div>
       </section>
 
+      {/* ── Product video ──────────────────────────────────────────────── */}
+      <section className="mx-auto max-w-4xl px-6 py-16">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-gray-400 mb-4 text-center">See it in action</p>
+        <div className="aspect-video w-full rounded-xl overflow-hidden border border-gray-200 shadow-lg">
+          <iframe
+            src="https://www.youtube.com/embed/b_47D3djj8c?rel=0&modestbranding=1"
+            title="Quantalyze Product Demo"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowFullScreen
+            className="w-full h-full"
+          />
+        </div>
+      </section>
+
       {/* ── Intelligence modules ────────────────────────────────────────── */}
       <section className="mx-auto max-w-6xl px-6 py-20">
         <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-gray-400 mb-3">Intelligence Modules</p>
