@@ -102,13 +102,14 @@ interface DivergenceResult {
   pledgeActivityLevel: "quiet" | "normal" | "elevated";
   flag: boolean;
   note: string;
+  concallSignal?: string | null;
 }
 
 const PROMOTER_BADGE_STYLES = {
-  flag:     { style: "bg-red-100 text-red-700 border-red-200", dot: "bg-red-500", label: "Pledge activity ↑" },
-  elevated: { style: "bg-amber-100 text-amber-700 border-amber-200", dot: "bg-amber-500", label: "Pledge activity ↑" },
-  normal:   { style: "bg-blue-50 text-blue-600 border-blue-200", dot: "bg-blue-400", label: "Pledge filings: normal" },
-  quiet:    { style: "bg-gray-100 text-gray-500 border-gray-200", dot: "bg-gray-400", label: "Promoter: quiet" },
+  flag:     { style: "bg-red-100 text-red-700 border-red-200", dot: "bg-red-500", label: "Promoter Pledge: Elevated Activity" },
+  elevated: { style: "bg-amber-100 text-amber-700 border-amber-200", dot: "bg-amber-500", label: "Promoter Pledge: Elevated Activity" },
+  normal:   { style: "bg-blue-50 text-blue-600 border-blue-200", dot: "bg-blue-400", label: "Promoter Pledge: Normal Activity" },
+  quiet:    { style: "bg-emerald-50 text-emerald-700 border-emerald-200", dot: "bg-emerald-500", label: "Promoter Pledge: Healthy — No Activity" },
 } as const;
 
 function PromoterActivityBadge({ ticker }: { ticker: string }) {
@@ -124,20 +125,25 @@ function PromoterActivityBadge({ ticker }: { ticker: string }) {
   }, [ticker]);
 
   if (!data) return null;
-  if (data.pledgeActivityLevel === "quiet" && !data.flag) return null;
 
   const badge = PROMOTER_BADGE_STYLES[data.flag ? "flag" : data.pledgeActivityLevel];
 
   return (
     <div className={clsx(
-      "rounded-xl border px-4 py-3 flex items-center gap-3",
+      "rounded-xl border px-4 py-3",
       badge.style
     )}>
-      <span className={clsx("h-2.5 w-2.5 rounded-full shrink-0", badge.dot)} />
-      <div>
+      <div className="flex items-center gap-3 mb-2">
+        <span className={clsx("h-2.5 w-2.5 rounded-full shrink-0", badge.dot)} />
         <p className="text-sm font-semibold">{badge.label}</p>
-        <p className="text-xs opacity-80">{data.note}</p>
       </div>
+      <p className="text-xs opacity-80 mb-2">{data.note}</p>
+      <ul className="text-[11px] opacity-70 space-y-0.5 pl-5">
+        <li>• Scanned SEBI Reg. 31 promoter pledge/unpledge disclosures on BSE</li>
+        <li>• Compared last 90 days activity vs 15-month baseline frequency</li>
+        <li>• Cross-referenced with latest concall sentiment signal{data.concallSignal ? ` (${data.concallSignal})` : ""}</li>
+        <li>• Flags divergence: elevated pledge activity + positive/mixed concall tone</li>
+      </ul>
     </div>
   );
 }
