@@ -305,6 +305,34 @@ function SegmentsTable({ briefs }: { briefs: QuarterBrief[] }) {
   );
 }
 
+// ── Quarter pointers panel (per-category, grouped by quarter) ────────────────
+
+function QuarterPointersPanel({ briefs, field }: { briefs: QuarterBrief[]; field: keyof QuarterBrief }) {
+  const sorted = [...briefs].sort((a, b) => qKey(b.quarter) - qKey(a.quarter));
+  const hasAny = sorted.some((b) => ((b[field] as string[]) ?? []).length > 0);
+  if (!hasAny) return <p className="text-sm text-gray-400">No data available for this category.</p>;
+
+  return (
+    <div className="rounded-xl border border-gray-200 overflow-hidden divide-y divide-gray-100">
+      {sorted.filter((b) => ((b[field] as string[]) ?? []).length > 0).map((b) => (
+        <div key={b.quarter} className="px-4 py-3">
+          <span className="inline-block rounded bg-gray-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-600 mb-2">
+            {quarterLabel(b.quarter)}
+          </span>
+          <ul className="space-y-1.5">
+            {((b[field] as string[]) ?? []).map((item, i) => (
+              <li key={i} className="flex items-start gap-2 text-sm text-gray-700 leading-relaxed">
+                <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-gray-300 shrink-0" />
+                {item}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── Key points timeline ───────────────────────────────────────────────────────
 
 function KeyPointsTimeline({ briefs }: { briefs: QuarterBrief[] }) {
@@ -417,7 +445,7 @@ export default function InsightsClient() {
   const [synthesizing, setSynthesizing] = useState(false);
 
   // Active tab
-  const [tab, setTab] = useState<"overview" | "themes" | "guidance" | "segments" | "timeline">("overview");
+  const [tab, setTab] = useState<"financials" | "growth" | "margins" | "capex" | "customers" | "segments" | "products" | "themes" | "guidance">("financials");
 
   // Watchlist
   const { watchlist, toggle: toggleWatchlist, bulkAdd, cycleNext, cyclePrev, isWatched } = useInsightsWatchlist();
@@ -511,11 +539,15 @@ export default function InsightsClient() {
   }, []);
 
   const TABS = [
-    { key: "overview",  label: "Overview" },
-    { key: "themes",    label: `Themes${payload ? ` (${payload.recurring_themes.length})` : ""}` },
-    { key: "guidance",  label: `Guidance${payload ? ` (${payload.guidance_tracks.length})` : ""}` },
-    { key: "segments",  label: "Segments" },
-    { key: "timeline",  label: "Timeline" },
+    { key: "financials", label: "Financials" },
+    { key: "growth",     label: "Growth Outlook" },
+    { key: "margins",    label: "Margins & Costs" },
+    { key: "capex",      label: "Capex & Capacity" },
+    { key: "customers",  label: "Customers & Market" },
+    { key: "segments",   label: "Segments" },
+    { key: "products",   label: "Product Updates" },
+    { key: "themes",     label: `Themes${payload ? ` (${payload.recurring_themes.length})` : ""}` },
+    { key: "guidance",   label: `Guidance${payload ? ` (${payload.guidance_tracks.length})` : ""}` },
   ] as const;
 
   return (
@@ -755,13 +787,13 @@ export default function InsightsClient() {
             )}
 
             {/* Tabs */}
-            <div className="border-b border-gray-200 flex gap-0">
+            <div className="border-b border-gray-200 flex gap-0 overflow-x-auto">
               {TABS.map((t) => (
                 <button
                   key={t.key}
                   onClick={() => setTab(t.key)}
                   className={clsx(
-                    "px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors",
+                    "px-3 py-2.5 text-xs font-medium border-b-2 -mb-px transition-colors whitespace-nowrap",
                     tab === t.key
                       ? "border-brand-500 text-brand-600"
                       : "border-transparent text-gray-500 hover:text-gray-700"
@@ -774,23 +806,62 @@ export default function InsightsClient() {
 
             {/* Tab content */}
             <div className="space-y-4">
-              {/* OVERVIEW */}
-              {tab === "overview" && (
-                <div className="space-y-6">
-                  {payload.new_business_signals.length > 0 && (
-                    <div>
-                      <h4 className="text-sm font-semibold text-gray-700 mb-3">New Business Signals</h4>
-                      <div className="rounded-xl border border-gray-200 bg-white px-5 py-4">
-                        <ul className="space-y-2">
-                          {payload.new_business_signals.map((s, i) => (
-                            <li key={i} className="flex items-start gap-2 text-sm text-gray-700">
-                              <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-brand-400 shrink-0" />
-                              {s}
-                            </li>
-                          ))}
+              {/* FINANCIALS */}
+              {tab === "financials" && (
+                <QuarterPointersPanel briefs={payload.quarter_briefs} field="financials" />
+              )}
+
+              {/* GROWTH OUTLOOK */}
+              {tab === "growth" && (
+                <QuarterPointersPanel briefs={payload.quarter_briefs} field="growth_outlook" />
+              )}
+
+              {/* MARGINS & COSTS */}
+              {tab === "margins" && (
+                <QuarterPointersPanel briefs={payload.quarter_briefs} field="margins_and_costs" />
+              )}
+
+              {/* CAPEX & CAPACITY */}
+              {tab === "capex" && (
+                <QuarterPointersPanel briefs={payload.quarter_briefs} field="capex_and_capacity" />
+              )}
+
+              {/* CUSTOMERS & MARKET */}
+              {tab === "customers" && (
+                <QuarterPointersPanel briefs={payload.quarter_briefs} field="customer_and_market" />
+              )}
+
+              {/* SEGMENTS */}
+              {tab === "segments" && (
+                <SegmentsTable briefs={payload.quarter_briefs} />
+              )}
+
+              {/* PRODUCT UPDATES / NEW LAUNCHES */}
+              {tab === "products" && (
+                <div className="space-y-3">
+                  {[...payload.quarter_briefs]
+                    .sort((a, b) => qKey(b.quarter) - qKey(a.quarter))
+                    .filter((b) => b.new_developments.length > 0)
+                    .map((b) => (
+                      <div key={b.quarter} className="rounded-xl border border-gray-200 overflow-hidden">
+                        <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-200">
+                          <span className="text-xs font-semibold text-gray-700">{quarterLabel(b.quarter)}</span>
+                        </div>
+                        <ul className="px-4 py-3 space-y-2">
+                          {b.new_developments.map((d, i) => {
+                            const Icon = SIGNAL_TYPE_ICONS[d.type] ?? Package;
+                            return (
+                              <li key={i} className="flex items-start gap-2 text-sm text-gray-700">
+                                <Icon size={14} className="mt-0.5 shrink-0 text-brand-500" />
+                                <span><span className="font-medium capitalize text-gray-900">{d.type}:</span> {d.description}</span>
+                              </li>
+                            );
+                          })}
                         </ul>
                       </div>
-                    </div>
+                    ))}
+                  {payload.quarter_briefs.every((b) => b.new_developments.length === 0) && (
+                    <p className="text-sm text-gray-400">No product updates or new launches found across quarters.</p>
                   )}
                 </div>
               )}
@@ -811,7 +882,6 @@ export default function InsightsClient() {
               {/* GUIDANCE */}
               {tab === "guidance" && (
                 <div className="space-y-3">
-                  {/* Credibility breakdown */}
                   <div className="rounded-xl border border-gray-200 bg-white px-5 py-4 grid grid-cols-2 md:grid-cols-5 gap-4">
                     {(["consistent", "upgraded", "downgraded", "abandoned", "unclear"] as const).map((c) => {
                       const count = payload.guidance_tracks.filter((t) => t.consistency === c).length;
@@ -834,18 +904,6 @@ export default function InsightsClient() {
                     ))
                   )}
                 </div>
-              )}
-
-              {/* SEGMENTS */}
-              {tab === "segments" && (
-                <div className="space-y-4">
-                  <SegmentsTable briefs={payload.quarter_briefs} />
-                </div>
-              )}
-
-              {/* TIMELINE */}
-              {tab === "timeline" && (
-                <KeyPointsTimeline briefs={payload.quarter_briefs} />
               )}
             </div>
           </div>
