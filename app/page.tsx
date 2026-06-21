@@ -49,8 +49,10 @@ export default async function RootPage() {
         </h1>
 
         <p className="mx-auto mb-10 max-w-xl text-lg text-white/50 leading-relaxed">
-          What a 3-analyst team builds in 2 days per company, Quantalyze delivers
-          in 60 seconds across 200 companies — and catches shifts human readers miss.
+          Management tone shifts. Guidance credibility. Promoter pledge spikes.
+          Segment-level pricing mechanics. Cost pass-through lags. Evasiveness
+          in Q&A. All extracted, tracked, and cross-referenced — every quarter,
+          across 200 companies.
         </p>
 
         <div className="flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
