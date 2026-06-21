@@ -18,12 +18,22 @@ export default async function RootPage() {
         <span className="text-lg font-semibold tracking-tight text-white">
           Quantalyze
         </span>
-        <Link
-          href="/login"
-          className="rounded-full border border-white/20 bg-white/5 px-5 py-2 text-sm font-medium text-white/90 transition hover:bg-white/10"
-        >
-          Sign in
-        </Link>
+        <div className="flex items-center gap-3">
+          <a
+            href="https://calendly.com/quantalyze/say-hi"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rounded-full bg-sky-500 px-5 py-2 text-sm font-semibold text-white transition hover:bg-sky-400"
+          >
+            Book a Demo
+          </a>
+          <Link
+            href="/login"
+            className="rounded-full border border-white/20 bg-white/5 px-5 py-2 text-sm font-medium text-white/90 transition hover:bg-white/10"
+          >
+            Sign in
+          </Link>
+        </div>
       </header>
 
       {/* ── Hero ────────────────────────────────────────────────────────── */}
