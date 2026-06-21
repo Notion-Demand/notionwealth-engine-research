@@ -12,6 +12,7 @@ import type { ConcallResult } from "@/app/api/v1/concall/route";
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const CATEGORIES = ["All", "Large Cap", "Mid Cap", "Small Cap"] as const;
+const SECTORS = Array.from(new Set(LISTED_COMPANIES.map((c) => c.category))).sort();
 const PAGE_SIZE = 50;
 
 function concallSearchUrl(companyName: string, quarter: string) {
@@ -67,6 +68,7 @@ function VideoModal({ name, quarter, videoId, title, onClose }: {
                 <p className="mt-3 text-white font-semibold text-sm">
                     {name} <span className="ml-2 text-gray-400 font-normal">{quarterLabel(quarter)}</span>
                 </p>
+                {title && <p className="text-gray-400 text-xs mt-0.5">{title}</p>}
             </div>
         </div>
     );
@@ -156,6 +158,7 @@ export default function VideosClient() {
 
                 {/* Filters */}
                 <div className="mb-4 flex flex-wrap items-center gap-3">
+                    {/* Category tabs */}
                     <div className="flex gap-1.5">
                         {CATEGORIES.map((cat) => (
                             <button
@@ -169,10 +172,14 @@ export default function VideosClient() {
                                 )}
                             >
                                 {cat}
+                                <span className={clsx("ml-1 text-[10px]", activeCategory === cat ? "text-gray-300" : "text-gray-400")}>
+                                    {cat === "All" ? LISTED_COMPANIES.length : LISTED_COMPANIES.filter((c) => c.category === cat).length}
+                                </span>
                             </button>
                         ))}
                     </div>
 
+                    {/* Search */}
                     <div className="relative flex-1 max-w-xs">
                         <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                         <input
@@ -275,9 +282,7 @@ export default function VideosClient() {
                             >
                                 <ChevronLeft size={14} />
                             </button>
-                            <span className="text-xs text-gray-600 font-medium">
-                                Page {page} of {totalPages}
-                            </span>
+                            <span className="text-xs text-gray-600 font-medium">Page {page} of {totalPages}</span>
                             <button
                                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                                 disabled={page === totalPages}
