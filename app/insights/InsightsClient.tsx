@@ -186,7 +186,14 @@ function RecurringThemeCard({ theme }: { theme: RecurringTheme }) {
               </span>
             ))}
           </div>
-          <p className="text-sm text-gray-700 leading-relaxed">{theme.evolution}</p>
+          <ul className="space-y-1.5">
+            {theme.evolution.split(/(?<=[.!?])\s+/).filter(Boolean).map((sentence, i) => (
+              <li key={i} className="flex items-start gap-2 text-sm text-gray-700 leading-relaxed">
+                <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-gray-300 shrink-0" />
+                {sentence}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
     </div>
