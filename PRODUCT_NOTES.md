@@ -5,6 +5,185 @@ Newest entries at the top.
 
 ---
 
+## Top 20 Features & Benefits (₹35k/year value proposition)
+
+### Concall Analysis Engine
+
+1. **Deep Dive Analysis** — Comprehensive single-quarter earnings brief (8-14 sections) covering segment performance, pricing mechanics, channel dynamics, capex, and growth outlook — richer than Tijori or Screener, with management quotes and causation links.
+
+2. **Delta Analysis (Quarter-over-Quarter)** — Detects what management *changed* in their language between two quarters across 5 domains: Revenue, Margins, Costs, CapEx, and Macro/Risk. Surfaces narrative shifts others miss.
+
+3. **Promoter Pledge Activity Monitor** — Scans SEBI Reg. 31 promoter pledge/unpledge disclosures, compares last 90 days activity vs 15-month baseline frequency, cross-references with latest concall sentiment. Green "Healthy" for clean stocks, amber/red flags for elevated activity.
+
+4. **Executive Evasiveness Score** — Quantifies how much management dodges questions in Q&A (0-10 scale). Catches deflection, non-answers, and pivot-to-talking-points behavior.
+
+5. **Branded PDF Downloads** — Export Deep Dive or Delta analysis as professional PDFs with Quantalyze branding + transcript download.
+
+### Multi-Quarter Insights (Pointer Sheet)
+
+6. **Financials Tracker** — Revenue, PAT, margins, volume/realisation extracted per quarter with exact numbers — like maintaining your own pointer sheet automatically.
+
+7. **Growth Outlook Tracker** — CAGR targets, recovery timelines, demand visibility, management confidence tracked quarter-over-quarter.
+
+8. **Margins & Cost Control** — Separate tabs for margin trajectory AND cost reduction initiatives (power savings, input costs, operational efficiencies) with quantified savings.
+
+9. **Capex & Capacity Tracker** — Expansion plans, utilization %, commissioning timelines, GF/BF/debottlenecking — all tracked across quarters.
+
+10. **Customers & Market Position** — Customer concentration, de-risking progress, new industry additions, China+1 opportunities, order book composition.
+
+11. **Macro & News** — Both stated-in-call factors AND external context relevant to the firm — each bullet tagged [Stated] or [Context].
+
+12. **Recurring Themes Detection** — AI identifies themes that persist across 2+ quarters and tracks their evolution (improving/declining/dropped/newly emerging).
+
+13. **Guidance Tracker with Credibility Score** — Tracks what management promised vs delivered. Scores credibility 0-10 based on guidance consistency across quarters.
+
+14. **Product Updates & New Launches** — New customer wins, geographies, products, partnerships grouped by quarter with type icons.
+
+### Coverage & Discovery
+
+15. **Nifty 200 Universe** — Full coverage of India's top 200 companies with automatic transcript fetching.
+
+16. **Sector Intelligence** — Aggregated sector-level narratives across 17 sectors / 65 companies. See which sector themes are strengthening or weakening.
+
+17. **Earnings Calendar** — Upcoming concall dates so you never miss a result.
+
+18. **Screener** — Filter companies by signal strength, evasiveness, divergence across the universe.
+
+19. **Concall Videos** — YouTube concall recordings linked/embedded per company per quarter for quick playback.
+
+20. **Watchlist + Keyboard Navigation** — Personal watchlist (up to 20 stocks), CSV bulk import, arrow-key cycling between stocks for rapid research workflow.
+
+**One-liner:** *What a 3-analyst team builds in 2 days per company, Quantalyze delivers in 60 seconds across 200 companies — and catches shifts human readers miss.*
+
+---
+
+## 2026-06-15 — Portfolio Watchtower: Promoter Pledge-Activity Signal (Surface #1 v1)
+
+### Context: Which Product Surface to Build Next
+Evaluated the product against a 5-area framework (Pain, Innovation, Convenience, Cost,
+Functional Gap). The deepest unmet need sits with institutions (PMS/family offices):
+they currently cross-reference concall commentary, BSE insider/SAST filings, and
+monthly business updates by hand across 15-30 holdings every quarter.
+
+Four candidate "surfaces" were considered, layered on the existing concall-sentiment core:
+1. **Portfolio Watchtower** (PMS/FO) — per-holding dashboard + divergence badges
+2. **Divergence Screener** (long-short funds) — cross-sectional ranked table
+3. **Pledge Risk Tracker** (credit desks) — pledge-trend view
+4. **Governance Score API** (B2B2C) — white-label score via API
+
+### Decision: Build Only Surface #1, Fold #2/#3 in as Features, Defer #4
+Demand/supply pass before committing:
+- **#1 Portfolio Watchtower** — clear gap. Tijori/Trendlyne/compounding.in cover
+  fundamentals but none fuse concall sentiment with promoter-action divergence, and
+  PMS heads explicitly asked for exactly this combination.
+- **#2 Divergence Screener** — real per-buyer willingness-to-pay, but the addressable
+  pool (single-stock long-short funds in India) is ~20-30 firms — too small for a
+  standalone surface. Reframed as a premium unlock inside Watchtower, not built now.
+- **#3 Pledge Risk Tracker** — Trendlyne already publishes a free promoter-pledge
+  tracker, so standalone supply > demand. The only differentiated angle is fusing
+  pledge data with concall commentary — i.e. the same divergence badge as #1.
+- **#4 Governance Score API** — large addressable market but crowded (Tickertape /
+  Smallcase / Trendlyne already ship "quality scores") and needs a different GTM
+  motion (BD/licensing vs. direct analyst sales). Deferred until Watchtower has
+  enough credibility to license from.
+
+**Net effect**: ship the divergence-score work as enrichment to the existing
+dashboard (Watchtower) — no separate screens or API surfaces yet.
+
+### Data Validation: BSE "Insider Trading / SAST" Feed
+Before committing to a schema, validated `AnnSubCategoryGetData/w?strCat=Insider
+Trading / SAST` across two groups (18-month lookback):
+- **Large, well-governed caps** (RELIANCE, TATAMOTORS, ADANIENT, BAJAJ Finance):
+  ~100% "Closure of Trading Window" boilerplate, zero real pledge events — correct,
+  not a bug; these names should simply show "quiet".
+- **Companies with known pledge/governance situations** (VEDL, INDUSINDBK, ZEEL,
+  SUZLON): VEDL had ~58 SAST filings in 18 months, many "reasons for encumbrance by
+  promoter" (Reg 31) disclosures; INDUSINDBK had 23/23 real Reg 29/31 disclosures
+  **clustered exactly around its Mar-May 2026 governance crisis** — the strongest
+  validation case, proving the feed carries signal when it matters.
+
+**Caveats found**:
+- The Reg 31 "encumbrance by promoter" phrase is unambiguous with zero false
+  positives across all 6 companies — used as the primary classifier.
+- Reg 29 substantial-acquisition disclosures are often filed by unrelated
+  mutual-fund trustees (HDFC MF, ICICI Prudential MF, Axis Trustee) crossing
+  ownership thresholds, not promoter actions. Kept as a secondary "institutional"
+  bucket and not used in the v1 flag — a per-company promoter-entity allowlist
+  would be needed to use these safely.
+- A Reg 31 headline confirms an encumbrance EVENT occurred but not its DIRECTION
+  (pledge increase vs. release — both trigger Reg 31) or magnitude. Direction
+  requires parsing the linked PDF attachment — deferred to phase 2.
+
+### Decision: v1 Divergence Score is Frequency-Based, Not Directional
+Given the direction ambiguity above, v1 does NOT claim the promoter is
+bullish/bearish — it surfaces an **activity-spike signal**: recent (90-day) vs.
+baseline (450-day, normalized) pledge-filing frequency per holding, cross-referenced
+against the existing concall `overall_signal`.
+
+- `pledgeActivityLevel`: `quiet` | `normal` | `elevated`
+- `flag = true` only when `elevated` AND the concall signal is `Positive`/`Mixed`
+  — "promoter pledge filings spiked while management sounded upbeat, worth checking
+  the underlying filing."
+
+This is intentionally conservative — INDUSINDBK shows that an activity spike alone
+(without direction) is already a strong, demo-able signal.
+
+### Implementation
+- `supabase/migrations/008_promoter_activity.sql` — `promoter_activity` table
+  (dedup on `ticker, news_id`) + `promoter_activity_fetch_log` (per-ticker 24h cache
+  TTL, even for tickers with zero events).
+- `lib/promoter-activity-fetcher.ts` — reuses the `AnnSubCategoryGetData/w` pattern
+  from `fetchBseTranscripts`, classifies rows via `PLEDGE_RE` (Reg 31 "encumbrance
+  ... promoter"), `REG29_RE` (institutional), skips "Closure of Trading Window".
+- `lib/divergence-score.ts` — frequency comparison + latest
+  `insights_cache.overall_signal` lookup → `DivergenceResult`.
+- `app/api/v1/divergence/route.ts` — `GET ?ticker=X`, 24h-cached fetch/upsert, same
+  pattern as `/api/v1/kpis`.
+- `EarningsReport.tsx` — new self-fetching `PromoterActivityBadge`, rendered next to
+  the existing signal/score badge. Fails closed (renders nothing) on API error, so
+  the dashboard never breaks — even before migration 008 is applied.
+
+### What's Deferred (Phase 2)
+- PDF-attachment parsing for pledge direction/magnitude (increase vs. release, % of holding).
+- Per-company promoter-entity allowlist to safely use Reg 29 disclosures.
+- Shareholding-pattern (promoter holding % + pledge %) endpoint — a guessed BSE
+  endpoint (`ShareholdingPattern/w`) returned a 302 error page; correct endpoint not
+  yet found.
+- Surfaces #2 (Divergence Screener) and #4 (Governance Score API) — revisit once
+  Watchtower has traction.
+
+### Go-to-Market: Buyer Landscape & Pilot Strategy
+
+**Current state**: zero track record, zero paying customers. Several back-to-back
+calls with PMS heads have produced warm leads. The realistic path is converting
+these into a **free pilot**, not a cold sale — a pilot produces the case-study/track
+record a cold pitch can't substitute for, at the cost of delayed revenue. Given the
+current state, that trade-off favors the pilot.
+
+**Buyer landscape** (full enumeration beyond the 4 surfaces above), grouped by
+proximity to the validated PMS/FO segment:
+
+- **Tier 1 — validated, warm**: PMS managers, family offices (current pilot targets).
+- **Tier 2 — adjacent institutional, same product/different framing, no new build**:
+  AIF Cat-III funds, smaller/boutique AMC research desks, private bank/wealth
+  management RM teams (HNI advisory), NBFC treasury & bond-fund credit desks.
+- **Tier 3 — niche, high WTP, small N**: long-short/hedge funds (Surface #2),
+  activist/special-situations investors, governance research firms (InGovern/SES/
+  IiAS-type — buyer or reseller), quant funds (API/factor input), FPI desks covering
+  India (governance intel without local-filing access).
+- **Tier 4 — scale/B2B2C, large N, low ACV**: broking/wealth-tech platforms
+  (white-label badge, Surface #4), "serious retail" subscriptions, financial media/
+  data licensing (pledge-activity spikes are newsworthy).
+- **Tier 5 — tangential, long-tail**: corporate lending/project-finance teams
+  (promoter-group cross-default risk), audit/forensic firms (red-flag screening).
+
+**Sequencing**: Tier 1 is the active pilot motion. Tier 2 needs no new product
+work — same dashboard, different pitch framing ("PMS, but for a private bank RM").
+Tiers 3-5 require either a different product cut (screener, API) or a BD/licensing
+motion — both deferred until Watchtower has pilot traction to point to.
+
+---
+
 ## 2026-05-27 — Sector Intelligence: Sub-Sectors + Nifty 200 Narrative Enrichment
 
 ### Context
