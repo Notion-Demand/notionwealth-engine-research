@@ -445,7 +445,7 @@ export default function InsightsClient() {
   const [synthesizing, setSynthesizing] = useState(false);
 
   // Active tab
-  const [tab, setTab] = useState<"financials" | "growth" | "margins" | "costs" | "capex" | "customers" | "segments" | "products" | "themes" | "guidance">("financials");
+  const [tab, setTab] = useState<"financials" | "growth" | "margins" | "costs" | "capex" | "customers" | "macro" | "segments" | "products" | "themes" | "guidance">("financials");
 
   // Watchlist
   const { watchlist, toggle: toggleWatchlist, bulkAdd, cycleNext, cyclePrev, isWatched } = useInsightsWatchlist();
@@ -545,6 +545,7 @@ export default function InsightsClient() {
     { key: "costs",      label: "Cost Control" },
     { key: "capex",      label: "Capex & Capacity" },
     { key: "customers",  label: "Customers & Market" },
+    { key: "macro",      label: "Macro & News" },
     { key: "segments",   label: "Segments" },
     { key: "products",   label: "Product Updates" },
     { key: "themes",     label: `Themes${payload ? ` (${payload.recurring_themes.length})` : ""}` },
@@ -835,6 +836,11 @@ export default function InsightsClient() {
               {/* CUSTOMERS & MARKET */}
               {tab === "customers" && (
                 <QuarterPointersPanel briefs={payload.quarter_briefs} field="customer_and_market" />
+              )}
+
+              {/* MACRO & NEWS */}
+              {tab === "macro" && (
+                <QuarterPointersPanel briefs={payload.quarter_briefs} field="macro_and_news" />
               )}
 
               {/* SEGMENTS */}

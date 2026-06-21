@@ -38,6 +38,7 @@ export interface QuarterBrief {
   cost_control: string[];
   capex_and_capacity: string[];
   customer_and_market: string[];
+  macro_and_news: string[];
 }
 
 export interface RecurringTheme {
@@ -144,8 +145,9 @@ const QUARTER_BRIEF_SCHEMA: Schema = {
     cost_control: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
     capex_and_capacity: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
     customer_and_market: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
+    macro_and_news: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
   },
-  required: ["key_points", "segment_highlights", "guidance_statements", "new_developments", "management_tone", "financials", "growth_outlook", "margins", "cost_control", "capex_and_capacity", "customer_and_market"],
+  required: ["key_points", "segment_highlights", "guidance_statements", "new_developments", "management_tone", "financials", "growth_outlook", "margins", "cost_control", "capex_and_capacity", "customer_and_market", "macro_and_news"],
 };
 
 const QUARTER_BRIEF_SYSTEM = `You are a senior buy-side analyst building a quarterly research dossier (like an earnings call pointer sheet).
@@ -174,7 +176,9 @@ Extract the following from this earnings call transcript:
 
 11. **customer_and_market** — 4-6 bullets covering: customer concentration/diversification, new customer additions, industry/geography de-risking, competitive positioning vs peers, market share, China+1 or import substitution tailwinds, order book composition.
 
-RULES: Never fabricate. Extract only what is explicitly stated in the transcript. Include specific numbers, percentages, and timeframes wherever management provides them.`;
+12. **macro_and_news** — 4-6 bullets covering BOTH: (a) macro factors management explicitly discussed in the call — inflation, interest rates, FX, commodity cycles, geopolitical risks, regulatory changes, government policy, tariffs, slowdown/recovery narratives; AND (b) external macro news/events relevant to this company's industry during this quarter — even if not directly stated in the call, infer from context (e.g. if management discusses pricing pressure, note the commodity price environment that quarter). Prefix each bullet with [Stated] or [Context] to distinguish.
+
+RULES: Never fabricate. Extract only what is explicitly stated in the transcript. Include specific numbers, percentages, and timeframes wherever management provides them. For macro_and_news [Context] items, only include well-known macro events relevant to the firm's industry.`;
 
 const SYNTHESIS_SCHEMA: Schema = {
   type: SchemaType.OBJECT,
@@ -349,6 +353,7 @@ async function runQuarterBriefAgent(
       cost_control: [],
       capex_and_capacity: [],
       customer_and_market: [],
+      macro_and_news: [],
     };
   }
 }
