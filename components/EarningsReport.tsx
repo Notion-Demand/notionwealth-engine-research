@@ -713,23 +713,10 @@ export default function EarningsReport({ payload }: EarningsReportProps) {
               {d.summary}
             </p>
           </div>
-          <div className="shrink-0 text-right space-y-1">
-            <div
-              className={clsx(
-                "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm font-semibold",
-                signalStyle
-              )}
-            >
-              <span className={clsx("h-2 w-2 rounded-full", dotStyle)} />
-              {d.overall_signal}
-            </div>
-            <p className="text-xs text-gray-400">
-              Score:{" "}
-              <span className="font-mono font-medium text-gray-700">
-                {d.overall_score > 0 ? "+" : ""}
-                {d.overall_score.toFixed(1)}
-              </span>
-            </p>
+          <div className="shrink-0 text-right">
+            <span className="text-sm text-gray-400">
+              {quarterLabel(d.quarter)}
+            </span>
           </div>
         </div>
       </div>
