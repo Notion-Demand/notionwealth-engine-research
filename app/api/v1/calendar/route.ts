@@ -177,7 +177,7 @@ export async function GET(req: NextRequest) {
     let seeded = false;
 
     if (!dbError && dbRows && dbRows.length > 0) {
-        // ── Use DB data (seeded) ──────────────────────────────────────────────
+        // ── Use DB data (seeded) — fast path ─────────────────────────────────
         seeded = true;
         for (const row of dbRows) {
             const info = NIFTY200[row.ticker];
@@ -194,56 +194,9 @@ export async function GET(req: NextRequest) {
             });
         }
     } else {
-        // ── Live fallback (not seeded yet) ────────────────────────────────────
-
-        // Transcript upload dates from storage
-        const allFiles: { name: string; created_at: string }[] = [];
-        let offset = 0;
-        while (true) {
-            const { data: page } = await supabaseAdmin()
-                .storage.from("transcripts")
-                .list("", { limit: 200, offset });
-            if (!page || page.length === 0) break;
-            allFiles.push(
-                ...page
-                    .filter((f) => f.name.endsWith(".pdf"))
-                    .map((f) => ({ name: f.name, created_at: f.created_at ?? f.updated_at ?? "" }))
-            );
-            if (page.length < 200) break;
-            offset += page.length;
-        }
-
-        for (const file of allFiles) {
-            const uploadDate = parseDate(file.created_at);
-            if (!uploadDate || uploadDate < fromDate || uploadDate > toDate) continue;
-            const m = file.name.match(/^(.+?)_(Q\d_\d{4})\.pdf$/i);
-            if (!m) continue;
-            const ticker = m[1].toUpperCase();
-            const quarter = m[2].toUpperCase();
-            const info = NIFTY200[ticker];
-            if (!info) continue;
-            addEvent(uploadDate, {
-                ticker, name: info.name, sector: info.sector, quarter,
-                date: uploadDate, source: "transcript",
-                confirmed: analyzedTickers.has(ticker),
-                hasAnalysis: analyzedTickers.has(ticker),
-            });
-        }
-
-        // Live BSE/NSE fallback
-        const liveEvents = await liveFallback(fromDate, toDate);
-        for (const [date, items] of Object.entries(liveEvents)) {
-            for (const { ticker, source } of items) {
-                const info = NIFTY200[ticker];
-                if (!info) continue;
-                addEvent(date, {
-                    ticker, name: info.name, sector: info.sector, quarter: null,
-                    date, source,
-                    confirmed: analyzedTickers.has(ticker),
-                    hasAnalysis: analyzedTickers.has(ticker),
-                });
-            }
-        }
+        // ── Not seeded — return empty immediately, let client trigger seed ───
+        // Skip expensive live fallback (NSE/BSE API calls + storage pagination)
+        // to avoid 12+ second load time. Client auto-seeds on `seeded: false`.
     }
 
     // Sort each day's events by name

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Nav from "@/components/Nav";
 import { NIFTY200 } from "@/lib/nifty200";
@@ -250,7 +250,7 @@ function CompanyCard({
                         )}
                     >
                         <Play size={11} className="fill-current" />
-                        {result?.direct ? "Watch" : result ? "Search" : "Loading…"}
+                        {result?.direct ? "Watch" : "Search"}
                     </button>
                     <button
                         onClick={() => onAnalyse(company.ticker)}
@@ -289,43 +289,26 @@ export default function VideosClient() {
         );
     }, [companies, search]);
 
-    // Fetch concall data for every company in the active sector
-    const fetchSector = useCallback((sector: string, qtr: string) => {
-        const list = SECTOR_MAP.get(sector) ?? [];
+    // Fetch concall data for active sector (higher concurrency, no stale closure)
+    const fetchedRef = useRef(new Set<string>());
 
-        setVideoData((prev) => {
-            const next = { ...prev };
-            for (const c of list) {
-                if (!prev[`${c.ticker}::${qtr}`]) {
-                    next[`${c.ticker}::${qtr}`] = "loading";
-                }
-            }
-            return next;
-        });
-
-        const toFetch = list.filter(
-            (c) => !videoData[`${c.ticker}::${qtr}`] || videoData[`${c.ticker}::${qtr}`] === "loading"
-        );
-
+    useEffect(() => {
+        const list = SECTOR_MAP.get(activeSector) ?? [];
+        const toFetch = list.filter((c) => !fetchedRef.current.has(`${c.ticker}::${quarter}`));
         if (toFetch.length === 0) return;
+
+        toFetch.forEach((c) => fetchedRef.current.add(`${c.ticker}::${quarter}`));
 
         const tasks = toFetch.map((c) => async () => {
             try {
-                const res = await fetch(`/api/v1/concall?ticker=${c.ticker}&quarter=${qtr}`);
+                const res = await fetch(`/api/v1/concall?ticker=${c.ticker}&quarter=${quarter}`);
                 const data: ConcallResult = await res.json();
-                setVideoData((prev) => ({ ...prev, [`${c.ticker}::${qtr}`]: data }));
-            } catch {
-                // Leave as "loading" — card shows fallback
-            }
+                setVideoData((prev) => ({ ...prev, [`${c.ticker}::${quarter}`]: data }));
+            } catch { /* card shows search fallback */ }
         });
 
-        fetchConcurrent(tasks, 5);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
-
-    useEffect(() => {
-        fetchSector(activeSector, quarter);
-    }, [activeSector, quarter, fetchSector]);
+        fetchConcurrent(tasks, 10);
+    }, [activeSector, quarter]);
 
     function handleSectorChange(sector: string) {
         setActiveSector(sector);
