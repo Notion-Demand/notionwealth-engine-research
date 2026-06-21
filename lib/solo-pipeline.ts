@@ -72,22 +72,23 @@ Output:
 
 2. **management_tone** — One of: "confident", "cautious", "defensive", "mixed", "optimistic"
 
-3. **sections** — 6-10 thematic sections covering every material topic discussed. Each section has a title and 5-15 detailed bullets.
+3. **sections** — 8-14 thematic sections covering every material topic discussed. Each section has a title and 5-15 detailed bullets.
 
 REQUIRED SECTIONS (always include if discussed):
-- "Performance Snapshot" — Revenue/PAT/EPS with YoY comparison, what moved vs last year, volume vs realisation
-- "Margins & Profitability" — EBITDA/operating margin, NIM (for financials), margin drivers, cost-to-income
-- "Balance Sheet & Capital" — Debt, leverage ratios, capital adequacy, asset quality, provisioning, liquidity
-- "Growth Outlook & Drivers" — Management's forward view, growth levers, sector tailwinds, demand pipeline
-- "Cost Structure & Efficiency" — Cost control initiatives, operating leverage, tech/digital adoption, automation
-- "Segment Performance" — Business segment breakdown, what's growing/declining, mix shifts
-- "Capital Allocation" — Capex, dividends, buybacks, M&A, capacity expansion
+- "Performance Snapshot" — Revenue/PAT/EPS with YoY comparison, what moved vs last year, volume vs realisation decomposition, key financial ratios (ROE/ROCE/ROA)
+- "Segment Deep Dive" — EACH business segment/product line in detail: revenue + YoY growth, margin, volume vs realization split, capacity utilization, strategic posture (invest/maintain/exit), specific challenges or recovery stories, any plant shutdowns or technology changes. This is the MOST important section — be exhaustive per segment.
+- "Margins & Profitability" — EBITDA/operating margin by segment where available, margin expansion/contraction drivers, pricing strategy (protect vs expand margins), cost pass-through mechanics and lag effects, one-time items
+- "Pricing, Raw Materials & Input Costs" — Specific price hikes taken (% and timing), raw material trends (commodity, chemicals, timber, crude etc.), pricing philosophy ("protect margins" vs "expand"), lag between cost inflation and price pass-through, supplier dynamics
+- "Growth Outlook & Drivers" — Management's forward view, growth levers, demand pipeline, sector tailwinds, revenue/volume targets, capacity expansion timelines
+- "Capex & Capacity" — Expansion plans (greenfield/brownfield/debottlenecking), capacity utilization per segment/plant, commissioning timelines, capex quantum and funding, balance sheet discipline (debt/EBITDA targets)
+- "Balance Sheet & Capital" — Debt levels, leverage ratios, working capital, free cash flow, capital adequacy (for financials), asset quality
 
-OPTIONAL SECTIONS (include only if substantively discussed):
-- "Customer & Market Position" — Market share, customer wins, competitive dynamics, order book
-- "Risk Factors & Macro" — Geopolitical, FX, commodity, regulatory, industry headwinds/tailwinds
-- "Strategic Initiatives" — New products, technology, digital, AI, partnerships, M&A integration
-- "Management Credibility" — Guidance delivery, changed stances, contradictions
+OPTIONAL SECTIONS (include if substantively discussed):
+- "Distribution & Channel Strategy" — Go-to-market changes, dealer/retailer dynamics, channel stocking, secondary sales trends, distribution expansion, geographic penetration
+- "Customer & Market Position" — Market share, customer wins/concentration, competitive dynamics, organized vs unorganized market shifts, import substitution
+- "Risk Factors & Macro" — Geopolitical, FX, commodity, freight disruptions, regulatory, industry headwinds/tailwinds, channel inventory build-up
+- "Strategic Initiatives" — New products/technologies, digital adoption, AI/automation, M&A integration, leadership changes, organizational restructuring
+- "Management Credibility & Outlook Clarity" — Guidance delivery vs past promises, changed stances, contradictions between prepared remarks and Q&A, level of specificity in forward guidance
 
 BULLET FORMAT:
 - Each bullet should be a complete, specific, information-dense statement
@@ -96,13 +97,16 @@ BULLET FORMAT:
 - Show causation: "X happened because Y" or "X led to Y"
 - Show contrast where relevant: "despite X, Y held because Z"
 - For guidance/outlook bullets, include the specific timeframe
+- For segment bullets, always include: revenue, growth rate, margin, and management's strategic intent
 
 RULES:
 - This must be COMPREHENSIVE — cover every material topic from the call
 - Do NOT summarize vaguely — be as specific as the transcript allows
-- Include Q&A insights — analysts often surface information management avoids
+- Include Q&A insights — analysts often surface information management avoids in prepared remarks
 - Flag any contradictions between prepared remarks and Q&A answers
-- If a topic is discussed across multiple sections of the call, consolidate into the most relevant section
+- For multi-segment companies, dedicate substantial coverage to EACH segment individually — do not just list them
+- Capture pricing philosophy and raw material dynamics as a separate section — this is critical for understanding margin sustainability
+- Distribution/channel changes and dealer behavior are often leading indicators — capture them
 - Never fabricate data. If you cannot find a number, describe qualitatively.`;
 
 // ── PDF helper ───────────────────────────────────────────────────────────────
