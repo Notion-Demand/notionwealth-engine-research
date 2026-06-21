@@ -11,11 +11,11 @@ export default async function RootPage() {
   if (session) redirect("/dashboard");
 
   return (
-    <div className="min-h-screen bg-[#0A0A0A] text-white overflow-hidden">
+    <div className="min-h-screen bg-white text-gray-900">
 
       {/* ── Nav ─────────────────────────────────────────────────────────── */}
-      <header className="relative z-10 mx-auto flex max-w-6xl items-center justify-between px-6 py-6">
-        <span className="text-base font-semibold tracking-[0.2em] uppercase text-white/90">
+      <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-6 border-b border-gray-100">
+        <span className="text-base font-semibold tracking-[0.15em] uppercase text-gray-900">
           Quantalyze
         </span>
         <div className="flex items-center gap-4">
@@ -23,13 +23,13 @@ export default async function RootPage() {
             href="https://calendly.com/quantalyze/say-hi"
             target="_blank"
             rel="noopener noreferrer"
-            className="rounded border border-white/20 bg-white px-5 py-2 text-xs font-semibold uppercase tracking-wider text-[#0A0A0A] transition hover:bg-white/90"
+            className="rounded border border-gray-900 bg-gray-900 px-5 py-2 text-xs font-semibold uppercase tracking-wider text-white transition hover:bg-gray-800"
           >
             Book a Demo
           </a>
           <Link
             href="/login"
-            className="text-xs font-medium uppercase tracking-wider text-white/50 transition hover:text-white"
+            className="text-xs font-medium text-gray-500 transition hover:text-gray-900"
           >
             Sign in
           </Link>
@@ -37,79 +37,70 @@ export default async function RootPage() {
       </header>
 
       {/* ── Hero ────────────────────────────────────────────────────────── */}
-      <section className="relative mx-auto max-w-6xl px-6 pt-20 pb-32">
+      <section className="relative mx-auto max-w-6xl px-6 pt-24 pb-28">
 
-        {/* Background grid lines */}
-        <div className="absolute inset-0 opacity-[0.03]" style={{
-          backgroundImage: "linear-gradient(to right, white 1px, transparent 1px), linear-gradient(to bottom, white 1px, transparent 1px)",
-          backgroundSize: "60px 60px",
-        }} />
-
-        {/* Floating intelligence cards (right side) */}
-        <div className="absolute right-0 top-16 w-[420px] hidden lg:block">
-          {/* Main intelligence panel */}
-          <div className="rounded-lg border border-white/[0.08] bg-white/[0.03] backdrop-blur-sm p-5 shadow-2xl shadow-black/50">
+        {/* Floating intelligence panel (right) */}
+        <div className="absolute right-6 top-20 w-[380px] hidden lg:block">
+          <div className="rounded-xl border border-gray-200 bg-gray-50 p-5 shadow-sm">
             <div className="flex items-center justify-between mb-4">
-              <span className="text-[10px] font-semibold uppercase tracking-widest text-white/40">Live Intelligence</span>
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Live Intelligence</span>
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
             </div>
             <div className="space-y-3">
-              <div className="flex items-center justify-between border-b border-white/[0.06] pb-2.5">
-                <span className="text-xs text-white/70">Revenue Momentum</span>
-                <span className="text-xs font-semibold text-emerald-400">Accelerating</span>
+              <div className="flex items-center justify-between border-b border-gray-100 pb-2.5">
+                <span className="text-xs text-gray-600">Revenue Momentum</span>
+                <span className="text-xs font-semibold text-emerald-600">Accelerating</span>
               </div>
-              <div className="flex items-center justify-between border-b border-white/[0.06] pb-2.5">
-                <span className="text-xs text-white/70">Management Credibility</span>
-                <span className="text-xs font-mono font-semibold text-white">8.9<span className="text-white/30">/10</span></span>
+              <div className="flex items-center justify-between border-b border-gray-100 pb-2.5">
+                <span className="text-xs text-gray-600">Management Credibility</span>
+                <span className="text-xs font-mono font-semibold text-gray-900">8.9<span className="text-gray-400">/10</span></span>
               </div>
-              <div className="flex items-center justify-between border-b border-white/[0.06] pb-2.5">
-                <span className="text-xs text-white/70">Promoter Activity</span>
-                <span className="text-xs font-semibold text-emerald-400">Healthy</span>
+              <div className="flex items-center justify-between border-b border-gray-100 pb-2.5">
+                <span className="text-xs text-gray-600">Promoter Activity</span>
+                <span className="text-xs font-semibold text-emerald-600">Healthy</span>
               </div>
-              <div className="flex items-center justify-between border-b border-white/[0.06] pb-2.5">
-                <span className="text-xs text-white/70">Evasiveness Score</span>
-                <span className="text-xs font-mono font-semibold text-white">2.1<span className="text-white/30">/10</span></span>
+              <div className="flex items-center justify-between border-b border-gray-100 pb-2.5">
+                <span className="text-xs text-gray-600">Evasiveness Score</span>
+                <span className="text-xs font-mono font-semibold text-gray-900">2.1<span className="text-gray-400">/10</span></span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-xs text-white/70">Margin Outlook</span>
-                <span className="text-xs font-semibold text-amber-400">Improving</span>
+                <span className="text-xs text-gray-600">Margin Outlook</span>
+                <span className="text-xs font-semibold text-amber-600">Improving</span>
               </div>
             </div>
           </div>
 
-          {/* Floating signal cards */}
           <div className="mt-3 grid grid-cols-2 gap-2">
-            <div className="rounded border border-emerald-500/20 bg-emerald-500/[0.05] px-3 py-2">
-              <p className="text-[10px] text-emerald-300/80">Narrative changed on pricing strategy</p>
+            <div className="rounded border border-emerald-200 bg-emerald-50 px-3 py-2">
+              <p className="text-[10px] text-emerald-700">Narrative changed on pricing</p>
             </div>
-            <div className="rounded border border-amber-500/20 bg-amber-500/[0.05] px-3 py-2">
-              <p className="text-[10px] text-amber-300/80">Capex timeline delayed 2 quarters</p>
+            <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2">
+              <p className="text-[10px] text-amber-700">Capex delayed 2 quarters</p>
             </div>
-            <div className="rounded border border-sky-500/20 bg-sky-500/[0.05] px-3 py-2">
-              <p className="text-[10px] text-sky-300/80">Input cost pressure easing</p>
+            <div className="rounded border border-sky-200 bg-sky-50 px-3 py-2">
+              <p className="text-[10px] text-sky-700">Input cost pressure easing</p>
             </div>
-            <div className="rounded border border-emerald-500/20 bg-emerald-500/[0.05] px-3 py-2">
-              <p className="text-[10px] text-emerald-300/80">China+1 demand accelerating</p>
+            <div className="rounded border border-emerald-200 bg-emerald-50 px-3 py-2">
+              <p className="text-[10px] text-emerald-700">China+1 demand accelerating</p>
             </div>
           </div>
         </div>
 
-        {/* Hero text (left aligned) */}
-        <div className="relative z-10 max-w-2xl">
-          <p className="mb-6 text-[10px] font-semibold uppercase tracking-[0.3em] text-amber-400/80">
+        {/* Hero text */}
+        <div className="max-w-2xl">
+          <p className="mb-5 text-[10px] font-semibold uppercase tracking-[0.3em] text-gray-400">
             Institutional Intelligence Platform
           </p>
 
-          <h1 className="mb-8 text-4xl font-bold leading-[1.15] tracking-tight text-white md:text-[3.5rem]">
+          <h1 className="mb-7 text-4xl font-bold leading-[1.15] tracking-tight text-gray-900 md:text-[3.5rem]">
             The most important thing in an earnings call
-            <br />
-            <span className="text-white/40">is usually said once.</span>
+            <span className="text-gray-300"> is usually said once.</span>
           </h1>
 
-          <p className="mb-10 max-w-lg text-base text-white/40 leading-relaxed">
+          <p className="mb-10 max-w-lg text-base text-gray-500 leading-relaxed">
             Quantalyze finds it before the market does. Management credibility.
             Narrative shifts. Guidance quality. Promoter behavior. Sector signals.
-            All tracked, cross-referenced, and surfaced — every quarter.
+            All tracked and cross-referenced — every quarter, across 200 companies.
           </p>
 
           <div className="flex items-center gap-5">
@@ -117,13 +108,13 @@ export default async function RootPage() {
               href="https://calendly.com/quantalyze/say-hi"
               target="_blank"
               rel="noopener noreferrer"
-              className="rounded border border-white/20 bg-white px-7 py-3 text-xs font-semibold uppercase tracking-wider text-[#0A0A0A] transition hover:bg-white/90 shadow-lg shadow-white/5"
+              className="rounded border border-gray-900 bg-gray-900 px-7 py-3 text-xs font-semibold uppercase tracking-wider text-white transition hover:bg-gray-800"
             >
               Book a Demo
             </a>
             <Link
               href="/login"
-              className="text-xs font-medium uppercase tracking-wider text-white/40 transition hover:text-white"
+              className="text-xs font-medium text-gray-400 transition hover:text-gray-900"
             >
               Sign in &rarr;
             </Link>
@@ -132,12 +123,11 @@ export default async function RootPage() {
       </section>
 
       {/* ── Contrast strip ──────────────────────────────────────────────── */}
-      <section className="border-y border-white/[0.06] bg-white/[0.02]">
+      <section className="border-y border-gray-100 bg-gray-50">
         <div className="mx-auto max-w-6xl px-6 py-14 grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
-          {/* Left: The problem */}
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.25em] text-red-400/60 mb-3">Without Quantalyze</p>
-            <div className="space-y-2 text-sm text-white/30">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.25em] text-red-400 mb-3">Without Quantalyze</p>
+            <div className="space-y-2 text-sm text-gray-400">
               <p>147-page transcripts</p>
               <p>Management jargon buried in boilerplate</p>
               <p>Hidden signals in Q&A</p>
@@ -146,16 +136,15 @@ export default async function RootPage() {
               <p>Promoter activity unchecked</p>
             </div>
           </div>
-          {/* Right: The intelligence */}
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.25em] text-emerald-400/60 mb-3">With Quantalyze</p>
-            <div className="space-y-2 text-sm text-white/70">
-              <p className="flex items-center gap-2"><span className="h-1 w-1 rounded-full bg-emerald-400" /> Revenue narrative changed — pricing power intact</p>
-              <p className="flex items-center gap-2"><span className="h-1 w-1 rounded-full bg-emerald-400" /> Margin pressure easing — cost pass-through complete</p>
-              <p className="flex items-center gap-2"><span className="h-1 w-1 rounded-full bg-emerald-400" /> Promoter activity normal — no red flags</p>
-              <p className="flex items-center gap-2"><span className="h-1 w-1 rounded-full bg-emerald-400" /> Guidance credibility 9.1/10 — delivered on promises</p>
-              <p className="flex items-center gap-2"><span className="h-1 w-1 rounded-full bg-emerald-400" /> New growth driver detected — railroad entry</p>
-              <p className="flex items-center gap-2"><span className="h-1 w-1 rounded-full bg-emerald-400" /> Management evasiveness low — direct answers</p>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.25em] text-emerald-600 mb-3">With Quantalyze</p>
+            <div className="space-y-2 text-sm text-gray-700">
+              <p className="flex items-center gap-2"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Revenue narrative changed — pricing power intact</p>
+              <p className="flex items-center gap-2"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Margin pressure easing — cost pass-through complete</p>
+              <p className="flex items-center gap-2"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Promoter activity normal — no red flags</p>
+              <p className="flex items-center gap-2"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Guidance credibility 9.1/10 — delivered on promises</p>
+              <p className="flex items-center gap-2"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> New growth driver detected — railroad entry</p>
+              <p className="flex items-center gap-2"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Management evasiveness low — direct answers</p>
             </div>
           </div>
         </div>
@@ -163,10 +152,10 @@ export default async function RootPage() {
 
       {/* ── Intelligence modules ────────────────────────────────────────── */}
       <section className="mx-auto max-w-6xl px-6 py-20">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-white/30 mb-3">Intelligence Modules</p>
-        <h2 className="text-2xl font-bold text-white mb-12">Six layers of earnings intelligence.</h2>
+        <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-gray-400 mb-3">Intelligence Modules</p>
+        <h2 className="text-2xl font-bold text-gray-900 mb-12">Six layers of earnings intelligence.</h2>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-px bg-white/[0.06] rounded-xl overflow-hidden">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-px bg-gray-200 rounded-xl overflow-hidden">
           {[
             {
               label: "01",
@@ -199,21 +188,21 @@ export default async function RootPage() {
               body: "17 sectors, 65 companies. Aggregated narratives, competitive structure, tailwinds/headwinds, key triggers, macro sensitivity — PM-grade.",
             },
           ].map((f) => (
-            <div key={f.title} className="bg-[#0A0A0A] px-6 py-7">
-              <span className="text-[10px] font-mono text-white/20 mb-2 block">{f.label}</span>
-              <h3 className="text-sm font-semibold text-white mb-2">{f.title}</h3>
-              <p className="text-xs leading-relaxed text-white/35">{f.body}</p>
+            <div key={f.title} className="bg-white px-6 py-7">
+              <span className="text-[10px] font-mono text-gray-300 mb-2 block">{f.label}</span>
+              <h3 className="text-sm font-semibold text-gray-900 mb-2">{f.title}</h3>
+              <p className="text-xs leading-relaxed text-gray-400">{f.body}</p>
             </div>
           ))}
         </div>
       </section>
 
       {/* ── Multi-Quarter Pointer Sheet ─────────────────────────────────── */}
-      <section className="border-t border-white/[0.06] bg-white/[0.02]">
+      <section className="border-t border-gray-100 bg-gray-50">
         <div className="mx-auto max-w-6xl px-6 py-20">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-white/30 mb-3">Multi-Quarter Tracking</p>
-          <h2 className="text-2xl font-bold text-white mb-4">Your automated earnings pointer sheet.</h2>
-          <p className="text-sm text-white/35 mb-10 max-w-xl">Every dimension tracked across quarters — financials, growth outlook, margins, cost control, capex, customers, macro, themes, guidance, product launches.</p>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-gray-400 mb-3">Multi-Quarter Tracking</p>
+          <h2 className="text-2xl font-bold text-gray-900 mb-4">Your automated earnings pointer sheet.</h2>
+          <p className="text-sm text-gray-500 mb-10 max-w-xl">Every dimension tracked across quarters — financials, growth outlook, margins, cost control, capex, customers, macro, themes, guidance, product launches.</p>
 
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
             {[
@@ -221,55 +210,55 @@ export default async function RootPage() {
               "Capex & Capacity", "Customers & Market", "Macro & News",
               "Recurring Themes", "Guidance Tracker", "Product Updates",
             ].map((tab) => (
-              <div key={tab} className="rounded border border-white/[0.08] bg-white/[0.03] px-3 py-2.5 text-center">
-                <span className="text-[11px] font-medium text-white/50">{tab}</span>
+              <div key={tab} className="rounded border border-gray-200 bg-white px-3 py-2.5 text-center shadow-sm">
+                <span className="text-[11px] font-medium text-gray-600">{tab}</span>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* ── Coverage ────────────────────────────────────────────────────── */}
-      <section className="border-t border-white/[0.06]">
+      {/* ── Coverage stats ──────────────────────────────────────────────── */}
+      <section className="border-t border-gray-100">
         <div className="mx-auto max-w-6xl px-6 py-20">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
             <div>
-              <p className="text-3xl font-bold text-white">200</p>
-              <p className="text-[11px] text-white/30 mt-1 uppercase tracking-wider">Nifty Companies</p>
+              <p className="text-3xl font-bold text-gray-900">200</p>
+              <p className="text-[11px] text-gray-400 mt-1 uppercase tracking-wider">Nifty Companies</p>
             </div>
             <div>
-              <p className="text-3xl font-bold text-white">500</p>
-              <p className="text-[11px] text-white/30 mt-1 uppercase tracking-wider">Concall Videos</p>
+              <p className="text-3xl font-bold text-gray-900">500</p>
+              <p className="text-[11px] text-gray-400 mt-1 uppercase tracking-wider">Concall Videos</p>
             </div>
             <div>
-              <p className="text-3xl font-bold text-white">17</p>
-              <p className="text-[11px] text-white/30 mt-1 uppercase tracking-wider">Sectors Tracked</p>
+              <p className="text-3xl font-bold text-gray-900">17</p>
+              <p className="text-[11px] text-gray-400 mt-1 uppercase tracking-wider">Sectors Tracked</p>
             </div>
             <div>
-              <p className="text-3xl font-bold text-white">60s</p>
-              <p className="text-[11px] text-white/30 mt-1 uppercase tracking-wider">Per Analysis</p>
+              <p className="text-3xl font-bold text-gray-900">60s</p>
+              <p className="text-[11px] text-gray-400 mt-1 uppercase tracking-wider">Per Analysis</p>
             </div>
           </div>
         </div>
       </section>
 
-      {/* ── Positioning ─────────────────────────────────────────────────── */}
-      <section className="border-t border-white/[0.06] bg-white/[0.02]">
+      {/* ── Positioning + CTA ───────────────────────────────────────────── */}
+      <section className="border-t border-gray-100 bg-gray-50">
         <div className="mx-auto max-w-4xl px-6 py-20 text-center">
-          <p className="text-sm text-white/25 mb-6 italic">
+          <p className="text-sm text-gray-400 mb-5 italic">
             Retail investors get data. Institutions get intelligence.
           </p>
-          <h2 className="text-3xl font-bold text-white mb-4">
+          <h2 className="text-3xl font-bold text-gray-900 mb-4">
             Quantalyze gives you intelligence.
           </h2>
-          <p className="text-sm text-white/35 mb-10 max-w-md mx-auto">
+          <p className="text-sm text-gray-500 mb-10 max-w-md mx-auto">
             Built for portfolio managers, equity research desks, wealth management firms, and family offices who need to track management behavior — not just numbers.
           </p>
           <a
             href="https://calendly.com/quantalyze/say-hi"
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex rounded border border-white/20 bg-white px-8 py-3.5 text-xs font-semibold uppercase tracking-wider text-[#0A0A0A] transition hover:bg-white/90 shadow-lg shadow-white/5"
+            className="inline-flex rounded border border-gray-900 bg-gray-900 px-8 py-3.5 text-xs font-semibold uppercase tracking-wider text-white transition hover:bg-gray-800"
           >
             Book a Demo
           </a>
@@ -277,13 +266,13 @@ export default async function RootPage() {
       </section>
 
       {/* ── Footer ──────────────────────────────────────────────────────── */}
-      <footer className="border-t border-white/[0.06]">
-        <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-6 py-8 text-[11px] text-white/20 sm:flex-row">
+      <footer className="border-t border-gray-100">
+        <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-6 py-8 text-[11px] text-gray-400 sm:flex-row">
           <span>© {new Date().getFullYear()} Quantalyze by Demandion</span>
           <div className="flex gap-6">
-            <Link href="/privacy" className="hover:text-white/50 transition">Privacy</Link>
-            <Link href="/terms" className="hover:text-white/50 transition">Terms</Link>
-            <a href="mailto:support@demandion.ai" className="hover:text-white/50 transition">support@demandion.ai</a>
+            <Link href="/privacy" className="hover:text-gray-700 transition">Privacy</Link>
+            <Link href="/terms" className="hover:text-gray-700 transition">Terms</Link>
+            <a href="mailto:support@demandion.ai" className="hover:text-gray-700 transition">support@demandion.ai</a>
           </div>
         </div>
       </footer>
