@@ -158,12 +158,17 @@ export async function GET(req: NextRequest) {
         .lte("date", toDate)
         .order("date");
 
-    // ── 2. Check which tickers have analysis results ──────────────────────────
+    // ── 2. Check which tickers have analysis results (only relevant tickers) ─
 
-    const { data: analyzed } = await supabaseAdmin()
-        .from("analysis_results")
-        .select("company_ticker");
-    const analyzedTickers = new Set((analyzed ?? []).map((r) => r.company_ticker));
+    const relevantTickers = Array.from(new Set((dbRows ?? []).map((r) => r.ticker)));
+    let analyzedTickers = new Set<string>();
+    if (relevantTickers.length > 0) {
+        const { data: analyzed } = await supabaseAdmin()
+            .from("analysis_results")
+            .select("company_ticker")
+            .in("company_ticker", relevantTickers);
+        analyzedTickers = new Set((analyzed ?? []).map((r) => r.company_ticker));
+    }
 
     const events: Record<string, CalendarEvent[]> = {};
 
