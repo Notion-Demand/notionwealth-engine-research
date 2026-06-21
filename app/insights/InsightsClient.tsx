@@ -445,7 +445,7 @@ export default function InsightsClient() {
   const [synthesizing, setSynthesizing] = useState(false);
 
   // Active tab
-  const [tab, setTab] = useState<"financials" | "growth" | "margins" | "capex" | "customers" | "segments" | "products" | "themes" | "guidance">("financials");
+  const [tab, setTab] = useState<"financials" | "growth" | "margins" | "costs" | "capex" | "customers" | "segments" | "products" | "themes" | "guidance">("financials");
 
   // Watchlist
   const { watchlist, toggle: toggleWatchlist, bulkAdd, cycleNext, cyclePrev, isWatched } = useInsightsWatchlist();
@@ -541,7 +541,8 @@ export default function InsightsClient() {
   const TABS = [
     { key: "financials", label: "Financials" },
     { key: "growth",     label: "Growth Outlook" },
-    { key: "margins",    label: "Margins & Costs" },
+    { key: "margins",    label: "Margins" },
+    { key: "costs",      label: "Cost Control" },
     { key: "capex",      label: "Capex & Capacity" },
     { key: "customers",  label: "Customers & Market" },
     { key: "segments",   label: "Segments" },
@@ -816,9 +817,14 @@ export default function InsightsClient() {
                 <QuarterPointersPanel briefs={payload.quarter_briefs} field="growth_outlook" />
               )}
 
-              {/* MARGINS & COSTS */}
+              {/* MARGINS */}
               {tab === "margins" && (
-                <QuarterPointersPanel briefs={payload.quarter_briefs} field="margins_and_costs" />
+                <QuarterPointersPanel briefs={payload.quarter_briefs} field="margins" />
+              )}
+
+              {/* COST CONTROL */}
+              {tab === "costs" && (
+                <QuarterPointersPanel briefs={payload.quarter_briefs} field="cost_control" />
               )}
 
               {/* CAPEX & CAPACITY */}

@@ -34,7 +34,8 @@ export interface QuarterBrief {
   management_tone: string;
   financials: string[];
   growth_outlook: string[];
-  margins_and_costs: string[];
+  margins: string[];
+  cost_control: string[];
   capex_and_capacity: string[];
   customer_and_market: string[];
 }
@@ -139,11 +140,12 @@ const QUARTER_BRIEF_SCHEMA: Schema = {
     management_tone: { type: SchemaType.STRING },
     financials: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
     growth_outlook: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
-    margins_and_costs: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
+    margins: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
+    cost_control: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
     capex_and_capacity: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
     customer_and_market: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
   },
-  required: ["key_points", "segment_highlights", "guidance_statements", "new_developments", "management_tone", "financials", "growth_outlook", "margins_and_costs", "capex_and_capacity", "customer_and_market"],
+  required: ["key_points", "segment_highlights", "guidance_statements", "new_developments", "management_tone", "financials", "growth_outlook", "margins", "cost_control", "capex_and_capacity", "customer_and_market"],
 };
 
 const QUARTER_BRIEF_SYSTEM = `You are a senior buy-side analyst building a quarterly research dossier (like an earnings call pointer sheet).
@@ -164,11 +166,13 @@ Extract the following from this earnings call transcript:
 
 7. **growth_outlook** — 4-6 bullets covering: management's forward growth expectations, revenue/volume targets, CAGR guidance, recovery/slowdown timelines, new market/industry opportunities they are banking on, demand visibility.
 
-8. **margins_and_costs** — 4-6 bullets covering: EBITDA/operating margin (current level + target range), cost control initiatives (power savings, input costs, labor), pricing pass-through mechanisms, operational efficiency measures, any one-time items inflating/deflating margins.
+8. **margins** — 3-5 bullets covering: EBITDA/operating margin (current level + target range + YoY change), PAT margin, margin expansion/contraction drivers, management's comfort zone for margins, one-time items inflating/deflating margins, complexity-based margin differences if discussed.
 
-9. **capex_and_capacity** — 4-6 bullets covering: capex spend (quantum + type: greenfield/brownfield/maintenance), capacity utilization (current % + target), expansion plans and timelines, commissioning status of ongoing projects, debt/funding for capex.
+9. **cost_control** — 4-6 bullets covering: power/energy cost savings (solar, captive, hybrid plants), input cost trends (raw material prices, scrap, commodities), pricing pass-through mechanisms and lag effects, labor/employee cost changes, operational efficiency initiatives with quantified savings, any cost reduction programs with timelines.
 
-10. **customer_and_market** — 4-6 bullets covering: customer concentration/diversification, new customer additions, industry/geography de-risking, competitive positioning vs peers, market share, China+1 or import substitution tailwinds, order book composition.
+10. **capex_and_capacity** — 4-6 bullets covering: capex spend (quantum + type: greenfield/brownfield/maintenance), capacity utilization (current % + target), expansion plans and timelines, commissioning status of ongoing projects, debt/funding for capex.
+
+11. **customer_and_market** — 4-6 bullets covering: customer concentration/diversification, new customer additions, industry/geography de-risking, competitive positioning vs peers, market share, China+1 or import substitution tailwinds, order book composition.
 
 RULES: Never fabricate. Extract only what is explicitly stated in the transcript. Include specific numbers, percentages, and timeframes wherever management provides them.`;
 
@@ -341,7 +345,8 @@ async function runQuarterBriefAgent(
       management_tone: "neutral",
       financials: [],
       growth_outlook: [],
-      margins_and_costs: [],
+      margins: [],
+      cost_control: [],
       capex_and_capacity: [],
       customer_and_market: [],
     };
