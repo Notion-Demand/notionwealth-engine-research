@@ -23,13 +23,13 @@ export default async function RootPage() {
             href="https://calendly.com/quantalyze/say-hi"
             target="_blank"
             rel="noopener noreferrer"
-            className="rounded-full bg-sky-500 px-5 py-2 text-sm font-semibold text-white transition hover:bg-sky-400"
+            className="rounded-md bg-white px-5 py-2 text-sm font-semibold text-[#0a1628] transition hover:bg-white/90"
           >
             Book a Demo
           </a>
           <Link
             href="/login"
-            className="rounded-full border border-white/20 bg-white/5 px-5 py-2 text-sm font-medium text-white/90 transition hover:bg-white/10"
+            className="rounded-md border border-white/20 px-5 py-2 text-sm font-medium text-white/80 transition hover:border-white/40 hover:text-white"
           >
             Sign in
           </Link>
@@ -38,14 +38,14 @@ export default async function RootPage() {
 
       {/* ── Hero ────────────────────────────────────────────────────────── */}
       <section className="mx-auto max-w-4xl px-6 pb-20 pt-24 text-center">
-        <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-4 py-1.5 text-xs font-medium text-emerald-400">
+        <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-amber-400/30 bg-amber-400/10 px-4 py-1.5 text-xs font-medium text-amber-300 tracking-wide uppercase">
           Now Live — Nifty 200 + Top 500 Coverage
         </div>
 
         <h1 className="mb-6 text-5xl font-bold leading-tight tracking-tight text-white md:text-6xl">
           Earnings concall intelligence
           <br />
-          <span className="text-sky-400">in 60 seconds.</span>
+          <span className="bg-gradient-to-r from-sky-300 to-blue-400 bg-clip-text text-transparent">in 60 seconds.</span>
         </h1>
 
         <p className="mx-auto mb-10 max-w-xl text-lg text-white/50 leading-relaxed">
@@ -53,16 +53,18 @@ export default async function RootPage() {
           in 60 seconds across 200 companies — and catches shifts human readers miss.
         </p>
 
-        <div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
-          <Link
-            href="/login"
-            className="rounded-full bg-sky-500 px-8 py-3 text-sm font-semibold text-white transition hover:bg-sky-400"
+        <div className="flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
+          <a
+            href="https://calendly.com/quantalyze/say-hi"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rounded-md bg-white px-8 py-3.5 text-sm font-semibold text-[#0a1628] tracking-wide transition hover:bg-white/90 shadow-lg shadow-white/10"
           >
-            Get started
-          </Link>
+            Book a Demo
+          </a>
           <Link
             href="/login"
-            className="rounded-full border border-white/15 px-8 py-3 text-sm font-medium text-white/70 transition hover:border-white/30 hover:text-white"
+            className="rounded-md border border-white/20 px-8 py-3.5 text-sm font-medium text-white/70 transition hover:border-white/40 hover:text-white"
           >
             Sign in
           </Link>
@@ -227,12 +229,14 @@ export default async function RootPage() {
           <p className="mb-8 text-white/45">
             Every Nifty 200 company, every concall, in under a minute.
           </p>
-          <Link
-            href="/login"
-            className="inline-flex rounded-full bg-sky-500 px-8 py-3 text-sm font-semibold text-white transition hover:bg-sky-400"
+          <a
+            href="https://calendly.com/quantalyze/say-hi"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex rounded-md bg-white px-8 py-3.5 text-sm font-semibold text-[#0a1628] tracking-wide transition hover:bg-white/90 shadow-lg shadow-white/10"
           >
-            Get started
-          </Link>
+            Book a Demo
+          </a>
         </div>
       </section>
 
