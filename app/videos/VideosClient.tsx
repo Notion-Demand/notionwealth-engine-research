@@ -12,7 +12,7 @@ import type { ConcallResult } from "@/app/api/v1/concall/route";
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const CATEGORIES = ["All", "Large Cap", "Mid Cap", "Small Cap"] as const;
-const SECTORS = Array.from(new Set(LISTED_COMPANIES.map((c) => c.category))).sort();
+const SECTORS = Array.from(new Set(LISTED_COMPANIES.map((c) => c.sector).filter(Boolean))).sort();
 const PAGE_SIZE = 50;
 
 function concallSearchUrl(companyName: string, quarter: string) {
@@ -79,6 +79,7 @@ function VideoModal({ name, quarter, videoId, title, onClose }: {
 export default function VideosClient() {
     const router = useRouter();
     const [activeCategory, setActiveCategory] = useState<typeof CATEGORIES[number]>("All");
+    const [activeSector, setActiveSector] = useState("All");
     const [quarter, setQuarter] = useState(QUARTERS[0]);
     const [search, setSearch] = useState("");
     const [page, setPage] = useState(1);
@@ -89,18 +90,19 @@ export default function VideosClient() {
     const filtered = useMemo(() => {
         let list: ListedCompany[] = LISTED_COMPANIES;
         if (activeCategory !== "All") list = list.filter((c) => c.category === activeCategory);
+        if (activeSector !== "All") list = list.filter((c) => c.sector === activeSector);
         if (search.trim()) {
             const q = search.toLowerCase();
             list = list.filter((c) => c.name.toLowerCase().includes(q) || c.nse.toLowerCase().includes(q));
         }
         return list;
-    }, [activeCategory, search]);
+    }, [activeCategory, activeSector, search]);
 
     const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
     const pageItems = useMemo(() => filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE), [filtered, page]);
 
     // Reset page when filters change
-    useEffect(() => { setPage(1); }, [activeCategory, search]);
+    useEffect(() => { setPage(1); }, [activeCategory, activeSector, search]);
 
     // Fetch concall data for visible page
     useEffect(() => {
@@ -179,6 +181,16 @@ export default function VideosClient() {
                         ))}
                     </div>
 
+                    {/* Sector filter */}
+                    <select
+                        value={activeSector}
+                        onChange={(e) => setActiveSector(e.target.value)}
+                        className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700"
+                    >
+                        <option value="All">All Sectors</option>
+                        {SECTORS.map((s) => <option key={s} value={s}>{s}</option>)}
+                    </select>
+
                     {/* Search */}
                     <div className="relative flex-1 max-w-xs">
                         <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
@@ -202,6 +214,7 @@ export default function VideosClient() {
                                 <th className="text-left px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400 w-8">#</th>
                                 <th className="text-left px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400">Company</th>
                                 <th className="text-left px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400">Ticker</th>
+                                <th className="text-left px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400">Sector</th>
                                 <th className="text-left px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400">Category</th>
                                 <th className="text-center px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400">Quarter</th>
                                 <th className="text-center px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400">Concall</th>
@@ -220,6 +233,7 @@ export default function VideosClient() {
                                         <td className="px-4 py-2 text-[11px] text-gray-400">{c.rank}</td>
                                         <td className="px-3 py-2 font-medium text-gray-800 text-xs">{c.name}</td>
                                         <td className="px-3 py-2 font-mono text-[11px] text-gray-500">{c.nse}</td>
+                                        <td className="px-3 py-2 text-[11px] text-gray-500">{c.sector || "—"}</td>
                                         <td className="px-3 py-2">
                                             <span className={clsx(
                                                 "rounded-full px-2 py-0.5 text-[10px] font-medium",
