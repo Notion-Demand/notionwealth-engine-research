@@ -756,14 +756,6 @@ export default function EarningsReport({ payload }: EarningsReportProps) {
       {/* ── Actions row ─────────────────────────────────────────────────── */}
       <div data-no-print className="flex items-center gap-2 pt-1">
         <button
-          onClick={handleDownloadTranscript}
-          disabled={downloading}
-          className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-        >
-          <FileText size={14} />
-          {downloading ? "Getting link…" : "Download Transcript"}
-        </button>
-        <button
           onClick={handleExportPDF}
           disabled={exporting}
           className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"

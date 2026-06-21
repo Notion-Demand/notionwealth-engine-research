@@ -9,12 +9,12 @@ import AgentPanel, {
   type AgentPanelState,
   type AgentStatus,
 } from "@/components/AgentPanel";
-import { runAnalysisStream, runSoloAnalysisStream } from "@/lib/api";
+import { runAnalysisStream, runSoloAnalysisStream, getTranscriptDownloadUrl } from "@/lib/api";
 import { quarterLabel, SECTION_NAMES, QUARTERS } from "@/lib/nifty50";
 import { NIFTY200_LIST, NIFTY200 } from "@/lib/nifty200";
 import {
   BarChart2, RefreshCw, Bookmark, BookmarkCheck, X, PlusCircle,
-  Upload, ChevronLeft, ChevronRight,
+  Upload, ChevronLeft, ChevronRight, Download, FileText,
 } from "lucide-react";
 import clsx from "clsx";
 
@@ -840,6 +840,53 @@ export default function DashboardClient() {
                 </ul>
               </div>
             ))}
+
+            {/* Actions row */}
+            <div className="flex items-center gap-2 pt-2">
+              <button
+                onClick={async () => {
+                  try {
+                    const q = (soloResult as { quarter?: string }).quarter ?? qCurr;
+                    const { url, filename } = await getTranscriptDownloadUrl(ticker, q);
+                    const a = document.createElement("a");
+                    a.href = url; a.download = filename; a.target = "_blank";
+                    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+                  } catch (err) { alert(`Download failed: ${err}`); }
+                }}
+                className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                <FileText size={14} />
+                Download Transcript
+              </button>
+              <button
+                onClick={() => {
+                  const sections = (soloResult as { sections?: { title: string; bullets: string[] }[] }).sections ?? [];
+                  const headline = (soloResult as { headline?: string }).headline ?? "";
+                  const tone = (soloResult as { management_tone?: string }).management_tone ?? "";
+                  const company = (soloResult as { company_ticker?: string }).company_ticker ?? ticker;
+                  const q = (soloResult as { quarter?: string }).quarter ?? qCurr;
+
+                  let md = `# ${company} — ${quarterLabel(q)} Deep Dive\n\n`;
+                  md += `**${headline}**\n\nManagement Tone: ${tone}\n\n`;
+                  sections.forEach((s) => {
+                    md += `## ${s.title}\n\n`;
+                    s.bullets.forEach((b) => { md += `- ${b}\n`; });
+                    md += "\n";
+                  });
+
+                  const blob = new Blob([md], { type: "text/markdown" });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url; a.download = `${company}_${q}_deep_dive.md`;
+                  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+                  URL.revokeObjectURL(url);
+                }}
+                className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                <Download size={14} />
+                Download Deep Dive
+              </button>
+            </div>
           </div>
         )}
 
