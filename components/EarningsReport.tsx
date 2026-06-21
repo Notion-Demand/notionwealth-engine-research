@@ -139,7 +139,7 @@ function PromoterActivityBadge({ ticker }: { ticker: string }) {
       </div>
       <p className="text-xs opacity-80 mb-2">{data.note}</p>
       <ul className="text-[11px] opacity-70 space-y-0.5 pl-5">
-        <li>• Scanned SEBI Reg. 31 promoter pledge/unpledge disclosures on BSE</li>
+        <li>• Scanned SEBI Reg. 31 promoter pledge/unpledge disclosures</li>
         <li>• Compared last 90 days activity vs 15-month baseline frequency</li>
         <li>• Cross-referenced with latest concall sentiment signal{data.concallSignal ? ` (${data.concallSignal})` : ""}</li>
         <li>• Flags divergence: elevated pledge activity + positive/mixed concall tone</li>
