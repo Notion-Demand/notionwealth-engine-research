@@ -89,7 +89,7 @@ export default async function RootPage() {
         {/* Hero text */}
         <div className="max-w-2xl">
           <p className="mb-5 text-[10px] font-semibold uppercase tracking-[0.3em] text-gray-400">
-            Institutional Intelligence Platform
+            Earnings Intelligence Platform
           </p>
 
           <h1 className="mb-7 text-4xl font-bold leading-[1.15] tracking-tight text-gray-900 md:text-[3.5rem]">
@@ -245,12 +245,12 @@ export default async function RootPage() {
       {/* ── Positioning + CTA ───────────────────────────────────────────── */}
       <section className="border-t border-gray-100 bg-gray-50">
         <div className="mx-auto max-w-4xl px-6 py-20 text-center">
-          <p className="text-sm text-gray-400 mb-5 italic">
-            Retail investors get data. Institutions get intelligence.
-          </p>
           <h2 className="text-3xl font-bold text-gray-900 mb-4">
-            Quantalyze gives you intelligence.
+            Concall intelligence in 60 seconds.
           </h2>
+          <p className="text-base text-gray-600 mb-4 font-medium">
+            10x more comprehensive than anything in the market. Rich, detailed, actionable.
+          </p>
           <p className="text-sm text-gray-500 mb-10 max-w-md mx-auto">
             Built for portfolio managers, equity research desks, wealth management firms, and family offices who need to track management behavior — not just numbers.
           </p>
