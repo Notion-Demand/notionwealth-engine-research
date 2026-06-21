@@ -259,23 +259,7 @@ export default function CalendarClient() {
             .finally(() => setLoading(false));
     }
 
-    // Auto-seed once on first load if calendar has never been seeded
     useEffect(() => {
-        fetch(`/api/v1/calendar?month=${month}&year=${year}`)
-            .then((r) => r.json())
-            .then((d: CalendarResponse) => {
-                setData(d);
-                setLoading(false);
-                if (!d.seeded && !autoSeededRef.current) {
-                    autoSeededRef.current = true;
-                    runSeed();
-                }
-            })
-            .catch((e) => { setError(e.message); setLoading(false); });
-    }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-    useEffect(() => {
-        if (autoSeededRef.current && seeding) return; // don't re-fetch while first seed is running
         loadCalendar(month, year);
     }, [month, year]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -315,50 +299,6 @@ export default function CalendarClient() {
 
     const events = data?.events ?? {};
     const hasAnyEvents = Object.keys(events).length > 0;
-
-    // ── Full-page seeding state ───────────────────────────────────────────────
-    if (seeding || (loading && !data)) {
-        return (
-            <>
-                <Nav />
-                <main className="mx-auto max-w-7xl px-6 py-8">
-                    <div className="mb-6">
-                        <h1 className="text-2xl font-bold text-gray-900 tracking-tight flex items-center gap-2">
-                            <Calendar size={22} className="text-blue-600" />
-                            Earnings Calendar
-                        </h1>
-                    </div>
-                    <div className="rounded-2xl border border-blue-100 bg-blue-50/40 px-8 py-12 text-center">
-                        <Loader2 className="h-8 w-8 animate-spin text-blue-500 mx-auto mb-4" />
-                        <p className="text-base font-semibold text-gray-800">
-                            {seeding ? "Loading calendar data from BSE, NSE & Tickertape…" : "Loading calendar…"}
-                        </p>
-                        <p className="text-sm text-gray-500 mt-1">
-                            {seeding
-                                ? "Fetching board meeting dates for all Nifty 200 companies across the past year. This runs once and takes about a minute."
-                                : "Please wait…"}
-                        </p>
-                        {seedLog && seedLog.length > 0 && (
-                            <div className="mt-6 mx-auto max-w-lg rounded-xl border border-gray-200 bg-white text-left p-4 max-h-52 overflow-y-auto">
-                                {seedLog.map((line, i) => (
-                                    <p key={i} className={clsx(
-                                        "text-[11px] font-mono leading-relaxed",
-                                        line.startsWith("✓") || line.startsWith("✅") ? "text-emerald-600"
-                                        : line.startsWith("✗") || line.toLowerCase().includes("error") ? "text-red-500"
-                                        : line.startsWith("→") || line.startsWith("⏭") ? "text-blue-500"
-                                        : line.startsWith("\n") || line.startsWith("---") ? "text-gray-700 font-semibold mt-1"
-                                        : "text-gray-400"
-                                    )}>
-                                        {line}
-                                    </p>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                </main>
-            </>
-        );
-    }
 
     return (
         <>
@@ -415,16 +355,19 @@ export default function CalendarClient() {
                     </div>
                 </div>
 
-                {loading ? (
-                    <div className="flex items-center justify-center py-32">
-                        <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
-                        <span className="ml-3 text-sm text-gray-500">Loading earnings calendar…</span>
-                    </div>
-                ) : error ? (
-                    <div className="rounded-xl border border-red-200 bg-red-50 px-5 py-8 text-center">
+                {error && (
+                    <div className="rounded-xl border border-red-200 bg-red-50 px-5 py-4 text-center mb-4">
                         <p className="text-sm text-red-600">{error}</p>
                     </div>
-                ) : (
+                )}
+
+                {loading && (
+                    <div className="flex items-center gap-2 mb-4 text-xs text-gray-400">
+                        <Loader2 size={12} className="animate-spin" /> Refreshing…
+                    </div>
+                )}
+
+                {(
                     <div className="grid grid-cols-[1fr_260px] gap-6">
                         <div>
                             {/* Stats */}
