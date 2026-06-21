@@ -9,7 +9,7 @@ import AgentPanel, {
   type AgentPanelState,
   type AgentStatus,
 } from "@/components/AgentPanel";
-import { runAnalysisStream } from "@/lib/api";
+import { runAnalysisStream, runSoloAnalysisStream } from "@/lib/api";
 import { quarterLabel, SECTION_NAMES, QUARTERS } from "@/lib/nifty50";
 import { NIFTY200_LIST, NIFTY200 } from "@/lib/nifty200";
 import {
@@ -460,6 +460,9 @@ export default function DashboardClient() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<Record<string, unknown> | null>(null);
   const [agentState, setAgentState] = useState<AgentPanelState | null>(null);
+  const [soloResult, setSoloResult] = useState<Record<string, unknown> | null>(null);
+  const [soloLoading, setSoloLoading] = useState(false);
+  const [soloPhase, setSoloPhase] = useState<string | null>(null);
 
   async function handleAnalyze(e: React.FormEvent, force = false) {
     e.preventDefault();
@@ -467,6 +470,7 @@ export default function DashboardClient() {
 
     setError(null);
     setResult(null);
+    setSoloResult(null);
     setLoading(true);
     setAgentState(null);
 
@@ -548,6 +552,34 @@ export default function DashboardClient() {
     } finally {
       setLoading(false);
       setAgentState(null);
+    }
+  }
+
+  async function handleSoloAnalyze(force = false) {
+    if (!ticker || !qCurr) return;
+
+    setError(null);
+    setResult(null);
+    setSoloResult(null);
+    setSoloLoading(true);
+    setSoloPhase("Starting…");
+
+    try {
+      const res = await runSoloAnalysisStream(
+        ticker,
+        qCurr,
+        (event) => {
+          if (event.type === "extracting") setSoloPhase("Extracting transcript…");
+          else if (event.type === "analyzing") setSoloPhase("Running deep analysis…");
+        },
+        { force }
+      );
+      setSoloResult(res.payload);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Analysis failed");
+    } finally {
+      setSoloLoading(false);
+      setSoloPhase(null);
     }
   }
 
@@ -731,19 +763,84 @@ export default function DashboardClient() {
             </div>
           </div>
 
-          {/* Submit */}
-          <button
-            type="submit"
-            disabled={loading || fetchingTranscripts || !!coverageMsg}
-            className="rounded-md bg-brand-600 px-5 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
-          >
-            {loading ? "Analyzing…" : fetchingTranscripts ? "Fetching…" : "Analyze"}
-          </button>
+          {/* Submit buttons */}
+          <div className="flex flex-col gap-2">
+            <button
+              type="submit"
+              disabled={loading || soloLoading || fetchingTranscripts || !!coverageMsg}
+              className="rounded-md bg-brand-600 px-5 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
+            >
+              {loading ? "Analyzing…" : "Delta Analysis"}
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSoloAnalyze()}
+              disabled={loading || soloLoading || fetchingTranscripts || !ticker || !qCurr}
+              className="rounded-md border border-brand-300 bg-white px-5 py-2 text-sm font-medium text-brand-700 hover:bg-brand-50 disabled:opacity-50"
+            >
+              {soloLoading ? "Analyzing…" : `Deep Dive (${quarterLabel(qCurr)})`}
+            </button>
+          </div>
         </form>
 
         {/* ── Error ────────────────────────────────────────────────────── */}
         {error && (
           <p className="mt-4 rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</p>
+        )}
+
+        {/* ── Solo loading ─────────────────────────────────────────────── */}
+        {soloLoading && soloPhase && (
+          <div className="mt-8 rounded-xl border border-gray-200 bg-white p-5 flex items-center gap-3">
+            <RefreshCw size={16} className="text-brand-500 animate-spin" />
+            <span className="text-sm font-medium text-gray-700">{soloPhase}</span>
+          </div>
+        )}
+
+        {/* ── Solo result ──────────────────────────────────────────────── */}
+        {soloResult && !soloLoading && (
+          <div className="mt-8 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-gray-900">
+                {(soloResult as { company_ticker?: string }).company_ticker} — {quarterLabel((soloResult as { quarter?: string }).quarter ?? qCurr)} Deep Dive
+              </h3>
+              <button
+                onClick={() => handleSoloAnalyze(true)}
+                className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-500 hover:bg-gray-50 hover:text-gray-700"
+              >
+                <RefreshCw size={12} />
+                Re-analyse
+              </button>
+            </div>
+
+            {/* Headline */}
+            {(soloResult as { headline?: string }).headline && (
+              <div className="rounded-xl border border-brand-100 bg-brand-50/40 px-5 py-4">
+                <p className="text-sm font-medium text-brand-900">
+                  {(soloResult as { headline?: string }).headline}
+                </p>
+                <p className="mt-1 text-xs text-brand-600 capitalize">
+                  Tone: {(soloResult as { management_tone?: string }).management_tone}
+                </p>
+              </div>
+            )}
+
+            {/* Sections */}
+            {((soloResult as { sections?: { title: string; bullets: string[] }[] }).sections ?? []).map((section, idx) => (
+              <div key={idx} className="rounded-xl border border-gray-200 overflow-hidden">
+                <div className="px-4 py-3 bg-gray-50 border-b border-gray-200">
+                  <h4 className="text-sm font-semibold text-gray-800">{section.title}</h4>
+                </div>
+                <ul className="px-4 py-3 space-y-2">
+                  {section.bullets.map((bullet, i) => (
+                    <li key={i} className="flex items-start gap-2 text-sm text-gray-700 leading-relaxed">
+                      <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-gray-300 shrink-0" />
+                      {bullet}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
         )}
 
         {/* ── Live agent panel ─────────────────────────────────────────── */}
@@ -758,7 +855,7 @@ export default function DashboardClient() {
           </div>
         )}
 
-        {/* ── Final report ─────────────────────────────────────────────── */}
+        {/* ── Final report (delta) ────────────────────────────────────── */}
         {result && !loading && (
           <div className="mt-8 space-y-2">
             <div className="flex justify-end">

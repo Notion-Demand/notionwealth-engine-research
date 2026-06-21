@@ -213,3 +213,69 @@ export async function runInsightsStream(
   return result;
 }
 
+// ── Solo analysis stream ─────────────────────────────────────────────────────
+
+export type SoloProgressEvent =
+  | { type: "start" }
+  | { type: "extracting" }
+  | { type: "analyzing" }
+  | { type: "done"; payload: Record<string, unknown>; id: string }
+  | { type: "error"; detail: string };
+
+export async function runSoloAnalysisStream(
+  ticker: string,
+  quarter: string,
+  onEvent: (event: SoloProgressEvent) => void,
+  options?: { force?: boolean }
+): Promise<{ id: string; payload: Record<string, unknown> }> {
+  const token = await getToken();
+  const response = await fetch(`${API_URL}/analyze/solo`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ ticker, quarter, force: options?.force }),
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`API ${response.status}: ${error}`);
+  }
+  if (!response.body) throw new Error("No response body");
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let result: { id: string; payload: Record<string, unknown> } | null = null;
+
+  const processLine = (line: string) => {
+    if (!line.trim()) return;
+    let event: SoloProgressEvent;
+    try {
+      event = JSON.parse(line) as SoloProgressEvent;
+    } catch {
+      return;
+    }
+    onEvent(event);
+    if (event.type === "done") {
+      result = { id: event.id, payload: event.payload };
+    }
+    if (event.type === "error") {
+      throw new Error(event.detail);
+    }
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) processLine(line);
+  }
+  if (buffer.trim()) processLine(buffer);
+  if (!result) throw new Error("Analysis completed without result");
+  return result;
+}
+
