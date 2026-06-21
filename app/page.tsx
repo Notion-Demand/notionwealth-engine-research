@@ -11,7 +11,7 @@ export default async function RootPage() {
   if (session) redirect("/dashboard");
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f] text-white">
+    <div className="min-h-screen bg-[#0a1628] text-white">
 
       {/* ── Nav ─────────────────────────────────────────────────────────── */}
       <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
@@ -70,7 +70,7 @@ export default async function RootPage() {
       </section>
 
       {/* ── Section 1: Concall Analysis Engine ─────────────────────────── */}
-      <section className="border-t border-white/5 bg-white/[0.02]">
+      <section className="border-t border-white/10 bg-white/[0.04]">
         <div className="mx-auto max-w-5xl px-6 py-16">
           <h2 className="text-2xl font-bold text-white mb-2">Concall Analysis Engine</h2>
           <p className="text-sm text-white/40 mb-8">Deep AI-powered analysis of every earnings call</p>
@@ -97,7 +97,7 @@ export default async function RootPage() {
                 body: "Export Deep Dive or Delta analysis as professional PDFs with Quantalyze branding + transcript download.",
               },
             ].map((f) => (
-              <div key={f.title} className="rounded-xl border border-white/10 bg-white/[0.03] px-6 py-5">
+              <div key={f.title} className="rounded-xl border border-white/10 bg-white/[0.06] px-6 py-5">
                 <h3 className="text-sm font-semibold text-white mb-2">{f.title}</h3>
                 <p className="text-sm leading-relaxed text-white/45">{f.body}</p>
               </div>
@@ -107,7 +107,7 @@ export default async function RootPage() {
       </section>
 
       {/* ── Section 2: Multi-Quarter Insights ──────────────────────────── */}
-      <section className="border-t border-white/5">
+      <section className="border-t border-white/10">
         <div className="mx-auto max-w-5xl px-6 py-16">
           <h2 className="text-2xl font-bold text-white mb-2">Multi-Quarter Insights</h2>
           <p className="text-sm text-white/40 mb-8">Your automated earnings pointer sheet — tracked across quarters</p>
@@ -150,7 +150,7 @@ export default async function RootPage() {
                 body: "New customer wins, geographies, products, partnerships grouped by quarter with type icons.",
               },
             ].map((f) => (
-              <div key={f.title} className="rounded-xl border border-white/10 bg-white/[0.03] px-5 py-4">
+              <div key={f.title} className="rounded-xl border border-white/10 bg-white/[0.06] px-5 py-4">
                 <h3 className="text-xs font-semibold text-sky-400 mb-1.5">{f.title}</h3>
                 <p className="text-xs leading-relaxed text-white/45">{f.body}</p>
               </div>
@@ -160,7 +160,7 @@ export default async function RootPage() {
       </section>
 
       {/* ── Section 3: Coverage & Discovery ────────────────────────────── */}
-      <section className="border-t border-white/5 bg-white/[0.02]">
+      <section className="border-t border-white/10 bg-white/[0.04]">
         <div className="mx-auto max-w-5xl px-6 py-16">
           <h2 className="text-2xl font-bold text-white mb-2">Coverage & Discovery</h2>
           <p className="text-sm text-white/40 mb-8">Full market coverage with smart discovery tools</p>
@@ -191,7 +191,7 @@ export default async function RootPage() {
                 body: "Personal watchlist (up to 20 stocks), CSV bulk import, arrow-key cycling between stocks for rapid research workflow.",
               },
             ].map((f) => (
-              <div key={f.title} className="rounded-xl border border-white/10 bg-white/[0.03] px-5 py-4">
+              <div key={f.title} className="rounded-xl border border-white/10 bg-white/[0.06] px-5 py-4">
                 <h3 className="text-xs font-semibold text-white mb-1.5">{f.title}</h3>
                 <p className="text-xs leading-relaxed text-white/45">{f.body}</p>
               </div>
@@ -219,7 +219,7 @@ export default async function RootPage() {
       </section>
 
       {/* ── CTA banner ──────────────────────────────────────────────────── */}
-      <section className="border-t border-white/5">
+      <section className="border-t border-white/10">
         <div className="mx-auto max-w-4xl px-6 py-20 text-center">
           <h2 className="mb-4 text-3xl font-bold text-white">
             Stop reading transcripts. Start reading narratives.
@@ -237,7 +237,7 @@ export default async function RootPage() {
       </section>
 
       {/* ── Footer ──────────────────────────────────────────────────────── */}
-      <footer className="border-t border-white/5">
+      <footer className="border-t border-white/10">
         <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-6 py-8 text-xs text-white/30 sm:flex-row">
           <span>© {new Date().getFullYear()} Quantalyze by Demandion. All rights reserved.</span>
           <div className="flex gap-6">
