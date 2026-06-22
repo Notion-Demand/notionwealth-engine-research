@@ -2,14 +2,14 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Quantalyze — Earnings Concall Analysis",
+  title: "Quantalyze — AI Research Platform for Indian Equity Investors",
   description:
-    "AI-powered earnings concall analysis for every Nifty 200 company. Track what management says quarter-over-quarter — language shifts, evasiveness, narrative changes — not the numbers.",
+    "Track management credibility, spot narrative shifts, and build conviction faster. Covers 200+ Indian equities with guidance scoring, evasiveness detection, and promoter pledge monitoring.",
   metadataBase: new URL("https://quantalyze.me"),
   openGraph: {
-    title: "Quantalyze — Earnings Concall Analysis",
+    title: "Quantalyze — AI Research Platform for Indian Equity Investors",
     description:
-      "AI-powered earnings concall analysis for Nifty 200. Quarter-over-quarter narrative shifts, evasiveness scoring, and management language intelligence.",
+      "Track management credibility, spot narrative shifts, and build conviction faster across 200+ Indian equities.",
     url: "https://quantalyze.me",
     siteName: "Quantalyze",
     type: "website",
