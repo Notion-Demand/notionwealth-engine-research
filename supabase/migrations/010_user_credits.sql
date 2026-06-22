@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS user_credits (
   user_id    UUID        NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   month      TEXT        NOT NULL,  -- 'YYYY-MM'
   used       INTEGER     NOT NULL DEFAULT 0,
-  quota      INTEGER     NOT NULL DEFAULT 10000,
+  quota      INTEGER     NOT NULL DEFAULT 2500,
   created_at TIMESTAMPTZ DEFAULT now(),
   UNIQUE(user_id, month)
 );
