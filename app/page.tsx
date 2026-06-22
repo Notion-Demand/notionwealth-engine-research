@@ -180,7 +180,7 @@ export default async function RootPage() {
                   <td className="px-6 py-3 text-gray-800 font-medium">Credibility + Evasiveness Scores</td>
                 </tr>
                 <tr>
-                  <td className="px-6 py-3 text-gray-400">Check BSE for promoter filings</td>
+                  <td className="px-6 py-3 text-gray-400">Check promoter filings manually</td>
                   <td className="px-6 py-3 text-gray-800 font-medium">Promoter Pledge Monitor (auto)</td>
                 </tr>
                 <tr>
@@ -272,6 +272,45 @@ export default async function RootPage() {
               <p className="text-3xl font-bold text-gray-900">60s</p>
               <p className="text-[11px] text-gray-400 mt-1">Per Analysis</p>
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Value Propositions ──────────────────────────────────────────── */}
+      <section className="border-t border-gray-100">
+        <div className="mx-auto max-w-5xl px-6 py-16">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-gray-400 mb-8">What Changes For Your Team</p>
+          <div className="space-y-6">
+            {[
+              {
+                bold: "Cover 3x more companies with the same analyst team.",
+                detail: "What took 2 days per company now runs in 60 seconds. Your analysts cover 100s of companies instead of a few.",
+              },
+              {
+                bold: "Detect what changed.",
+                detail: "Quarter-over-quarter delta analysis surfaces exactly what shifted in management language — outlook, margins, capex, risk — so you read what matters, not everything.",
+              },
+              {
+                bold: "Quantify management quality.",
+                detail: "Executive Evasiveness Score tells you when management dodges tough questions. Guidance Credibility Score tells you whether they deliver on promises. Numbers, not gut feel.",
+              },
+              {
+                bold: "Decide where to allocate capital.",
+                detail: "Guidance credibility, promoter pledge activity, sector intelligence, recurring themes, margin trajectory — the signals that drive allocation decisions, all in one place.",
+              },
+              {
+                bold: "Indispensable if you're time-constrained or research-constrained.",
+                detail: "Whether you're a 2-person PMS or a 20-person research desk, Quantalyze makes every analyst 3x more productive. The tool pays for itself in the first week.",
+              },
+            ].map((v) => (
+              <div key={v.bold} className="flex gap-4 items-start">
+                <span className="mt-1.5 h-2 w-2 rounded-full bg-gray-900 shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold text-gray-900">{v.bold}</p>
+                  <p className="text-sm text-gray-500 mt-0.5">{v.detail}</p>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </section>
