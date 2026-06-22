@@ -15,8 +15,10 @@ export const metadata: Metadata = {
       "Track management credibility, spot narrative shifts, and build conviction faster across 200+ Indian equities.",
     url: "https://quantalyze.me",
     siteName: "Quantalyze",
-    type: "website",
+    type: "article",
     locale: "en_IN",
+    publishedTime: "2026-06-21T00:00:00.000Z",
+    authors: ["Demandion"],
     images: [
       {
         url: "/api/og",
@@ -31,10 +33,6 @@ export const metadata: Metadata = {
     title: "Quantalyze — AI Research Platform for Indian Equity Investors",
     description: "Track management credibility, spot narrative shifts, and build conviction faster across 200+ Indian equities.",
     images: ["/api/og"],
-  },
-  other: {
-    "article:published_time": "2026-06-21",
-    "article:author": "Demandion",
   },
 };
 
