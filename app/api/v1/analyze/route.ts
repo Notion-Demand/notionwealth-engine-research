@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getUserId } from "@/lib/auth";
 import { runPipeline, resolvePdfKey } from "@/lib/pipeline";
 import { getCachedAnalysis, saveAnalysis } from "@/lib/analysis-cache";
+import { checkAndDeduct } from "@/lib/credits";
 
 export const maxDuration = 300;
 
@@ -71,6 +72,15 @@ export async function POST(req: NextRequest) {
         "X-Accel-Buffering": "no",
       },
     });
+  }
+
+  // ── Credit check (only on cache miss — cache hits are free) ───────────────
+  const { allowed, remaining } = await checkAndDeduct(userId, "delta");
+  if (!allowed) {
+    return NextResponse.json(
+      { detail: `Monthly credit limit reached (${remaining} credits remaining). Top up to continue.` },
+      { status: 429 }
+    );
   }
 
   // ── Cache miss: run pipeline, stream progress, save result ────────────────

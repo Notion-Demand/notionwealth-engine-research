@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUserId } from "@/lib/auth";
 import { runSoloPipeline } from "@/lib/solo-pipeline";
+import { checkAndDeduct } from "@/lib/credits";
 
 export const maxDuration = 120;
 
 export async function POST(req: NextRequest) {
+  let userId: string;
   try {
-    await getUserId(req);
+    userId = await getUserId(req);
   } catch {
     return NextResponse.json({ detail: "Unauthorized" }, { status: 401 });
   }
@@ -21,6 +23,16 @@ export async function POST(req: NextRequest) {
   const { ticker, quarter, force } = body;
   if (!ticker || !quarter) {
     return NextResponse.json({ detail: "Required: ticker, quarter" }, { status: 422 });
+  }
+
+  // Credit check (solo pipeline caches internally — deduct on every call,
+  // cache hits return fast but still cost 1 credit to discourage spam)
+  const { allowed, remaining } = await checkAndDeduct(userId, "solo");
+  if (!allowed) {
+    return NextResponse.json(
+      { detail: `Monthly credit limit reached (${remaining} credits remaining). Top up to continue.` },
+      { status: 429 }
+    );
   }
 
   const tickerUp = ticker.toUpperCase();

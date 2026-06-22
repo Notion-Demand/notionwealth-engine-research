@@ -189,6 +189,44 @@ function EarningsBell() {
     );
 }
 
+// ── Credits indicator ─────────────────────────────────────────────────────────
+
+function CreditsIndicator() {
+    const [credits, setCredits] = useState<{ used: number; quota: number; remaining: number } | null>(null);
+
+    useEffect(() => {
+        const supabase = createClient();
+        supabase.auth.getSession().then(({ data: { session } }) => {
+            if (!session) return;
+            fetch("/api/v1/credits", {
+                headers: { Authorization: `Bearer ${session.access_token}` },
+            })
+                .then((r) => (r.ok ? r.json() : null))
+                .then((d) => { if (d) setCredits(d); })
+                .catch(() => {});
+        });
+    }, []);
+
+    if (!credits) return null;
+
+    const pct = Math.round((credits.remaining / credits.quota) * 100);
+    const low = pct < 20;
+
+    return (
+        <div className="flex items-center gap-2" title={`${credits.remaining} of ${credits.quota} credits remaining this month`}>
+            <div className="w-16 h-1.5 rounded-full bg-gray-200 overflow-hidden">
+                <div
+                    className={clsx("h-full rounded-full transition-all", low ? "bg-red-500" : "bg-emerald-500")}
+                    style={{ width: `${pct}%` }}
+                />
+            </div>
+            <span className={clsx("text-[10px] font-mono font-medium", low ? "text-red-500" : "text-gray-400")}>
+                {credits.remaining}
+            </span>
+        </div>
+    );
+}
+
 // ── Main nav ──────────────────────────────────────────────────────────────────
 
 export default function Nav() {
@@ -227,7 +265,8 @@ export default function Nav() {
                 })}
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-4">
+                <CreditsIndicator />
                 <EarningsBell />
                 <button
                     onClick={signOut}
