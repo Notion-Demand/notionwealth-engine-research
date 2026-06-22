@@ -174,32 +174,32 @@ export default async function RootPage() {
             {
               label: "01",
               title: "Deep Dive Analysis",
-              body: "8-14 section single-quarter brief. Segment performance, pricing mechanics, channel dynamics, capex, growth outlook. Management quotes with causation links.",
+              body: "Comprehensive single-quarter earnings brief.",
             },
             {
               label: "02",
               title: "Delta Analysis",
-              body: "Quarter-over-quarter narrative shift detection across Revenue, Margins, Costs, CapEx, Macro. What management changed in their language — not the numbers.",
+              body: "What changed in management language.",
             },
             {
               label: "03",
               title: "Guidance Credibility Engine",
-              body: "Tracks what management promised vs delivered. Scores credibility 0-10. Flags abandoned guidance, downgraded timelines, contradictions.",
+              body: "Promised vs delivered. Scored 0-10.",
             },
             {
               label: "04",
               title: "Executive Evasiveness Score",
-              body: "Quantifies deflection in Q&A. Detects pivot-to-talking-points, non-answers, excessive hedging. Scored 0-10 with reasoning.",
+              body: "Quantifies deflection in Q&A.",
             },
             {
               label: "05",
               title: "Promoter Pledge Monitor",
-              body: "SEBI Reg. 31 disclosures scanned. 90-day activity vs 15-month baseline. Cross-referenced with concall sentiment for divergence detection.",
+              body: "Pledge activity vs concall sentiment.",
             },
             {
               label: "06",
               title: "Sector Intelligence",
-              body: "17 sectors, 65 companies. Aggregated narratives, competitive structure, tailwinds/headwinds, key triggers, macro sensitivity — PM-grade.",
+              body: "17 sectors. PM-grade narratives.",
             },
           ].map((f) => (
             <div key={f.title} className="bg-white px-6 py-7">
@@ -215,8 +215,7 @@ export default async function RootPage() {
       <section className="border-t border-gray-100 bg-gray-50">
         <div className="mx-auto max-w-6xl px-6 py-20">
           <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-gray-400 mb-3">Multi-Quarter Tracking</p>
-          <h2 className="text-2xl font-bold text-gray-900 mb-4">Your automated earnings pointer sheet.</h2>
-          <p className="text-sm text-gray-500 mb-10 max-w-xl">Every dimension tracked across quarters — financials, growth outlook, margins, cost control, capex, customers, macro, themes, guidance, product launches.</p>
+          <h2 className="text-2xl font-bold text-gray-900 mb-4">Every dimension tracked across quarters.</h2>
 
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
             {[
