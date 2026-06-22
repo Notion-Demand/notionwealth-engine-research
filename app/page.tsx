@@ -89,6 +89,9 @@ export default async function RootPage() {
 
         {/* Hero text */}
         <div className="max-w-xl">
+          <p className="mb-4 text-[10px] font-semibold uppercase tracking-[0.3em] text-gray-400">
+            AI Research Platform for Indian Equity Investors
+          </p>
           <h1 className="mb-6 text-3xl font-bold leading-[1.2] tracking-tight text-gray-900 md:text-[2.75rem]">
             Track management credibility.
             <br />Spot narrative shifts.
