@@ -10,7 +10,7 @@
  */
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
-const DEFAULT_QUOTA = 600;
+const DEFAULT_QUOTA = 10_000;
 
 export const ACTION_COSTS: Record<string, number> = {
   delta: 3,
