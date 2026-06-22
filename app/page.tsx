@@ -37,70 +37,68 @@ export default async function RootPage() {
       </header>
 
       {/* ── Hero ────────────────────────────────────────────────────────── */}
-      <section className="relative mx-auto max-w-6xl px-6 pt-24 pb-28">
+      <section className="relative mx-auto max-w-6xl px-6 pt-24 pb-20">
 
-        {/* Floating intelligence panel (right) */}
-        <div className="absolute right-6 top-20 w-[380px] hidden lg:block">
+        {/* Intelligence panel (right) */}
+        <div className="absolute right-6 top-20 w-[360px] hidden lg:block">
           <div className="rounded-xl border border-gray-200 bg-gray-50 p-5 shadow-sm">
-            <div className="flex items-center justify-between mb-4">
-              <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Live Intelligence</span>
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Asian Paints · Q4 FY26</span>
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
             </div>
-            <div className="space-y-3">
+            <div className="space-y-3 mt-4">
               <div className="flex items-center justify-between border-b border-gray-100 pb-2.5">
-                <span className="text-xs text-gray-600">Revenue Momentum</span>
-                <span className="text-xs font-semibold text-emerald-600">Accelerating</span>
+                <span className="text-xs text-gray-600">Guidance Credibility</span>
+                <span className="text-xs font-mono font-semibold text-emerald-600">8.9<span className="text-gray-400">/10</span></span>
               </div>
               <div className="flex items-center justify-between border-b border-gray-100 pb-2.5">
-                <span className="text-xs text-gray-600">Management Credibility</span>
-                <span className="text-xs font-mono font-semibold text-gray-900">8.9<span className="text-gray-400">/10</span></span>
+                <span className="text-xs text-gray-600">Executive Evasiveness</span>
+                <span className="text-xs font-mono font-semibold text-emerald-600">2.1<span className="text-gray-400">/10</span></span>
               </div>
               <div className="flex items-center justify-between border-b border-gray-100 pb-2.5">
                 <span className="text-xs text-gray-600">Promoter Activity</span>
                 <span className="text-xs font-semibold text-emerald-600">Healthy</span>
               </div>
               <div className="flex items-center justify-between border-b border-gray-100 pb-2.5">
-                <span className="text-xs text-gray-600">Evasiveness Score</span>
-                <span className="text-xs font-mono font-semibold text-gray-900">2.1<span className="text-gray-400">/10</span></span>
-              </div>
-              <div className="flex items-center justify-between">
                 <span className="text-xs text-gray-600">Margin Outlook</span>
                 <span className="text-xs font-semibold text-amber-600">Improving</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-gray-600">Revenue Momentum</span>
+                <span className="text-xs font-semibold text-emerald-600">Accelerating</span>
               </div>
             </div>
           </div>
 
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            <div className="rounded border border-emerald-200 bg-emerald-50 px-3 py-2">
-              <p className="text-[10px] text-emerald-700">Narrative changed on pricing</p>
+          {/* Narrative shift example */}
+          <div className="mt-3 rounded-xl border border-gray-200 bg-white p-4">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-3">Narrative Shift Detected</p>
+            <div className="space-y-2">
+              <div className="rounded border border-gray-100 bg-gray-50 px-3 py-2">
+                <p className="text-[10px] text-gray-400 mb-0.5">Q3 FY26</p>
+                <p className="text-xs text-gray-600 italic">&ldquo;Demand remains robust across export markets.&rdquo;</p>
+              </div>
+              <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2">
+                <p className="text-[10px] text-amber-600 mb-0.5">Q4 FY26</p>
+                <p className="text-xs text-amber-800 italic">&ldquo;Near-term export visibility remains uncertain.&rdquo;</p>
+              </div>
             </div>
-            <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2">
-              <p className="text-[10px] text-amber-700">Capex delayed 2 quarters</p>
-            </div>
-            <div className="rounded border border-sky-200 bg-sky-50 px-3 py-2">
-              <p className="text-[10px] text-sky-700">Input cost pressure easing</p>
-            </div>
-            <div className="rounded border border-emerald-200 bg-emerald-50 px-3 py-2">
-              <p className="text-[10px] text-emerald-700">China+1 demand accelerating</p>
-            </div>
+            <p className="text-[10px] text-gray-500 mt-2">Weakening outlook signal — management confidence dropped.</p>
           </div>
         </div>
 
         {/* Hero text */}
-        <div className="max-w-2xl">
-          <p className="mb-5 text-[10px] font-semibold uppercase tracking-[0.3em] text-gray-400">
-            Earnings Intelligence Platform
-          </p>
-
-          <h1 className="mb-7 text-4xl font-bold leading-[1.15] tracking-tight text-gray-900 md:text-[3.5rem]">
-            The most important thing in an earnings call
-            <span className="text-gray-300"> is usually said once.</span>
+        <div className="max-w-xl">
+          <h1 className="mb-6 text-3xl font-bold leading-[1.2] tracking-tight text-gray-900 md:text-[2.75rem]">
+            Track management credibility.
+            <br />Spot narrative shifts.
+            <br />Build conviction faster.
           </h1>
 
-          <p className="mb-10 max-w-lg text-base text-gray-500 leading-relaxed">
-            Quantalyze finds it before the market does. Management credibility.
-            Narrative shifts. Guidance quality. Promoter behavior. Sector signals.
-            All tracked and cross-referenced — every quarter, across 200 companies.
+          <p className="mb-8 max-w-lg text-base text-gray-500 leading-relaxed">
+            Quantalyze compares management commentary across quarters and identifies changes
+            in outlook, capital allocation, margin expectations, and risk disclosures — across
+            200+ Indian equities.
           </p>
 
           <div className="flex items-center gap-5">
@@ -122,109 +120,132 @@ export default async function RootPage() {
         </div>
       </section>
 
-      {/* ── Contrast strip ──────────────────────────────────────────────── */}
-      <section className="border-y border-gray-100 bg-gray-50">
-        <div className="mx-auto max-w-6xl px-6 py-14 grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
-          <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.25em] text-red-400 mb-3">Without Quantalyze</p>
-            <div className="space-y-2 text-sm text-gray-400">
-              <p>147-page transcripts</p>
-              <p>Management jargon buried in boilerplate</p>
-              <p>Hidden signals in Q&A</p>
-              <p>Contradictions across quarters missed</p>
-              <p>Guidance changes untracked</p>
-              <p>Promoter activity unchecked</p>
-            </div>
-          </div>
-          <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.25em] text-emerald-600 mb-3">With Quantalyze</p>
-            <div className="space-y-2 text-sm text-gray-700">
-              <p className="flex items-center gap-2"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Revenue narrative changed — pricing power intact</p>
-              <p className="flex items-center gap-2"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Margin pressure easing — cost pass-through complete</p>
-              <p className="flex items-center gap-2"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Promoter activity normal — no red flags</p>
-              <p className="flex items-center gap-2"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Guidance credibility 9.1/10 — delivered on promises</p>
-              <p className="flex items-center gap-2"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> New growth driver detected — railroad entry</p>
-              <p className="flex items-center gap-2"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Management evasiveness low — direct answers</p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ── Product video ──────────────────────────────────────────────── */}
-      <section className="mx-auto max-w-4xl px-6 py-16">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-gray-400 mb-4 text-center">See it in action</p>
-        <div className="aspect-video w-full rounded-xl overflow-hidden border border-gray-200 shadow-lg">
-          <iframe
-            src="https://www.youtube.com/embed/b_47D3djj8c?rel=0&modestbranding=1"
-            title="Quantalyze Product Demo"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-            allowFullScreen
-            className="w-full h-full"
-          />
-        </div>
-      </section>
-
-      {/* ── Intelligence modules ────────────────────────────────────────── */}
-      <section className="mx-auto max-w-6xl px-6 py-20">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-gray-400 mb-3">Intelligence Modules</p>
-        <h2 className="text-2xl font-bold text-gray-900 mb-12">Six layers of earnings intelligence.</h2>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-px bg-gray-200 rounded-xl overflow-hidden">
-          {[
-            {
-              label: "01",
-              title: "Deep Dive Analysis",
-              body: "Comprehensive single-quarter earnings brief.",
-            },
-            {
-              label: "02",
-              title: "Delta Analysis",
-              body: "What changed in management language.",
-            },
-            {
-              label: "03",
-              title: "Guidance Credibility Engine",
-              body: "Promised vs delivered. Scored 0-10.",
-            },
-            {
-              label: "04",
-              title: "Executive Evasiveness Score",
-              body: "Quantifies deflection in Q&A.",
-            },
-            {
-              label: "05",
-              title: "Promoter Pledge Monitor",
-              body: "Pledge activity vs concall sentiment.",
-            },
-            {
-              label: "06",
-              title: "Sector Intelligence",
-              body: "17 sectors. PM-grade narratives.",
-            },
-          ].map((f) => (
-            <div key={f.title} className="bg-white px-6 py-7">
-              <span className="text-[10px] font-mono text-gray-300 mb-2 block">{f.label}</span>
-              <h3 className="text-sm font-semibold text-gray-900 mb-2">{f.title}</h3>
-              <p className="text-xs leading-relaxed text-gray-400">{f.body}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* ── Multi-Quarter Pointer Sheet ─────────────────────────────────── */}
+      {/* ── 3 Core Signals ──────────────────────────────────────────────── */}
       <section className="border-t border-gray-100 bg-gray-50">
-        <div className="mx-auto max-w-6xl px-6 py-20">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-gray-400 mb-3">Multi-Quarter Tracking</p>
-          <h2 className="text-2xl font-bold text-gray-900 mb-4">Every dimension tracked across quarters.</h2>
+        <div className="mx-auto max-w-6xl px-6 py-16">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-gray-400 mb-8">Signals That Matter</p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            <div>
+              <h3 className="text-lg font-bold text-gray-900 mb-2">Management Credibility</h3>
+              <p className="text-sm text-gray-500 leading-relaxed">
+                Track what management promised versus what they delivered. Scored 0-10 across quarters.
+                Flags abandoned guidance, downgraded timelines, and contradictions.
+              </p>
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-gray-900 mb-2">Narrative Shift Detection</h3>
+              <p className="text-sm text-gray-500 leading-relaxed">
+                See what changed in management commentary between quarters. Revenue outlook, margin
+                expectations, capex posture, risk language — tracked and classified.
+              </p>
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-gray-900 mb-2">Executive Evasiveness</h3>
+              <p className="text-sm text-gray-500 leading-relaxed">
+                Quantify when management avoids answering difficult questions. Detects deflection,
+                non-answers, and pivot-to-talking-points behavior in Q&A.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
+      {/* ── Why Analysts Use Quantalyze ─────────────────────────────────── */}
+      <section className="border-t border-gray-100">
+        <div className="mx-auto max-w-5xl px-6 py-16">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-gray-400 mb-8">Why Analysts Switch</p>
+          <div className="rounded-xl border border-gray-200 overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-200">
+                  <th className="text-left px-6 py-3 text-xs font-semibold uppercase tracking-wide text-gray-400">Traditional Workflow</th>
+                  <th className="text-left px-6 py-3 text-xs font-semibold uppercase tracking-wide text-gray-900">With Quantalyze</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                <tr>
+                  <td className="px-6 py-3 text-gray-400">Read 70-page transcript</td>
+                  <td className="px-6 py-3 text-gray-800 font-medium">5-minute Deep Dive</td>
+                </tr>
+                <tr>
+                  <td className="px-6 py-3 text-gray-400">Compare quarters manually</td>
+                  <td className="px-6 py-3 text-gray-800 font-medium">Automated Delta Analysis</td>
+                </tr>
+                <tr>
+                  <td className="px-6 py-3 text-gray-400">Track guidance in spreadsheets</td>
+                  <td className="px-6 py-3 text-gray-800 font-medium">Guidance Tracker with Credibility Score</td>
+                </tr>
+                <tr>
+                  <td className="px-6 py-3 text-gray-400">Judge management qualitatively</td>
+                  <td className="px-6 py-3 text-gray-800 font-medium">Credibility + Evasiveness Scores</td>
+                </tr>
+                <tr>
+                  <td className="px-6 py-3 text-gray-400">Check BSE for promoter filings</td>
+                  <td className="px-6 py-3 text-gray-800 font-medium">Promoter Pledge Monitor (auto)</td>
+                </tr>
+                <tr>
+                  <td className="px-6 py-3 text-gray-400">Maintain pointer sheets per stock</td>
+                  <td className="px-6 py-3 text-gray-800 font-medium">Multi-Quarter Tracking (11 dimensions)</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Proprietary Signals ─────────────────────────────────────────── */}
+      <section className="border-t border-gray-100 bg-gray-50">
+        <div className="mx-auto max-w-5xl px-6 py-16">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-gray-400 mb-3">Proprietary Signals</p>
+          <h2 className="text-xl font-bold text-gray-900 mb-8">Signals Quantalyze tracks that others don't.</h2>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             {[
-              "Financials", "Growth Outlook", "Margins", "Cost Control",
-              "Capex & Capacity", "Customers & Market", "Macro & News",
-              "Recurring Themes", "Guidance Tracker", "Product Updates",
-            ].map((tab) => (
-              <div key={tab} className="rounded border border-gray-200 bg-white px-3 py-2.5 text-center shadow-sm">
-                <span className="text-[11px] font-medium text-gray-600">{tab}</span>
+              "Guidance Credibility",
+              "Executive Evasiveness",
+              "Promoter Pledge Activity",
+              "Recurring Themes",
+              "Management Confidence",
+              "Sector Narrative Shifts",
+            ].map((s) => (
+              <div key={s} className="rounded-lg border border-gray-200 bg-white px-4 py-3">
+                <span className="text-sm font-medium text-gray-800">{s}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── Product Video ──────────────────────────────────────────────── */}
+      <section className="border-t border-gray-100">
+        <div className="mx-auto max-w-4xl px-6 py-16">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-gray-400 mb-4 text-center">See It In Action</p>
+          <div className="aspect-video w-full rounded-xl overflow-hidden border border-gray-200 shadow-lg">
+            <iframe
+              src="https://www.youtube.com/embed/b_47D3djj8c?rel=0&modestbranding=1"
+              title="Quantalyze Product Demo"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+              className="w-full h-full"
+            />
+          </div>
+        </div>
+      </section>
+
+      {/* ── Who It's For ────────────────────────────────────────────────── */}
+      <section className="border-t border-gray-100 bg-gray-50">
+        <div className="mx-auto max-w-5xl px-6 py-16">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-gray-400 mb-8">Built For</p>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+            {[
+              { role: "PMS Analysts", outcome: "Cover more companies" },
+              { role: "AIF Research Teams", outcome: "Spot risks earlier" },
+              { role: "Family Offices", outcome: "Track management behavior" },
+              { role: "Wealth Managers", outcome: "Brief clients faster" },
+              { role: "Serious Investors", outcome: "Build conviction faster" },
+            ].map((p) => (
+              <div key={p.role} className="text-center">
+                <p className="text-sm font-semibold text-gray-900">{p.role}</p>
+                <p className="text-xs text-gray-400 mt-0.5">{p.outcome}</p>
               </div>
             ))}
           </div>
@@ -233,39 +254,36 @@ export default async function RootPage() {
 
       {/* ── Coverage stats ──────────────────────────────────────────────── */}
       <section className="border-t border-gray-100">
-        <div className="mx-auto max-w-6xl px-6 py-20">
+        <div className="mx-auto max-w-5xl px-6 py-16">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
             <div>
-              <p className="text-3xl font-bold text-gray-900">200</p>
-              <p className="text-[11px] text-gray-400 mt-1 uppercase tracking-wider">Nifty Companies</p>
-            </div>
-            <div>
-              <p className="text-3xl font-bold text-gray-900">500</p>
-              <p className="text-[11px] text-gray-400 mt-1 uppercase tracking-wider">Concall Videos</p>
+              <p className="text-3xl font-bold text-gray-900">200+</p>
+              <p className="text-[11px] text-gray-400 mt-1">Companies Covered</p>
             </div>
             <div>
               <p className="text-3xl font-bold text-gray-900">17</p>
-              <p className="text-[11px] text-gray-400 mt-1 uppercase tracking-wider">Sectors Tracked</p>
+              <p className="text-[11px] text-gray-400 mt-1">Sectors Tracked</p>
+            </div>
+            <div>
+              <p className="text-3xl font-bold text-gray-900">11</p>
+              <p className="text-[11px] text-gray-400 mt-1">Dimensions Per Quarter</p>
             </div>
             <div>
               <p className="text-3xl font-bold text-gray-900">60s</p>
-              <p className="text-[11px] text-gray-400 mt-1 uppercase tracking-wider">Per Analysis</p>
+              <p className="text-[11px] text-gray-400 mt-1">Per Analysis</p>
             </div>
           </div>
         </div>
       </section>
 
-      {/* ── Positioning + CTA ───────────────────────────────────────────── */}
+      {/* ── CTA ─────────────────────────────────────────────────────────── */}
       <section className="border-t border-gray-100 bg-gray-50">
         <div className="mx-auto max-w-4xl px-6 py-20 text-center">
-          <h2 className="text-3xl font-bold text-gray-900 mb-4">
-            Concall intelligence in 60 seconds.
+          <h2 className="text-2xl font-bold text-gray-900 mb-3">
+            The fastest way to track management credibility and narrative shifts across Indian equities.
           </h2>
-          <p className="text-base text-gray-600 mb-4 font-medium">
-            10x more comprehensive than anything in the market. Rich, detailed, actionable.
-          </p>
-          <p className="text-sm text-gray-500 mb-10 max-w-md mx-auto">
-            Built for portfolio managers, equity research desks, wealth management firms, and family offices who need to track management behavior — not just numbers.
+          <p className="text-sm text-gray-500 mb-8 max-w-md mx-auto">
+            Concall intelligence in 60 seconds. 10x more comprehensive than anything in the market.
           </p>
           <a
             href="https://calendly.com/quantalyze/say-hi"
