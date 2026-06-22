@@ -1,0 +1,25 @@
+<svg width="1200" height="630" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="630" fill="#ffffff"/>
+  <rect x="0" y="0" width="1200" height="4" fill="#111827"/>
+  <text x="80" y="200" font-family="system-ui, -apple-system, sans-serif" font-size="64" font-weight="bold" fill="#111827">Quantalyze</text>
+  <text x="80" y="280" font-family="system-ui, -apple-system, sans-serif" font-size="28" fill="#6B7280">AI Research Platform for Indian Equity Investors</text>
+  <text x="80" y="360" font-family="system-ui, -apple-system, sans-serif" font-size="22" fill="#9CA3AF">Track management credibility. Spot narrative shifts.</text>
+  <text x="80" y="395" font-family="system-ui, -apple-system, sans-serif" font-size="22" fill="#9CA3AF">Build conviction faster.</text>
+  <rect x="80" y="440" width="180" height="48" rx="4" fill="#111827"/>
+  <text x="170" y="470" font-family="system-ui, -apple-system, sans-serif" font-size="14" fill="#ffffff" text-anchor="middle" font-weight="600" letter-spacing="1.5">BOOK A DEMO</text>
+  <text x="80" y="570" font-family="system-ui, -apple-system, sans-serif" font-size="14" fill="#9CA3AF">quantalyze.me · by Demandion</text>
+  <!-- Stats -->
+  <text x="700" y="250" font-family="system-ui, -apple-system, sans-serif" font-size="48" font-weight="bold" fill="#111827">200+</text>
+  <text x="700" y="280" font-family="system-ui, -apple-system, sans-serif" font-size="14" fill="#9CA3AF">Companies</text>
+  <text x="900" y="250" font-family="system-ui, -apple-system, sans-serif" font-size="48" font-weight="bold" fill="#111827">17</text>
+  <text x="900" y="280" font-family="system-ui, -apple-system, sans-serif" font-size="14" fill="#9CA3AF">Sectors</text>
+  <text x="1020" y="250" font-family="system-ui, -apple-system, sans-serif" font-size="48" font-weight="bold" fill="#111827">60s</text>
+  <text x="1020" y="280" font-family="system-ui, -apple-system, sans-serif" font-size="14" fill="#9CA3AF">Per Analysis</text>
+  <!-- Signals -->
+  <rect x="700" y="330" width="420" height="36" rx="6" fill="#F0FDF4" stroke="#BBF7D0" stroke-width="1"/>
+  <text x="720" y="354" font-family="system-ui, -apple-system, sans-serif" font-size="13" fill="#166534">Guidance Credibility 8.9/10</text>
+  <rect x="700" y="380" width="420" height="36" rx="6" fill="#F0FDF4" stroke="#BBF7D0" stroke-width="1"/>
+  <text x="720" y="404" font-family="system-ui, -apple-system, sans-serif" font-size="13" fill="#166534">Executive Evasiveness 2.1/10</text>
+  <rect x="700" y="430" width="420" height="36" rx="6" fill="#F0FDF4" stroke="#BBF7D0" stroke-width="1"/>
+  <text x="720" y="454" font-family="system-ui, -apple-system, sans-serif" font-size="13" fill="#166534">Promoter Activity: Healthy</text>
+</svg>
