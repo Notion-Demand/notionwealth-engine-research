@@ -6,6 +6,7 @@ import { SupabaseCreditsRepository } from "./credits";
 import { SupabaseSoloAnalysisRepository } from "./soloAnalysis";
 import { SupabaseInsightsRepository } from "./insights";
 import { SupabasePromoterActivityRepository } from "./promoterActivity";
+import { SupabaseCalendarRepository } from "./calendar";
 
 export const analysisRepo = new SupabaseAnalysisRepository();
 export const sectorRepo = new SupabaseSectorRepository();
@@ -15,3 +16,4 @@ export const creditsRepo = new SupabaseCreditsRepository();
 export const soloAnalysisRepo = new SupabaseSoloAnalysisRepository();
 export const insightsRepo = new SupabaseInsightsRepository();
 export const promoterActivityRepo = new SupabasePromoterActivityRepository();
+export const calendarRepo = new SupabaseCalendarRepository();

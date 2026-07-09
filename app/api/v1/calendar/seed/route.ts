@@ -15,8 +15,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase/admin";
-import { analysisRepo } from "@/lib/repositories";
+import { analysisRepo, calendarRepo } from "@/lib/repositories";
 import { NIFTY200 } from "@/lib/nifty200";
 import { QUARTERS, MARKET_CAPS } from "@/lib/nifty50";
 
@@ -496,24 +495,22 @@ export async function POST(req: NextRequest) {
         }
 
         // 5. Upsert all into earnings_calendar
-        const rows = Array.from(resolved.values()).map(({ ticker, date, source }) => ({
+        const eventsToUpsert = Array.from(resolved.values()).map(({ ticker, date, source }) => ({
             ticker,
             date,
             quarter,
             source,
             confirmed: confirmedSet.has(`${ticker}:${quarter}`),
-            updated_at: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
         }));
 
-        const { error } = await supabaseAdmin()
-            .from("earnings_calendar")
-            .upsert(rows, { onConflict: "ticker,quarter" });
+        const { inserted, error } = await calendarRepo.upsertEvents(eventsToUpsert);
 
         if (error) {
-            log.push(`DB upsert error: ${error.message}`);
+            log.push(`DB upsert error: ${error}`);
         } else {
-            log.push(`Upserted ${rows.length} rows for ${quarter}`);
-            totalUpserted += rows.length;
+            log.push(`Upserted ${inserted} rows for ${quarter}`);
+            totalUpserted += inserted;
         }
     }
 
