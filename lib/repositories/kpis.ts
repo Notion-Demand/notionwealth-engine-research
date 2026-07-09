@@ -14,6 +14,8 @@ export interface KpiSnapshot {
 
 export interface KpiRepository {
   getLatestByTicker(ticker: string): Promise<KpiSnapshot | null>;
+  /** Batch variant of getLatestByTicker, for callers needing several tickers at once (e.g. SectorThesisService). */
+  getLatestByTickers(tickers: string[]): Promise<Map<string, KpiSnapshot>>;
   upsertSnapshot(snapshot: KpiSnapshot): Promise<{ error: string | null }>;
   listAll(sectorFilter?: string): Promise<{ snapshots: KpiSnapshot[]; error: string | null }>;
   deleteAll(): Promise<{ error: string | null }>;
@@ -48,6 +50,22 @@ export class SupabaseKpiRepository implements KpiRepository {
       .maybeSingle();
     if (!data) return null;
     return toEntity(data as StoredKpiRow);
+  }
+
+  async getLatestByTickers(tickers: string[]): Promise<Map<string, KpiSnapshot>> {
+    if (tickers.length === 0) return new Map();
+    const { data } = await supabaseAdmin()
+      .from("kpi_snapshots")
+      .select("*")
+      .in("company_ticker", tickers)
+      .order("created_at", { ascending: false });
+
+    const result = new Map<string, KpiSnapshot>();
+    for (const row of (data ?? []) as StoredKpiRow[]) {
+      if (result.has(row.company_ticker)) continue; // first row per ticker = most recent
+      result.set(row.company_ticker, toEntity(row));
+    }
+    return result;
   }
 
   async upsertSnapshot(snapshot: KpiSnapshot): Promise<{ error: string | null }> {
