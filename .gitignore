@@ -3,6 +3,7 @@ venv/
 __pycache__/
 *.pyc
 data/
+!app/api/public/v1/data/
 *.index
 .env
 .DS_Store
