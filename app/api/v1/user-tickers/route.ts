@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { watchlistRepo } from "@/lib/repositories";
+import type { WatchlistTicker } from "@/lib/repositories/watchlist";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +12,10 @@ export interface UserTicker {
     added_at: string;
 }
 
+function toWire(t: WatchlistTicker): UserTicker {
+    return { ticker: t.ticker, name: t.name, sector: t.sector, added_at: t.addedAt };
+}
+
 // ── GET — list caller's custom tickers ───────────────────────────────────────
 
 export async function GET() {
@@ -17,13 +23,10 @@ export async function GET() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const { data, error } = await supabase
-        .from("user_tickers")
-        .select("ticker, name, sector, added_at")
-        .order("added_at", { ascending: false });
+    const { tickers, error } = await watchlistRepo.list(supabase);
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json(data ?? []);
+    if (error) return NextResponse.json({ error }, { status: 500 });
+    return NextResponse.json(tickers.map(toWire));
 }
 
 // ── POST — add a ticker to caller's list ─────────────────────────────────────
@@ -42,17 +45,10 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Invalid ticker" }, { status: 400 });
     }
 
-    const { data, error } = await supabase
-        .from("user_tickers")
-        .upsert(
-            { user_id: user.id, ticker, name: name || ticker, sector },
-            { onConflict: "user_id,ticker" }
-        )
-        .select("ticker, name, sector, added_at")
-        .single();
+    const { ticker: saved, error } = await watchlistRepo.add(supabase, user.id, ticker, name, sector);
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json(data);
+    if (error) return NextResponse.json({ error }, { status: 500 });
+    return NextResponse.json(saved ? toWire(saved) : null);
 }
 
 // ── DELETE — remove a ticker from caller's list ──────────────────────────────
@@ -66,11 +62,7 @@ export async function DELETE(req: NextRequest) {
     const ticker = searchParams.get("ticker")?.toUpperCase();
     if (!ticker) return NextResponse.json({ error: "ticker required" }, { status: 400 });
 
-    await supabase
-        .from("user_tickers")
-        .delete()
-        .eq("user_id", user.id)
-        .eq("ticker", ticker);
+    await watchlistRepo.remove(supabase, user.id, ticker);
 
     return NextResponse.json({ ok: true });
 }
