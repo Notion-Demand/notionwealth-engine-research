@@ -1,10 +1,8 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import { storageRepo } from "@/lib/repositories";
 import { NIFTY200 } from "@/lib/nifty200";
 
 export const dynamic = "force-dynamic";
-
-const BUCKET = "transcripts";
 
 /** GET /api/v1/available — returns { TICKER: ["Q3_2026", "Q2_2026", ...] } */
 export async function GET(req: Request) {
@@ -16,9 +14,14 @@ export async function GET(req: Request) {
   const offsetFiles: { name: string }[] = [];
   let offset = 0;
   while (true) {
-    const { data } = await supabaseAdmin()
-      .storage.from(BUCKET)
-      .list("", { limit: 1000, offset, sortBy: { column: "name", order: "asc" } });
+    // storageRepo.list() throws on error; this loop historically swallowed
+    // Storage errors and just stopped with whatever it had — preserved here.
+    let data: { name: string }[];
+    try {
+      data = await storageRepo.list({ limit: 1000, offset, sortBy: { column: "name", order: "asc" } });
+    } catch {
+      break;
+    }
     if (!data || data.length === 0) break;
     offsetFiles.push(...data);
     if (data.length < 1000) break;
@@ -51,10 +54,16 @@ export async function GET(req: Request) {
   // This is cheap (~50 parallel requests) and guarantees completeness.
   const tickerSearches = await Promise.all(
     Array.from(knownTickers).map(async (ticker) => {
-      const { data } = await supabaseAdmin()
-        .storage.from(BUCKET)
-        .list("", { limit: 50, search: ticker });
-      return { ticker, files: data ?? [] };
+      // storageRepo.list() throws on error; a single ticker's search failing
+      // must not fail every other ticker's lookup in this Promise.all — treat
+      // as no files found for that ticker, matching this endpoint's original
+      // silent-degrade behavior.
+      try {
+        const data = await storageRepo.list({ limit: 50, search: ticker });
+        return { ticker, files: data ?? [] };
+      } catch {
+        return { ticker, files: [] };
+      }
     })
   );
 
@@ -96,8 +105,12 @@ export async function GET(req: Request) {
     // Also do a direct prefix search via Supabase (independent of pagination)
     let directSearchFiles: string[] = [];
     if (search) {
-      const { data: sd } = await supabaseAdmin().storage.from(BUCKET).list("", { search, limit: 20 });
-      directSearchFiles = sd?.map((f) => f.name) ?? [];
+      try {
+        const sd = await storageRepo.list({ search, limit: 20 });
+        directSearchFiles = sd?.map((f) => f.name) ?? [];
+      } catch {
+        directSearchFiles = [];
+      }
     }
 
     return NextResponse.json({

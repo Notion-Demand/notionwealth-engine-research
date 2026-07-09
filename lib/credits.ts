@@ -8,7 +8,8 @@
  *   Multi-Quarter:     4 credits ($0.04)
  *   Screener/etc:      0 credits (DB reads)
  */
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import { creditsRepo } from "@/lib/repositories";
+import type { CreditStatus } from "@/lib/repositories/credits";
 
 const DEFAULT_QUOTA = 2_500;
 
@@ -23,33 +24,10 @@ function currentMonth(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
-export interface CreditStatus {
-  used: number;
-  quota: number;
-  remaining: number;
-  month: string;
-}
+export type { CreditStatus };
 
 export async function getCreditStatus(userId: string): Promise<CreditStatus> {
-  const month = currentMonth();
-
-  const { data } = await supabaseAdmin()
-    .from("user_credits")
-    .select("used, quota")
-    .eq("user_id", userId)
-    .eq("month", month)
-    .maybeSingle();
-
-  if (data) {
-    return { used: data.used, quota: data.quota, remaining: data.quota - data.used, month };
-  }
-
-  // First access this month — create row
-  await supabaseAdmin()
-    .from("user_credits")
-    .upsert({ user_id: userId, month, used: 0, quota: DEFAULT_QUOTA }, { onConflict: "user_id,month" });
-
-  return { used: 0, quota: DEFAULT_QUOTA, remaining: DEFAULT_QUOTA, month };
+  return creditsRepo.getOrCreateStatus(userId, currentMonth(), DEFAULT_QUOTA);
 }
 
 export async function checkAndDeduct(
@@ -65,12 +43,7 @@ export async function checkAndDeduct(
     return { allowed: false, remaining: status.remaining, cost };
   }
 
-  // Deduct
-  await supabaseAdmin()
-    .from("user_credits")
-    .update({ used: status.used + cost })
-    .eq("user_id", userId)
-    .eq("month", status.month);
+  await creditsRepo.setUsed(userId, status.month, status.used + cost);
 
   return { allowed: true, remaining: status.remaining - cost, cost };
 }

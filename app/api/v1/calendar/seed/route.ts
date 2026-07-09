@@ -15,7 +15,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import { analysisRepo, calendarRepo } from "@/lib/repositories";
 import { NIFTY200 } from "@/lib/nifty200";
 import { QUARTERS, MARKET_CAPS } from "@/lib/nifty50";
 
@@ -450,11 +450,9 @@ export async function POST(req: NextRequest) {
     const bseMap = buildBseToTicker();
 
     // Fetch existing analysis results to mark confirmed tickers
-    const { data: analyzed } = await supabaseAdmin()
-        .from("analysis_results")
-        .select("company_ticker, q_curr");
+    const pairs = await analysisRepo.listAllTickerQuarterPairs();
     const confirmedSet = new Set(
-        (analyzed ?? []).map((r) => `${r.company_ticker}:${r.q_curr}`)
+        pairs.map((p) => `${p.ticker}:${p.qCurr}`)
     );
 
     let totalUpserted = 0;
@@ -497,24 +495,22 @@ export async function POST(req: NextRequest) {
         }
 
         // 5. Upsert all into earnings_calendar
-        const rows = Array.from(resolved.values()).map(({ ticker, date, source }) => ({
+        const eventsToUpsert = Array.from(resolved.values()).map(({ ticker, date, source }) => ({
             ticker,
             date,
             quarter,
             source,
             confirmed: confirmedSet.has(`${ticker}:${quarter}`),
-            updated_at: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
         }));
 
-        const { error } = await supabaseAdmin()
-            .from("earnings_calendar")
-            .upsert(rows, { onConflict: "ticker,quarter" });
+        const { inserted, error } = await calendarRepo.upsertEvents(eventsToUpsert);
 
         if (error) {
-            log.push(`DB upsert error: ${error.message}`);
+            log.push(`DB upsert error: ${error}`);
         } else {
-            log.push(`Upserted ${rows.length} rows for ${quarter}`);
-            totalUpserted += rows.length;
+            log.push(`Upserted ${inserted} rows for ${quarter}`);
+            totalUpserted += inserted;
         }
     }
 

@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase/admin";
 import { MARKET_CAPS } from "@/lib/nifty50";
 import { ALL_SECTOR_UNIVERSE } from "@/lib/sub-sectors";
 import { fetchAndUploadTranscripts } from "@/lib/transcript-fetcher";
 import { runPipeline, resolvePdfKey } from "@/lib/pipeline";
 import type { DashboardPayload } from "@/lib/pipeline";
-import { getCachedAnalysis, saveAnalysis } from "@/lib/analysis-cache";
+import { analysisRepo, sectorRepo, storageRepo } from "@/lib/repositories";
+import { toDashboardPayload, fromDashboardPayload } from "@/lib/repositories/analysis";
+import { fromSectorWirePayload } from "@/lib/repositories/sectors";
 import { generateSectorNarrative } from "@/lib/sector-narrative";
 import type { SectorNarrative } from "@/lib/sector-narrative";
 import { sampleNifty200Signals } from "@/lib/nifty200-sampler";
@@ -340,9 +341,7 @@ export async function POST(request: Request) {
             const foundQuarters: string[] = [];
             let off = 0;
             outer: while (true) {
-                const { data: page } = await supabaseAdmin()
-                    .storage.from("transcripts")
-                    .list("", { limit: 100, offset: off, search: ticker });
+                const page = await storageRepo.list({ limit: 100, offset: off, search: ticker });
                 if (!page || page.length === 0) break;
                 for (const f of page) {
                     const m = f.name.match(fileRe);
@@ -368,9 +367,9 @@ export async function POST(request: Request) {
             for (let qi = 0; qi < quarters.length - 1; qi++) {
                 const qC = quarters[qi];     // newer
                 const qP = quarters[qi + 1]; // older
-                const hit = await getCachedAnalysis(ticker, qP, qC, { strict: false });
+                const hit = await analysisRepo.getCachedAnalysis(ticker, qP, qC, { strict: false });
                 if (hit) {
-                    foundCached = { payload: hit, qCurr: qC, qPrev: qP };
+                    foundCached = { payload: toDashboardPayload(hit), qCurr: qC, qPrev: qP };
                     break;
                 }
             }
@@ -400,7 +399,7 @@ export async function POST(request: Request) {
                 const payload = await runPipeline(qPrevKey, qCurrKey);
 
                 // Save to cache
-                await saveAnalysis(null, ticker, qPrev, qCurr, payload);
+                await analysisRepo.saveAnalysis(null, ticker, qPrev, qCurr, fromDashboardPayload(ticker, qPrev, qCurr, payload));
                 companyPayloads.push({ ticker, payload, quarter: qCurr, quarterPrev: qPrev });
                 newPipelineRuns++;
                 log.push(`[${sector}/${ticker}] Analysis complete. Overall: ${payload.overall_signal} (${payload.overall_score})`);
@@ -449,17 +448,10 @@ export async function POST(request: Request) {
             } else {
                 // Re-use existing narrative from the current DB row so it isn't wiped
                 // when we re-seed without ?narrative=true
-                const { data: existingRow } = await supabaseAdmin()
-                    .from("sector_intelligence")
-                    .select("payload")
-                    .eq("sector", sector)
-                    .maybeSingle();
-                if (existingRow?.payload) {
-                    const existingPayload = existingRow.payload as unknown as SectorIntelligence;
-                    if (existingPayload.narrative) {
-                        sectorIntel.narrative = existingPayload.narrative;
-                        log.push(`[${sector}] Carried over existing narrative`);
-                    }
+                const existing = await sectorRepo.getBySector(sector);
+                if (existing?.narrative) {
+                    sectorIntel.narrative = existing.narrative;
+                    log.push(`[${sector}] Carried over existing narrative`);
                 }
             }
 
@@ -470,25 +462,16 @@ export async function POST(request: Request) {
             const quarter = companyPayloads[0].quarter;
 
             // Delete ALL existing rows for this sector (any quarter) then insert fresh.
-            await supabaseAdmin()
-                .from("sector_intelligence")
-                .delete()
-                .eq("sector", sector);
-
-            const { data: insertData, error: insertErr } = await supabaseAdmin()
-                .from("sector_intelligence")
-                .insert({
-                    sector,
-                    quarter,
-                    payload: sectorIntel as unknown as Record<string, unknown>,
-                })
-                .select("id")
-                .single();
+            const { id: insertedId, error: insertErr } = await sectorRepo.replaceSector(
+                sector,
+                quarter,
+                fromSectorWirePayload(sectorIntel)
+            );
 
             if (insertErr) {
-                log.push(`[${sector}] DB INSERT ERROR: ${insertErr.message} (code=${insertErr.code})`);
+                log.push(`[${sector}] DB INSERT ERROR: ${insertErr}`);
             } else {
-                log.push(`[${sector}] Stored sector intelligence: ${companyPayloads.length} companies, quarter=${quarter} id=${insertData?.id}`);
+                log.push(`[${sector}] Stored sector intelligence: ${companyPayloads.length} companies, quarter=${quarter} id=${insertedId}`);
             }
         } else {
             log.push(`[${sector}] No company data available. Skipping sector.`);

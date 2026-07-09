@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase/admin";
 import { NIFTY200 } from "@/lib/nifty200";
+import { analysisRepo, calendarRepo } from "@/lib/repositories";
 
 export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
@@ -151,23 +151,15 @@ export async function GET(req: NextRequest) {
 
     // ── 1. Query earnings_calendar DB (primary) ───────────────────────────────
 
-    const { data: dbRows, error: dbError } = await supabaseAdmin()
-        .from("earnings_calendar")
-        .select("ticker, date, quarter, source, confirmed")
-        .gte("date", fromDate)
-        .lte("date", toDate)
-        .order("date");
+    const { events: dbRows, error: dbError } = await calendarRepo.listInRange(fromDate, toDate);
 
     // ── 2. Check which tickers have analysis results (only relevant tickers) ─
 
     const relevantTickers = Array.from(new Set((dbRows ?? []).map((r) => r.ticker)));
     let analyzedTickers = new Set<string>();
     if (relevantTickers.length > 0) {
-        const { data: analyzed } = await supabaseAdmin()
-            .from("analysis_results")
-            .select("company_ticker")
-            .in("company_ticker", relevantTickers);
-        analyzedTickers = new Set((analyzed ?? []).map((r) => r.company_ticker));
+        const tickers = await analysisRepo.listTickersWithAnalysis(relevantTickers);
+        analyzedTickers = new Set(tickers);
     }
 
     const events: Record<string, CalendarEvent[]> = {};

@@ -3,7 +3,7 @@
  * for reuse by the sector intelligence seed endpoint.
  */
 import pdfParse from "pdf-parse";
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import { storageRepo } from "@/lib/repositories";
 
 // ── HTTP headers ──────────────────────────────────────────────────────────────
 
@@ -37,8 +37,6 @@ const BSE_API_HEADERS = {
     Origin: "https://www.bseindia.com",
     Accept: "application/json, */*",
 };
-
-const BUCKET = "transcripts";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -339,14 +337,15 @@ export async function fetchAndUploadTranscripts(
         return { uploaded, skipped, errors };
     }
 
-    // 3. Get already-uploaded files to skip duplicates
-    const allExisting: { name: string }[] = [];
-    let off = 0;
-    while (true) {
-        const { data: page } = await supabaseAdmin().storage.from(BUCKET).list("", { limit: 100, offset: off });
-        if (!page || page.length === 0) break;
-        allExisting.push(...page);
-        off += page.length;
+    // 3. Get already-uploaded files to skip duplicates.
+    // storageRepo.listAllPaginated() throws on a Storage error; this call
+    // originally swallowed such errors and just proceeded with whatever
+    // page(s) it had already collected — preserved here.
+    let allExisting: { name: string }[] = [];
+    try {
+      allExisting = await storageRepo.listAllPaginated();
+    } catch {
+      // keep allExisting as whatever was collected (empty, in this catch path)
     }
     const existingNames = new Set(allExisting.map((f) => f.name.toLowerCase()));
 
@@ -388,12 +387,11 @@ export async function fetchAndUploadTranscripts(
                 continue;
             }
 
-            const { error: uploadError } = await supabaseAdmin()
-                .storage.from(BUCKET)
-                .upload(filename, pdf, { contentType: "application/pdf", upsert: true });
-
-            if (uploadError) {
-                errors.push(`upload_failed:${filename}:${uploadError.message}`);
+            try {
+                await storageRepo.upload(filename, pdf);
+            } catch (uploadError) {
+                const msg = uploadError instanceof Error ? uploadError.message : String(uploadError);
+                errors.push(`upload_failed:${filename}:${msg}`);
                 continue;
             }
 

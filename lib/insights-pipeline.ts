@@ -10,7 +10,8 @@
 import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
 import type { Schema } from "@google/generative-ai";
 import pdfParse from "pdf-parse";
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import { insightsRepo, storageRepo } from "@/lib/repositories";
+import { fromInsightsWirePayload, toInsightsWirePayload } from "@/lib/repositories/insights";
 
 // ── Progress events ───────────────────────────────────────────────────────────
 
@@ -255,22 +256,9 @@ async function getCachedInsights(
   ticker: string,
   qKey: string
 ): Promise<InsightsPayload | null> {
-  try {
-    const cutoff = new Date(
-      Date.now() - CACHE_TTL_DAYS * 24 * 60 * 60 * 1000
-    ).toISOString();
-    const { data, error } = await supabaseAdmin()
-      .from("insights_cache")
-      .select("payload")
-      .eq("ticker", ticker)
-      .eq("quarters_key", qKey)
-      .gte("created_at", cutoff)
-      .maybeSingle();
-    if (error || !data) return null;
-    return data.payload as InsightsPayload;
-  } catch {
-    return null;
-  }
+  const entity = await insightsRepo.getCached(ticker, qKey, CACHE_TTL_DAYS);
+  if (!entity) return null;
+  return toInsightsWirePayload(entity);
 }
 
 async function setCachedInsights(
@@ -278,24 +266,16 @@ async function setCachedInsights(
   qKey: string,
   payload: InsightsPayload
 ): Promise<void> {
-  await supabaseAdmin()
-    .from("insights_cache")
-    .upsert(
-      { ticker, quarters_key: qKey, payload, created_at: new Date().toISOString() },
-      { onConflict: "ticker,quarters_key" }
-    );
+  await insightsRepo.saveInsights(ticker, qKey, fromInsightsWirePayload(payload));
 }
 
 // ── Storage helpers ───────────────────────────────────────────────────────────
 
-const BUCKET = "transcripts";
 const MAX_CHARS = 120_000;
 
 export async function getQuartersForTicker(ticker: string): Promise<string[]> {
   // Direct ticker search — same approach as /api/v1/available (A-Z fan-out was unreliable)
-  const { data } = await supabaseAdmin()
-    .storage.from(BUCKET)
-    .list("", { limit: 50, search: ticker });
+  const data = await storageRepo.list({ limit: 50, search: ticker });
   const quarters: string[] = [];
   for (const f of data ?? []) {
     const m = f.name.match(/^(.+?)_Q(\d)_(\d{4})\.pdf$/i);
@@ -314,11 +294,7 @@ export async function getQuartersForTicker(ticker: string): Promise<string[]> {
 
 async function fetchTranscriptText(ticker: string, quarter: string): Promise<string> {
   const filename = `${ticker}_${quarter}.pdf`;
-  const { data: blob, error } = await supabaseAdmin()
-    .storage.from(BUCKET)
-    .download(filename);
-  if (error || !blob) throw new Error(`Download failed: ${filename}`);
-  const buf = Buffer.from(await blob.arrayBuffer());
+  const buf = await storageRepo.download(filename);
   const parsed = await pdfParse(buf);
   return parsed.text.slice(0, MAX_CHARS);
 }

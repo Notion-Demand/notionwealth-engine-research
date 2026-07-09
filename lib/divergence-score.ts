@@ -8,7 +8,7 @@
  * say which. So this flags an *activity spike* worth checking against the
  * underlying filing — it does not itself claim bullish/bearish promoter intent.
  */
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import { insightsRepo } from "@/lib/repositories";
 import type { PromoterActivityEvent } from "./promoter-activity-fetcher";
 
 export type PledgeActivityLevel = "quiet" | "normal" | "elevated";
@@ -57,18 +57,19 @@ export async function computeDivergence(
     pledgeActivityLevel = "normal";
   }
 
-  // Latest concall sentiment read, if one exists
-  const { data } = await supabaseAdmin()
-    .from("insights_cache")
-    .select("payload")
-    .eq("ticker", ticker)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  // Latest concall sentiment read, if one exists.
+  // NOTE (pre-existing, not introduced by this migration): this reads
+  // overall_signal/overall_score off whatever's stored in insights_cache, but
+  // InsightsWirePayload (what lib/insights-pipeline.ts actually writes there)
+  // has no such fields — it has management_credibility_score instead. This
+  // means concallSignal/concallScore below are very likely always null in
+  // practice. Preserved as-is per Strangler Fig discipline; flagged for a
+  // human decision on whether to fix, not fixed here.
+  const rawPayload = await insightsRepo.getLatestRawPayload(ticker);
 
-  const payload = data?.payload as
+  const payload = rawPayload as
     | { overall_signal?: DivergenceResult["concallSignal"]; overall_score?: number }
-    | undefined;
+    | null;
   const concallSignal = payload?.overall_signal ?? null;
   const concallScore = payload?.overall_score ?? null;
 

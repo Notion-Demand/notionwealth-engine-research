@@ -8,7 +8,7 @@ import type { Schema } from "@google/generative-ai";
 import pdfParse from "pdf-parse";
 import { NIFTY50 } from "./nifty50";
 import { NIFTY200 } from "./nifty200";
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import { storageRepo } from "@/lib/repositories";
 
 // ── Progress events (streamed back to client during pipeline execution) ───────
 
@@ -215,8 +215,6 @@ async function invokeStructured<T>(
 
 // ── PDF helpers ───────────────────────────────────────────────────────────────
 
-const STORAGE_BUCKET = "transcripts";
-
 /**
  * Returns the storage key (filename) for a given ticker + quarter.
  * Paginates the bucket list to handle >1000 files and Supabase's
@@ -224,17 +222,7 @@ const STORAGE_BUCKET = "transcripts";
  */
 export async function resolvePdfKey(ticker: string, quarter: string): Promise<string> {
   const target = `${ticker}_${quarter}.pdf`.toLowerCase();
-  const allFiles: { name: string }[] = [];
-  let offset = 0;
-  while (true) {
-    const { data, error } = await supabaseAdmin()
-      .storage.from(STORAGE_BUCKET)
-      .list("", { limit: 100, offset });
-    if (error) throw new Error(`Storage list failed: ${error.message}`);
-    if (!data || data.length === 0) break;
-    allFiles.push(...data);
-    offset += data.length;
-  }
+  const allFiles = await storageRepo.listAllPaginated();
   const file = allFiles.find((f) => f.name.toLowerCase() === target);
   if (file) return file.name;
   const available = allFiles
@@ -250,11 +238,7 @@ export async function resolvePdfKey(ticker: string, quarter: string): Promise<st
 const MAX_TRANSCRIPT_CHARS = 120_000;
 
 async function extractPdfText(storageKey: string): Promise<string> {
-  const { data: blob, error } = await supabaseAdmin()
-    .storage.from(STORAGE_BUCKET)
-    .download(storageKey);
-  if (error || !blob) throw new Error(`Storage download failed for ${storageKey}: ${error?.message}`);
-  const buffer = Buffer.from(await blob.arrayBuffer());
+  const buffer = await storageRepo.download(storageKey);
 
   const header = buffer.slice(0, 5).toString("ascii");
   console.log(`[Pipeline] ${storageKey}: ${buffer.length} bytes, header="${header}"`);

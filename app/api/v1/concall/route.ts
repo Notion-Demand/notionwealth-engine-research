@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { NIFTY200 } from "@/lib/nifty200";
 import { quarterLabel } from "@/lib/nifty50";
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import { concallRepo } from "@/lib/repositories";
 
 export const dynamic = "force-dynamic";
 
@@ -132,20 +132,15 @@ export async function GET(req: NextRequest) {
 
     // ── 1. Check DB cache (skip if retry) ────────────────────────────────────
     if (!retry) {
-        const { data: cached } = await supabaseAdmin()
-            .from("concall_links")
-            .select("youtube_url, video_id, video_title, channel_title")
-            .eq("ticker", ticker)
-            .eq("quarter", quarter)
-            .maybeSingle();
+        const cached = await concallRepo.getCached(ticker, quarter);
 
         if (cached) {
             const result: ConcallResult = {
-                url:     cached.youtube_url,
-                videoId: cached.video_id ?? null,
-                title:   cached.video_title ?? null,
-                channel: cached.channel_title ?? null,
-                direct:  !!cached.video_id,
+                url:     cached.youtubeUrl,
+                videoId: cached.videoId,
+                title:   cached.videoTitle,
+                channel: cached.channelTitle,
+                direct:  !!cached.videoId,
                 query,
             };
             return NextResponse.json(result, { headers: { "Cache-Control": "no-store" } });
@@ -171,17 +166,15 @@ export async function GET(req: NextRequest) {
     }
 
     // ── 3. Cache result in DB ─────────────────────────────────────────────────
-    await supabaseAdmin()
-        .from("concall_links")
-        .upsert({
-            ticker,
-            quarter,
-            youtube_url:   result.url,
-            video_id:      result.videoId,
-            video_title:   result.title,
-            channel_title: result.channel,
-            fetched_at:    new Date().toISOString(),
-        }, { onConflict: "ticker,quarter" });
+    await concallRepo.saveLink({
+        ticker,
+        quarter,
+        youtubeUrl: result.url,
+        videoId: result.videoId,
+        videoTitle: result.title,
+        channelTitle: result.channel,
+        fetchedAt: new Date().toISOString(),
+    });
 
     return NextResponse.json(result, { headers: { "Cache-Control": "no-store" } });
 }

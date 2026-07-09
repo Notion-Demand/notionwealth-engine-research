@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUserId } from "@/lib/auth";
-import { supabaseAdmin } from "@/lib/supabase/admin";
-
-const BUCKET = "transcripts";
+import { storageRepo } from "@/lib/repositories";
 
 /**
  * GET /api/v1/transcript/download?ticker=RELIANCE&quarter=Q4_2026
@@ -25,10 +23,15 @@ export async function GET(req: NextRequest) {
 
   const filename = `${ticker}_${quarter}.pdf`;
 
-  // Verify file exists
-  const { data: list } = await supabaseAdmin()
-    .storage.from(BUCKET)
-    .list("", { search: ticker.toLowerCase(), limit: 50 });
+  // Verify file exists. storageRepo.list() throws on a Storage error; this
+  // originally swallowed such errors (list would just be undefined, falling
+  // through to the same 404 as a genuine not-found) — preserved here.
+  let list: { name: string }[] = [];
+  try {
+    list = await storageRepo.list({ search: ticker.toLowerCase(), limit: 50 });
+  } catch {
+    // fall through to the 404 below, matching original swallowed-error behavior
+  }
 
   const found = list?.find((f) => f.name.toLowerCase() === filename.toLowerCase());
   if (!found) {
@@ -36,13 +39,11 @@ export async function GET(req: NextRequest) {
   }
 
   // Generate a signed URL valid for 5 minutes
-  const { data: signed, error } = await supabaseAdmin()
-    .storage.from(BUCKET)
-    .createSignedUrl(found.name, 300);
-
-  if (error || !signed) {
-    return NextResponse.json({ detail: `Could not generate download URL: ${error?.message}` }, { status: 500 });
+  try {
+    const signedUrl = await storageRepo.createSignedUrl(found.name, 300);
+    return NextResponse.json({ url: signedUrl, filename: found.name });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return NextResponse.json({ detail: `Could not generate download URL: ${msg}` }, { status: 500 });
   }
-
-  return NextResponse.json({ url: signed.signedUrl, filename: found.name });
 }
