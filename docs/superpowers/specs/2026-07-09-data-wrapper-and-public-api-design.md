@@ -395,6 +395,19 @@ optional transaction handle) rather than services attempting multi-step
 consistency themselves by calling repositories serially. Documented now so
 it's a deliberate extension later, not a scramble.
 
+## Future extension (named, not built): domain entities instead of DTOs
+
+Repositories in this design return today's existing internal types
+(`DashboardPayload`, `SectorNarrative`, etc.) unchanged — not a new domain-
+entity layer (e.g. `AnalysisAggregate`). This is fine while the portal and
+the public API/Services layer are the only consumers. If this data is ever
+consumed by more shapes of caller — background jobs, internal tooling, an
+AI pipeline reading its own prior output — a repository returning a true
+domain entity (rather than a payload shaped for today's dashboard UI)
+becomes the better long-term boundary. Not building that now: there's no
+second consumer shape yet to justify it, and the existing types work fine
+for the portal and the anti-corruption-layer mapping alike.
+
 ## Non-goals
 
 - Self-serve signup or billing UI
