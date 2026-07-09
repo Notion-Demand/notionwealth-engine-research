@@ -7,6 +7,8 @@ import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
 import type { Schema } from "@google/generative-ai";
 import { resolvePdfKey, parseFilename } from "./pipeline";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { soloAnalysisRepo } from "@/lib/repositories";
+import { fromSoloWirePayload, toSoloWirePayload } from "@/lib/repositories/soloAnalysis";
 import pdfParse from "pdf-parse";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -131,34 +133,13 @@ async function extractText(storageKey: string): Promise<string> {
 // ── Cache ────────────────────────────────────────────────────────────────────
 
 async function getCached(ticker: string, quarter: string): Promise<SoloPayload | null> {
-  const { data } = await supabaseAdmin()
-    .from("solo_analysis_cache")
-    .select("payload")
-    .eq("ticker", ticker)
-    .eq("quarter", quarter)
-    .maybeSingle();
-  if (!data?.payload) return null;
-  const p = (typeof data.payload === "string" ? JSON.parse(data.payload) : data.payload) as SoloPayload;
-  if (!p.sections || p.sections.length === 0) return null;
-  return p;
+  const entity = await soloAnalysisRepo.getCached(ticker, quarter);
+  if (!entity) return null;
+  return toSoloWirePayload(entity);
 }
 
 async function setCache(ticker: string, quarter: string, payload: SoloPayload): Promise<string> {
-  try {
-    await supabaseAdmin()
-      .from("solo_analysis_cache")
-      .delete()
-      .eq("ticker", ticker)
-      .eq("quarter", quarter);
-    const { data } = await supabaseAdmin()
-      .from("solo_analysis_cache")
-      .insert({ ticker, quarter, payload })
-      .select("id")
-      .single();
-    return data?.id ?? "unknown";
-  } catch {
-    return "unknown";
-  }
+  return soloAnalysisRepo.saveAnalysis(ticker, quarter, fromSoloWirePayload(ticker, quarter, payload));
 }
 
 // ── Main pipeline ────────────────────────────────────────────────────────────
