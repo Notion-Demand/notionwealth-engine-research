@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase/admin";
 import { MARKET_CAPS } from "@/lib/nifty50";
 import { ALL_SECTOR_UNIVERSE } from "@/lib/sub-sectors";
 import { fetchAndUploadTranscripts } from "@/lib/transcript-fetcher";
 import { runPipeline, resolvePdfKey } from "@/lib/pipeline";
 import type { DashboardPayload } from "@/lib/pipeline";
-import { analysisRepo, sectorRepo } from "@/lib/repositories";
+import { analysisRepo, sectorRepo, storageRepo } from "@/lib/repositories";
 import { toDashboardPayload, fromDashboardPayload } from "@/lib/repositories/analysis";
 import { fromSectorWirePayload } from "@/lib/repositories/sectors";
 import { generateSectorNarrative } from "@/lib/sector-narrative";
@@ -342,9 +341,7 @@ export async function POST(request: Request) {
             const foundQuarters: string[] = [];
             let off = 0;
             outer: while (true) {
-                const { data: page } = await supabaseAdmin()
-                    .storage.from("transcripts")
-                    .list("", { limit: 100, offset: off, search: ticker });
+                const page = await storageRepo.list({ limit: 100, offset: off, search: ticker });
                 if (!page || page.length === 0) break;
                 for (const f of page) {
                     const m = f.name.match(fileRe);

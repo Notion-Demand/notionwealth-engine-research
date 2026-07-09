@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { NIFTY200, SCREENER_SLUGS_200 } from "@/lib/nifty200";
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import { storageRepo } from "@/lib/repositories";
 import {
     fetchCompanyPage,
     fetchBseTranscripts,
@@ -12,8 +12,6 @@ import {
 import pdfParse from "pdf-parse";
 
 export const maxDuration = 300; // Vercel Pro limit — 200 tickers take time
-
-const BUCKET = "transcripts";
 
 /**
  * POST /api/v1/seed-transcripts
@@ -47,16 +45,16 @@ export async function POST(req: NextRequest) {
                 controller.enqueue(encoder.encode(JSON.stringify(data) + "\n"));
             };
 
-            // 1. List all existing files in the bucket
+            // 1. List all existing files in the bucket.
+            // storageRepo.listAllPaginated() throws on a Storage error; this
+            // call originally swallowed such errors and proceeded with
+            // whatever had already been collected — preserved here.
             const existingNames = new Set<string>();
-            let offset = 0;
-            while (true) {
-                const { data: page } = await supabaseAdmin()
-                    .storage.from(BUCKET)
-                    .list("", { limit: 100, offset });
-                if (!page || page.length === 0) break;
-                for (const f of page) existingNames.add(f.name.toLowerCase());
-                offset += page.length;
+            try {
+                const allFiles = await storageRepo.listAllPaginated();
+                for (const f of allFiles) existingNames.add(f.name.toLowerCase());
+            } catch {
+                // keep existingNames as whatever was collected (empty, in this catch path)
             }
 
             send({
@@ -151,12 +149,11 @@ export async function POST(req: NextRequest) {
                                 continue;
                             }
 
-                            const { error: uploadError } = await supabaseAdmin()
-                                .storage.from(BUCKET)
-                                .upload(filename, pdf, { contentType: "application/pdf", upsert: true });
-
-                            if (uploadError) {
-                                errors.push(`upload_failed:${filename}:${uploadError.message}`);
+                            try {
+                                await storageRepo.upload(filename, pdf);
+                            } catch (uploadError) {
+                                const msg = uploadError instanceof Error ? uploadError.message : String(uploadError);
+                                errors.push(`upload_failed:${filename}:${msg}`);
                                 continue;
                             }
 

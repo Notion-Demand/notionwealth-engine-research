@@ -1,14 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { NIFTY200 } from "@/lib/nifty200";
-import { supabaseAdmin } from "@/lib/supabase/admin";
 import { runPipeline, resolvePdfKey } from "@/lib/pipeline";
-import { analysisRepo } from "@/lib/repositories";
+import { analysisRepo, storageRepo } from "@/lib/repositories";
 import { fromDashboardPayload } from "@/lib/repositories/analysis";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
-
-const BUCKET = "transcripts";
 
 /**
  * POST /api/v1/seed-analysis
@@ -44,16 +41,16 @@ export async function POST(req: NextRequest) {
         controller.enqueue(encoder.encode(JSON.stringify(data) + "\n"));
       };
 
-      // 1. List all existing files to know which tickers have both quarters
+      // 1. List all existing files to know which tickers have both quarters.
+      // storageRepo.listAllPaginated() throws on a Storage error; this call
+      // originally swallowed such errors and proceeded with whatever had
+      // already been collected — preserved here.
       const existingNames = new Set<string>();
-      let offset = 0;
-      while (true) {
-        const { data: page } = await supabaseAdmin()
-          .storage.from(BUCKET)
-          .list("", { limit: 100, offset });
-        if (!page || page.length === 0) break;
-        for (const f of page) existingNames.add(f.name.toLowerCase());
-        offset += page.length;
+      try {
+        const allFiles = await storageRepo.listAllPaginated();
+        for (const f of allFiles) existingNames.add(f.name.toLowerCase());
+      } catch {
+        // keep existingNames as whatever was collected (empty, in this catch path)
       }
 
       // 2. Filter to tickers that have BOTH quarter PDFs

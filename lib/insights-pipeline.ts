@@ -10,8 +10,7 @@
 import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
 import type { Schema } from "@google/generative-ai";
 import pdfParse from "pdf-parse";
-import { supabaseAdmin } from "@/lib/supabase/admin";
-import { insightsRepo } from "@/lib/repositories";
+import { insightsRepo, storageRepo } from "@/lib/repositories";
 import { fromInsightsWirePayload, toInsightsWirePayload } from "@/lib/repositories/insights";
 
 // ── Progress events ───────────────────────────────────────────────────────────
@@ -272,14 +271,11 @@ async function setCachedInsights(
 
 // ── Storage helpers ───────────────────────────────────────────────────────────
 
-const BUCKET = "transcripts";
 const MAX_CHARS = 120_000;
 
 export async function getQuartersForTicker(ticker: string): Promise<string[]> {
   // Direct ticker search — same approach as /api/v1/available (A-Z fan-out was unreliable)
-  const { data } = await supabaseAdmin()
-    .storage.from(BUCKET)
-    .list("", { limit: 50, search: ticker });
+  const data = await storageRepo.list({ limit: 50, search: ticker });
   const quarters: string[] = [];
   for (const f of data ?? []) {
     const m = f.name.match(/^(.+?)_Q(\d)_(\d{4})\.pdf$/i);
@@ -298,11 +294,7 @@ export async function getQuartersForTicker(ticker: string): Promise<string[]> {
 
 async function fetchTranscriptText(ticker: string, quarter: string): Promise<string> {
   const filename = `${ticker}_${quarter}.pdf`;
-  const { data: blob, error } = await supabaseAdmin()
-    .storage.from(BUCKET)
-    .download(filename);
-  if (error || !blob) throw new Error(`Download failed: ${filename}`);
-  const buf = Buffer.from(await blob.arrayBuffer());
+  const buf = await storageRepo.download(filename);
   const parsed = await pdfParse(buf);
   return parsed.text.slice(0, MAX_CHARS);
 }

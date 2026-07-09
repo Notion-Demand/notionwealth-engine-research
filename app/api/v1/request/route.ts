@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import pdfParse from "pdf-parse";
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import { storageRepo } from "@/lib/repositories";
 import { createClient } from "@/lib/supabase/server";
 
 export const maxDuration = 60;
@@ -35,8 +35,6 @@ const BSE_API_HEADERS = {
   Origin: "https://www.bseindia.com",
   Accept: "application/json, */*",
 };
-
-const BUCKET = "transcripts";
 
 // ── Screener.in lookup ────────────────────────────────────────────────────────
 
@@ -370,16 +368,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, reason: "no_transcripts" }, { status: 200 });
   }
 
-  // 3. Get already-uploaded files to skip duplicates (paginate to catch all)
-  const allExisting: { name: string }[] = [];
-  {
-    let off = 0;
-    while (true) {
-      const { data: page } = await supabaseAdmin().storage.from(BUCKET).list("", { limit: 100, offset: off });
-      if (!page || page.length === 0) break;
-      allExisting.push(...page);
-      off += page.length;
-    }
+  // 3. Get already-uploaded files to skip duplicates (paginate to catch all).
+  // storageRepo.listAllPaginated() throws on a Storage error; this call
+  // originally swallowed such errors and proceeded with whatever had already
+  // been collected — preserved here.
+  let allExisting: { name: string }[] = [];
+  try {
+    allExisting = await storageRepo.listAllPaginated();
+  } catch {
+    // keep allExisting as whatever was collected (empty, in this catch path)
   }
   const existingNames = new Set(allExisting.map((f) => f.name.toLowerCase()));
   const existingForTicker = allExisting.map((f) => f.name).filter((n) => n.toLowerCase().startsWith(tickerClean.toLowerCase()));
@@ -458,13 +455,12 @@ export async function POST(req: NextRequest) {
       }
 
       console.log(`[request] ${tickerClean}: uploading ${filename} (${pdf.length} bytes)`);
-      const { error: uploadError } = await supabaseAdmin()
-        .storage.from(BUCKET)
-        .upload(filename, pdf, { contentType: "application/pdf", upsert: true });
-
-      if (uploadError) {
-        console.log(`[request] ${tickerClean}: UPLOAD_FAILED ${filename}: ${uploadError.message}`);
-        errors.push(`upload_failed:${filename}:${uploadError.message}`); continue;
+      try {
+        await storageRepo.upload(filename, pdf);
+      } catch (uploadError) {
+        const msg = uploadError instanceof Error ? uploadError.message : String(uploadError);
+        console.log(`[request] ${tickerClean}: UPLOAD_FAILED ${filename}: ${msg}`);
+        errors.push(`upload_failed:${filename}:${msg}`); continue;
       }
 
       console.log(`[request] ${tickerClean}: UPLOADED ${filename}`);

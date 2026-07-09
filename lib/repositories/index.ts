@@ -8,6 +8,7 @@ import { SupabaseInsightsRepository } from "./insights";
 import { SupabasePromoterActivityRepository } from "./promoterActivity";
 import { SupabaseCalendarRepository } from "./calendar";
 import { SupabaseConcallRepository } from "./concalls";
+import { SupabaseStorageRepository } from "./storage";
 
 export const analysisRepo = new SupabaseAnalysisRepository();
 export const sectorRepo = new SupabaseSectorRepository();
@@ -19,3 +20,4 @@ export const insightsRepo = new SupabaseInsightsRepository();
 export const promoterActivityRepo = new SupabasePromoterActivityRepository();
 export const calendarRepo = new SupabaseCalendarRepository();
 export const concallRepo = new SupabaseConcallRepository();
+export const storageRepo = new SupabaseStorageRepository();

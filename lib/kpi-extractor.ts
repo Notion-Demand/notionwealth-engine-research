@@ -436,25 +436,17 @@ export async function extractKPIs(ticker: string): Promise<KPISnapshot | null> {
     // This uses transcripts already in Supabase storage
     if (SECTOR_KPI_PROMPT[sector]) {
         try {
-            const { supabaseAdmin } = await import("@/lib/supabase/admin");
+            const { storageRepo } = await import("@/lib/repositories");
             // Find the latest transcript for this ticker
-            const { data: files } = await supabaseAdmin()
-                .storage.from("transcripts")
-                .list("", { search: ticker.toUpperCase(), limit: 5 });
+            const files = await storageRepo.list({ search: ticker.toUpperCase(), limit: 5 });
 
             if (files && files.length > 0) {
                 const latest = files.sort((a, b) => b.name.localeCompare(a.name))[0];
-                const { data: pdfData } = await supabaseAdmin()
-                    .storage.from("transcripts")
-                    .download(latest.name);
-
-                if (pdfData) {
-                    const pdfParse = (await import("pdf-parse")).default;
-                    const buffer = Buffer.from(await pdfData.arrayBuffer());
-                    const parsed = await pdfParse(buffer);
-                    const sectorKPIs = await extractSectorKPIs(sector, parsed.text, quarter);
-                    kpis.push(...sectorKPIs);
-                }
+                const buffer = await storageRepo.download(latest.name);
+                const pdfParse = (await import("pdf-parse")).default;
+                const parsed = await pdfParse(buffer);
+                const sectorKPIs = await extractSectorKPIs(sector, parsed.text, quarter);
+                kpis.push(...sectorKPIs);
             }
         } catch (e) {
             console.warn("[KPI] Sector KPI extraction skipped:", e);

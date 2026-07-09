@@ -6,8 +6,7 @@
 import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
 import type { Schema } from "@google/generative-ai";
 import { resolvePdfKey, parseFilename } from "./pipeline";
-import { supabaseAdmin } from "@/lib/supabase/admin";
-import { soloAnalysisRepo } from "@/lib/repositories";
+import { soloAnalysisRepo, storageRepo } from "@/lib/repositories";
 import { fromSoloWirePayload, toSoloWirePayload } from "@/lib/repositories/soloAnalysis";
 import pdfParse from "pdf-parse";
 
@@ -113,15 +112,10 @@ RULES:
 
 // ── PDF helper ───────────────────────────────────────────────────────────────
 
-const BUCKET = "transcripts";
 const MAX_CHARS = 120_000;
 
 async function extractText(storageKey: string): Promise<string> {
-  const { data: blob, error } = await supabaseAdmin()
-    .storage.from(BUCKET)
-    .download(storageKey);
-  if (error || !blob) throw new Error(`Download failed: ${storageKey}`);
-  const buf = Buffer.from(await blob.arrayBuffer());
+  const buf = await storageRepo.download(storageKey);
   if (buf.length === 0) throw new Error(`${storageKey} is empty`);
   if (!buf.slice(0, 5).toString("ascii").startsWith("%PDF")) {
     throw new Error(`${storageKey} is not a valid PDF`);
