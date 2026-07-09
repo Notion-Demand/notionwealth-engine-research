@@ -117,6 +117,7 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const ticker  = searchParams.get("ticker")?.toUpperCase();
     const quarter = searchParams.get("quarter");
+    const retry   = searchParams.get("retry") === "true";
 
     if (!ticker || !quarter) {
         return NextResponse.json({ error: "ticker and quarter required" }, { status: 400 });
@@ -129,24 +130,26 @@ export async function GET(req: NextRequest) {
 
     const query = buildQuery(info.name, quarter);
 
-    // ── 1. Check DB cache ─────────────────────────────────────────────────────
-    const { data: cached } = await supabaseAdmin()
-        .from("concall_links")
-        .select("youtube_url, video_id, video_title, channel_title")
-        .eq("ticker", ticker)
-        .eq("quarter", quarter)
-        .maybeSingle();
+    // ── 1. Check DB cache (skip if retry) ────────────────────────────────────
+    if (!retry) {
+        const { data: cached } = await supabaseAdmin()
+            .from("concall_links")
+            .select("youtube_url, video_id, video_title, channel_title")
+            .eq("ticker", ticker)
+            .eq("quarter", quarter)
+            .maybeSingle();
 
-    if (cached) {
-        const result: ConcallResult = {
-            url:     cached.youtube_url,
-            videoId: cached.video_id ?? null,
-            title:   cached.video_title ?? null,
-            channel: cached.channel_title ?? null,
-            direct:  !!cached.video_id,
-            query,
-        };
-        return NextResponse.json(result, { headers: { "Cache-Control": "no-store" } });
+        if (cached) {
+            const result: ConcallResult = {
+                url:     cached.youtube_url,
+                videoId: cached.video_id ?? null,
+                title:   cached.video_title ?? null,
+                channel: cached.channel_title ?? null,
+                direct:  !!cached.video_id,
+                query,
+            };
+            return NextResponse.json(result, { headers: { "Cache-Control": "no-store" } });
+        }
     }
 
     // ── 2. Search YouTube API (if key present) ────────────────────────────────
