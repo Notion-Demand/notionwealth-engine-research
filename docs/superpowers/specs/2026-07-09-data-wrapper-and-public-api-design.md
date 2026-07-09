@@ -31,6 +31,26 @@ surface, eventual AI-provider diversification), not a one-off script. Each
 addition is justified below against what it actually buys, not adopted for
 its own sake.
 
+## Architectural principles
+
+These six rules are the checklist for every future addition to this system
+— repositories, services, or routes — not just what's built in this spec:
+
+1. Repositories own persistence only — no orchestration, no caching, no
+   calls to other repositories.
+2. Services own orchestration — composition, caching decisions, and (later)
+   AI/ranking workflows.
+3. Routes stay thin — parse the request, call one service or repository,
+   shape the response. No business logic in a route file.
+4. Provider-specific SDKs (Supabase today, Azure later) never escape the
+   repository layer — nothing above it imports `@supabase/supabase-js`
+   directly.
+5. External API contracts never expose internal models — every public
+   response passes through the anti-corruption mapping layer.
+6. Infrastructure is replaceable through the composition roots
+   (`lib/data/index.ts`, `lib/services/index.ts`) — swapping a provider or
+   faking a dependency for a test never requires touching a caller.
+
 ## Named patterns this design follows
 
 - **Repository Pattern** (Fowler, *PoEAA*) — domain-oriented objects exposing
@@ -47,6 +67,13 @@ its own sake.
 - **Dependency Injection via a composition root** — one file
   (`lib/data/index.ts`) decides which concrete repository implementation is
   active; nothing else in the codebase imports a concrete class directly.
+  Services follow the same discipline one layer up: each service takes its
+  repository dependencies through its constructor rather than importing
+  them inline, and a second composition root (`lib/services/index.ts`)
+  wires services to the repo instances from `lib/data/index.ts`. This makes
+  every service trivially testable with fake repositories whenever a test
+  runner is adopted — not needed today, but the cost of building it in now
+  is small and the retrofit cost later is not.
 - **Anti-Corruption Layer** (Evans, DDD) — the public API's response-mapping
   layer: internal shapes (`DashboardPayload`, `SectorNarrative`, etc.) are
   translated into a stable external contract, so internal pipeline changes
@@ -66,7 +93,11 @@ app/api/**                  Route handlers (thin — parse request, call a
         ↓
 lib/services/**              Orchestration: compose multiple repositories,
                              own caching decisions, the future home for
-                             LLM/ranking/embedding calls
+                             LLM/ranking/embedding calls. Classes,
+                             constructor-injected with their repo deps.
+        ↓
+lib/services/index.ts        Composition root — constructs each service
+                             with repo instances pulled from lib/data/index.ts
         ↓
 lib/data/** (Repositories)   Interfaces + Supabase-backed implementations.
                              Persistence only — no orchestration, no caching,
@@ -85,9 +116,13 @@ Supabase (today) / Azure (later)
   class. No caching, no calls to other repositories, no business logic.
 - **Services answer "what does this feature need, and should I even fetch
   it."** A service can call multiple repositories, decide whether to serve
-  from cache, and (later) call an LLM or ranking step. The public API's
-  Products layer *is* this Service layer — `lib/services/sectorThesisService.ts`
-  is what backs the `/v1/products/sector-thesis` endpoint.
+  from cache, and (later) call an LLM or ranking step. Services are
+  classes that receive their repository dependencies through the
+  constructor — never importing repo instances inline — so a fake
+  repository can be substituted in a test without touching the service's
+  own code. The public API's Products layer *is* this Service layer —
+  `SectorThesisService` is what backs the `/v1/products/sector-thesis`
+  endpoint.
 - **Route handlers stay thin.** They parse the request, call exactly one
   service or repository function, and shape the HTTP response — no
   orchestration logic ever lives directly in a route file.
@@ -210,16 +245,39 @@ code, written against the repositories from the start).
   thin route handler calling one repository method and mapping the result
   through a versioned external type (the anti-corruption layer — see below).
 - **Products layer** — endpoints under `app/api/public/v1/products/*`, each a
-  thin route handler calling one **Service** function
-  (`lib/services/<product>.ts`). A service composes multiple repositories
-  in-process (direct function calls, not HTTP calls to the Data layer — same
-  app, same runtime), and is also where caching and any future
+  thin route handler calling one **Service**. A service composes multiple
+  repositories in-process (direct method calls, not HTTP calls to the Data
+  layer — same app, same runtime), and is also where caching and any future
   LLM/ranking/embedding steps live. New products are new services; they
   never require new repository plumbing.
-- v1 ships the *pattern* plus **one concrete example product** —
-  `lib/services/sectorThesisService.ts`, composing `SectorRepository` +
-  `KpiRepository` + `AnalysisRepository` into a Sector Thesis view — to
-  prove the pattern before building more. Its exact field-by-field response
+- v1 ships the *pattern* plus **one concrete example product**:
+
+  ```ts
+  // lib/services/sectorThesisService.ts
+  export class SectorThesisService {
+    constructor(private deps: {
+      sectorRepo: SectorRepository;
+      kpiRepo: KpiRepository;
+      analysisRepo: AnalysisRepository;
+    }) {}
+
+    async getSectorThesis(sector: string): Promise<SectorThesisResult> {
+      // compose deps.sectorRepo / deps.kpiRepo / deps.analysisRepo
+    }
+  }
+  ```
+
+  ```ts
+  // lib/services/index.ts — composition root for services
+  import { sectorRepo, kpiRepo, analysisRepo } from "@/lib/data";
+  import { SectorThesisService } from "./sectorThesisService";
+
+  export const sectorThesisService = new SectorThesisService({ sectorRepo, kpiRepo, analysisRepo });
+  ```
+
+  The route handler imports `sectorThesisService` from `lib/services/index.ts`
+  — it never constructs a service itself, mirroring how callers consume
+  repositories from `lib/data/index.ts`. Its exact field-by-field response
   shape is a planning-level detail, not fixed here.
 
 **Caching rule:** if/when a product needs caching, it is added inside that
@@ -262,6 +320,31 @@ no self-serve UI in v1.
 `user_credits`. Checked in the same middleware, before the request is
 allowed through, on a rolling window (daily, to start).
 
+### Error boundaries
+
+Scoped to the public API/Services layer only — not retrofitted across all
+11 internal repositories, which have run fine on plain `null`/`Error`
+returns for the whole life of this app and show no evidence of needing
+more. External partners do need clear, distinguishable failures, so
+`lib/services/errors.ts` defines a small set of domain errors:
+`NotFoundError`, `UnauthorizedError`, `EntitlementError`,
+`QuotaExceededError`. Services and the auth middleware throw these; route
+handlers under `app/api/public/*` are the only place that translates a
+domain error into an HTTP status — a provider-specific exception
+(a Postgres error, a Supabase client error) never reaches a route handler
+or a partner response directly.
+
+### Observability
+
+Basic structured request logging in the `/api/public/*` middleware: request
+ID, partner ID, key ID, endpoint, HTTP status, total latency — logged for
+every request from day one. This is cheap and immediately useful for your
+own manual testing before any partner is live. Per-layer latency breakdown
+(DB time vs. service time), cache hit/miss, and AI latency are **not**
+built now — half of what they'd measure doesn't exist yet (no caching, and
+the one example product may not even call an LLM). Add those metrics when
+a layer exists that's actually worth measuring, not preemptively.
+
 ### Versioning
 
 `/v1/` prefix from day one, under both `/data/` and `/products/`.
@@ -301,6 +384,17 @@ pattern's next natural application is on record, not because it's being
 built now — doing so today would be solving a problem (multi-provider LLM
 routing) nobody has yet.
 
+## Future extension (named, not built): transactional multi-step writes
+
+Some future service will need atomic multi-step writes — e.g. save an
+analysis, update credits, write a usage record as one unit. Repositories in
+this design don't yet support a shared transaction context, and none of the
+v1 work requires one. When a service needs this, the repository interfaces
+affected should grow a transaction-aware variant (e.g. accepting an
+optional transaction handle) rather than services attempting multi-step
+consistency themselves by calling repositories serially. Documented now so
+it's a deliberate extension later, not a scramble.
+
 ## Non-goals
 
 - Self-serve signup or billing UI
@@ -310,6 +404,13 @@ routing) nobody has yet.
   ship; concrete Azure classes are written when that migration executes
 - AI-provider abstraction (`LLMService`/`EmbeddingService`) — named above as
   a future extension of this same pattern, not built here
+- Transaction-aware repository methods — named above as a future
+  extension, not built here; no v1 workflow needs multi-step atomic writes
+- Domain-error taxonomy across the 11 internal repositories — scoped to the
+  public API/Services layer only (see Error boundaries)
+- Per-layer observability (DB duration, cache hit/miss, AI latency) —
+  basic request-level logging ships now; the rest waits for a layer worth
+  measuring (see Observability)
 - Any change to the existing internal portal
 - More than one Products/Services-layer example (Sector Thesis) — further
   products are follow-on work using the now-established pattern
