@@ -23,124 +23,216 @@ here are additive.
 **Not self-serve.** API keys are manually provisioned per partner — no
 signup flow, no self-serve billing in this version.
 
+**Design posture:** this revision deliberately invests in more structure than
+the strict v1 feature set needs — a formal Service layer, interface-based
+Repositories, and a dependency-injection composition root — because the
+target is a multi-year platform (Azure migration, growing partner API
+surface, eventual AI-provider diversification), not a one-off script. Each
+addition is justified below against what it actually buys, not adopted for
+its own sake.
+
 ## Named patterns this design follows
 
-- **Repository Pattern** (Fowler, *PoEAA*) — the `lib/data/*` modules:
-  domain-oriented objects exposing purpose-built methods (`getCachedAnalysis()`),
-  never raw query-builder chains.
-- **Ports and Adapters / Hexagonal Architecture** (Cockburn) — each
-  `lib/data/*` module is a port; today's Supabase-backed implementation is one
-  adapter behind it; an Azure implementation is a second adapter behind the
-  same port, swapped without touching any caller.
+- **Repository Pattern** (Fowler, *PoEAA*) — domain-oriented objects exposing
+  purpose-built methods (`getCachedAnalysis()`), never raw query-builder
+  chains.
+- **Service Layer** (Fowler, *PoEAA*) — a layer above repositories that owns
+  orchestration, composition, and (later) caching; repositories stay
+  persistence-only.
+- **Strategy Pattern** (GoF) / **Ports and Adapters** (Cockburn) — each
+  repository is defined as an interface (the port); `SupabaseXRepository` is
+  today's implementation (the adapter/strategy); a future
+  `AzureXRepository` is a second implementation behind the same interface,
+  swapped without touching any caller.
+- **Dependency Injection via a composition root** — one file
+  (`lib/data/index.ts`) decides which concrete repository implementation is
+  active; nothing else in the codebase imports a concrete class directly.
 - **Anti-Corruption Layer** (Evans, DDD) — the public API's response-mapping
   layer: internal shapes (`DashboardPayload`, `SectorNarrative`, etc.) are
   translated into a stable external contract, so internal pipeline changes
   never leak into partner integrations.
 - **Strangler Fig** (Fowler) — the migration strategy: domain-by-domain
-  replacement of direct Supabase calls behind the new interface, live system
-  running throughout, never a big-bang rewrite.
+  replacement of direct Supabase calls behind the new interfaces, live
+  system running throughout, never a big-bang rewrite.
 - Two-layer API structure (stable resource layer + productized views on top)
   matches how established API businesses (Stripe, Twilio, Plaid-style) are
   built — validated against *Building an API Product* (Bruno Pedro, 2024).
 
-## Part 1: Data-Access Wrapper
+## Layering
+
+```
+app/api/**                  Route handlers (thin — parse request, call a
+                             service or repository, shape the response)
+        ↓
+lib/services/**              Orchestration: compose multiple repositories,
+                             own caching decisions, the future home for
+                             LLM/ranking/embedding calls
+        ↓
+lib/data/** (Repositories)   Interfaces + Supabase-backed implementations.
+                             Persistence only — no orchestration, no caching,
+                             no cross-domain composition.
+        ↓
+lib/data/index.ts            Composition root — the ONLY file that
+                             instantiates concrete repository classes
+        ↓
+Supabase (today) / Azure (later)
+```
+
+**Where each concern lives, and why:**
+- **Repositories answer "how do I fetch/persist this one thing."** One
+  repository per domain (`AnalysisRepository`, `SectorRepository`, etc.),
+  each a TypeScript `interface` plus a `SupabaseXRepository implements`
+  class. No caching, no calls to other repositories, no business logic.
+- **Services answer "what does this feature need, and should I even fetch
+  it."** A service can call multiple repositories, decide whether to serve
+  from cache, and (later) call an LLM or ranking step. The public API's
+  Products layer *is* this Service layer — `lib/services/sectorThesisService.ts`
+  is what backs the `/v1/products/sector-thesis` endpoint.
+- **Route handlers stay thin.** They parse the request, call exactly one
+  service or repository function, and shape the HTTP response — no
+  orchestration logic ever lives directly in a route file.
+
+## Part 1: Repositories (`lib/data/`)
 
 ### Scope
 
 **In scope:** the 11 Postgres tables and 1 Storage bucket currently accessed
 via `supabaseAdmin()`:
 
-| Module | Table(s) | Current refs |
+| Repository | Table(s) | Current refs |
 |---|---|---|
-| `lib/data/analysis.ts` | `analysis_results` | 9 |
-| `lib/data/sectors.ts` | `sector_intelligence` | 4 |
-| `lib/data/kpis.ts` | `kpi_snapshots` | 4 |
-| `lib/data/watchlist.ts` | `user_tickers` | 3 |
-| `lib/data/credits.ts` | `user_credits` | 3 |
-| `lib/data/solo-analysis.ts` | `solo_analysis_cache` | 3 |
-| `lib/data/insights.ts` | `insights_cache` | 3 |
-| `lib/data/promoter-activity.ts` | `promoter_activity`, `promoter_activity_fetch_log` | 4 |
-| `lib/data/calendar.ts` | `earnings_calendar` | 2 |
-| `lib/data/concalls.ts` | `concall_links` | 2 |
-| `lib/data/storage.ts` | `transcripts` Storage bucket | 10 files |
+| `AnalysisRepository` | `analysis_results` | 9 |
+| `SectorRepository` | `sector_intelligence` | 4 |
+| `KpiRepository` | `kpi_snapshots` | 4 |
+| `WatchlistRepository` | `user_tickers` | 3 |
+| `CreditsRepository` | `user_credits` | 3 |
+| `SoloAnalysisRepository` | `solo_analysis_cache` | 3 |
+| `InsightsRepository` | `insights_cache` | 3 |
+| `PromoterActivityRepository` | `promoter_activity`, `promoter_activity_fetch_log` | 4 |
+| `CalendarRepository` | `earnings_calendar` | 2 |
+| `ConcallRepository` | `concall_links` | 2 |
+| `StorageRepository` | `transcripts` Storage bucket | 10 files |
+
+Plus one new repository for the public API layer itself: `ApiAccessRepository`
+(`api_partners`, `api_keys`, `api_key_products`, `api_usage` — see Part 2).
 
 **Out of scope: Auth.** 14 files use `supabase.auth.*` (OAuth callbacks,
 session/cookie handling via `@supabase/ssr`). Auth is not meaningfully
-abstractable behind a generic connection-layer wrapper the way CRUD/Storage
-are — OAuth flows, session/token formats, and redirect mechanics differ
-fundamentally by provider (Supabase Auth vs. Azure's eventual auth product,
-not yet chosen). Building a universal Auth abstraction now, before the target
-is known, risks over-engineering around the wrong requirements. Auth gets its
-own dedicated project when the Azure migration is actually executed.
+abstractable behind a repository interface the way CRUD/Storage are — OAuth
+flows, session/token formats, and redirect mechanics differ fundamentally by
+provider (Supabase Auth vs. Azure's eventual auth product, not yet chosen).
+Building a universal Auth abstraction now, before the target is known, risks
+over-engineering around the wrong requirements. Auth gets its own dedicated
+project when the Azure migration is actually executed.
 
 ### Structure
 
-No generic "Postgres adapter" layer sits underneath the 11 modules — each
-module talks to Supabase directly today, same as it does now, just relocated
-behind named, purpose-built functions. A future Azure swap means rewriting
-the *inside* of these 11 files; every one of the 31 calling files is
-untouched, since they only ever call e.g. `getCachedAnalysis(ticker, qPrev,
-qCurr)`, never Supabase directly. A thin generic query-builder passthrough
-would just reinvent Supabase's own API against a new backend without
-actually decoupling anything — deliberately not building that.
+Each domain gets one file, `lib/data/<domain>.ts`, containing:
 
-Two files already exemplify this pattern and become the template:
-`lib/analysis-cache.ts` (→ `lib/data/analysis.ts`) and `lib/credits.ts` (→
-`lib/data/credits.ts`).
+```ts
+export interface AnalysisRepository {
+  getCachedAnalysis(ticker: string, qPrev: string, qCurr: string): Promise<DashboardPayload | null>;
+  saveAnalysis(userId: string | null, ticker: string, qPrev: string, qCurr: string, payload: DashboardPayload): Promise<string>;
+}
 
-Each new module's exact function set is determined during planning by
+export class SupabaseAnalysisRepository implements AnalysisRepository {
+  async getCachedAnalysis(ticker, qPrev, qCurr) { /* today's supabaseAdmin() query, unchanged behavior */ }
+  async saveAnalysis(userId, ticker, qPrev, qCurr, payload) { /* today's supabaseAdmin() query, unchanged behavior */ }
+}
+```
+
+Interface and Supabase implementation live in the same file — not split
+across separate `types.ts`/`supabase.ts` files. A future `AzureAnalysisRepository
+implements AnalysisRepository` is a new class added to the same file when the
+Azure migration actually happens; it is **not built now** — building a
+placeholder Azure implementation today, before the target Postgres client is
+even chosen, would be pure speculation with no code to verify it against.
+The interface is what "prepares" for it; the second implementation is
+future work with a clear, well-defined shape once that day comes.
+
+**Composition root** — `lib/data/index.ts`:
+
+```ts
+import { SupabaseAnalysisRepository } from "./analysis";
+import { SupabaseSectorRepository } from "./sectors";
+// ...one import + one instantiation per domain
+
+export const analysisRepo = new SupabaseAnalysisRepository();
+export const sectorRepo = new SupabaseSectorRepository();
+// ...
+```
+
+Every caller — the existing 31 files being migrated, the new Services layer,
+route handlers — imports instances from `lib/data/index.ts` (e.g.
+`import { analysisRepo } from "@/lib/data"`), never a concrete class
+directly. The Azure cutover, when it happens, is: implement the new classes,
+then change 11 lines in this one file. No other file changes.
+
+Two existing files already exemplify the target shape and become the
+template: `lib/analysis-cache.ts` (→ `AnalysisRepository`) and
+`lib/credits.ts` (→ `CreditsRepository`).
+
+Each repository's exact method set is determined during planning by
 auditing that domain's actual current call sites — not designed in the
-abstract here. As an illustration of the shape (not a commitment to these
-exact signatures): `lib/data/sectors.ts` would expose something like
-`getSectorPayload(sector, quarter)` / `saveSectorPayload(...)` /
-`listSeededSectors()`, mirroring whatever operations the 4 existing call
-sites actually perform today.
+abstract here.
 
 ### Migration strategy
 
 Strangler Fig, domain-by-domain — 11 independent steps, each:
 
-1. Write the new `lib/data/X.ts` module, wrapping today's actual queries
-   behind named functions (same behavior, relocated, not redesigned).
-2. Update that domain's call sites to import from the new module instead of
-   `supabaseAdmin()` directly.
+1. Write the new `lib/data/<domain>.ts` — interface, `SupabaseXRepository`
+   class wrapping today's actual queries (same behavior, relocated, not
+   redesigned), and its entry in `lib/data/index.ts`.
+2. Update that domain's call sites to import the repo instance from
+   `lib/data/index.ts` instead of calling `supabaseAdmin()` directly.
 3. Verify: `npx tsc --noEmit`, plus a manual smoke check of the affected
    screen(s)/route(s) via the dev server (no test runner exists in this
    repo).
 4. Commit.
 
 No domain's migration touches another domain's files. A failure or rollback
-in one module never puts working code for the other ten at risk.
+in one repository never puts working code for the other ten at risk.
 
-## Part 2: Public API Layer
+## Part 2: Services and the Public API Layer
 
 ### Scope
 
 Consumers: enterprise partners only, manually provisioned — PMS firms first,
-AMCs second. All public API code depends exclusively on `lib/data/*` — never
-`supabaseAdmin()` directly, from day one (no need to wait for the full
-Part 1 migration to finish; the public API is new code, written against the
-wrapper from the start).
+AMCs second. All public API code depends exclusively on `lib/data/index.ts`
+repository instances — never `supabaseAdmin()` directly, from day one (no
+need to wait for the full Part 1 migration to finish; the public API is new
+code, written against the repositories from the start).
 
-### Architecture: two-layer REST
+### Architecture: two-layer REST, with Services as the second layer
 
 - **Data layer** — stable resource endpoints under `app/api/public/v1/data/*`
-  (e.g. `/v1/data/companies/{ticker}`, `/v1/data/sectors/{sector}`), each
-  wrapping the corresponding `lib/data/*` function and mapping its result
+  (e.g. `/v1/data/companies/{ticker}`, `/v1/data/sectors/{sector}`), each a
+  thin route handler calling one repository method and mapping the result
   through a versioned external type (the anti-corruption layer — see below).
-- **Products layer** — composed, opinionated endpoints under
-  `app/api/public/v1/products/*`, built by calling `lib/data/*` functions
-  directly (in-process function composition, not HTTP calls to the Data
-  layer — same app, same runtime) and combining them into a sellable "view."
-  New products are new compositions; they never require new data plumbing.
-- v1 ships the *pattern* plus **one concrete example product** — a Sector
-  Thesis endpoint composing sector narrative + dimension heat map + supporting
-  company signals — to prove the pattern before building more. Its exact
-  field-by-field response shape is a planning-level detail, not fixed here.
+- **Products layer** — endpoints under `app/api/public/v1/products/*`, each a
+  thin route handler calling one **Service** function
+  (`lib/services/<product>.ts`). A service composes multiple repositories
+  in-process (direct function calls, not HTTP calls to the Data layer — same
+  app, same runtime), and is also where caching and any future
+  LLM/ranking/embedding steps live. New products are new services; they
+  never require new repository plumbing.
+- v1 ships the *pattern* plus **one concrete example product** —
+  `lib/services/sectorThesisService.ts`, composing `SectorRepository` +
+  `KpiRepository` + `AnalysisRepository` into a Sector Thesis view — to
+  prove the pattern before building more. Its exact field-by-field response
+  shape is a planning-level detail, not fixed here.
+
+**Caching rule:** if/when a product needs caching, it is added inside that
+product's service function, never inside a repository. A repository never
+knows or cares whether its result came from cache — that decision belongs
+one layer up, where the *feature's* freshness/cost tradeoff is understood.
+No caching is implemented in v1; this is the rule to follow whenever it's
+added.
 
 ### Auth & entitlements
 
-New module `lib/data/api-access.ts` and three new tables:
+New repository `ApiAccessRepository` (`lib/data/apiAccess.ts`) and three new
+tables:
 
 - `api_partners` — `id`, `name`, `created_at`.
 - `api_keys` — `id`, `partner_id`, `key_hash`, `active`, `created_at`.
@@ -149,26 +241,26 @@ New module `lib/data/api-access.ts` and three new tables:
 
 New `middleware.ts`, scoped to `/api/public/*` only (this app has no
 middleware today — the existing internal routes are untouched). It validates
-an `Authorization: Bearer <key>` header, hashes and looks up the key, checks
-`active` plus entitlement for the requested product/resource, and attaches
-partner context to the request.
+an `Authorization: Bearer <key>` header, hashes and looks up the key via
+`ApiAccessRepository`, checks `active` plus entitlement for the requested
+product/resource, and attaches partner context to the request.
 
 A request for a product the key isn't entitled to gets **403**, not 404.
-Since keys are manually provisioned to known, contracted partners (not
-open self-serve signup), there's no meaningful "don't reveal a product
-exists" concern to defend against here — a partner who's out of contract
-scope should get a clear, actionable "not entitled, contact us" error, not
-an ambiguous 404 that reads as a broken integration on their end.
+Since keys are manually provisioned to known, contracted partners (not open
+self-serve signup), there's no meaningful "don't reveal a product exists"
+concern to defend against here — a partner who's out of contract scope
+should get a clear, actionable "not entitled, contact us" error, not an
+ambiguous 404 that reads as a broken integration on their end.
 
 Keys are provisioned by inserting rows directly (an internal admin script) —
 no self-serve UI in v1.
 
 ### Rate limiting
 
-New table `api_usage` (`key_id`, `window_start`, `request_count`) — same
-Postgres-counter pattern already proven in `user_credits`. Checked in the
-same middleware, before the request is allowed through, on a rolling window
-(daily, to start).
+`api_usage` table (`key_id`, `window_start`, `request_count`), accessed via
+`ApiAccessRepository` — same Postgres-counter pattern already proven in
+`user_credits`. Checked in the same middleware, before the request is
+allowed through, on a rolling window (daily, to start).
 
 ### Versioning
 
@@ -196,14 +288,31 @@ never a silent mutation of `/v1/`.
   artifact, not a code deliverable — flagged as a dependency of going live,
   out of scope for this spec.
 
+## Future extension (named, not built): AI-provider abstraction
+
+The same interface + pluggable-implementation + composition-root pattern
+applies directly to model providers once that becomes a real need — an
+`LLMService` behind `AzureOpenAIProvider` / `OpenAIProvider` /
+`AnthropicProvider` / `GeminiProvider`, and similarly an `EmbeddingService`
+if/when embeddings enter the pipeline. Today's pipeline
+(`lib/pipeline.ts`, `lib/sector-narrative.ts`, `lib/company-memory.ts`) calls
+Gemini directly, and nothing here changes that. This is flagged so the
+pattern's next natural application is on record, not because it's being
+built now — doing so today would be solving a problem (multi-provider LLM
+routing) nobody has yet.
+
 ## Non-goals
 
 - Self-serve signup or billing UI
 - Auth-provider abstraction (stays on Supabase Auth; revisit when the Azure
   migration actually executes)
+- Building `AzureXRepository` implementations now — the interfaces are what
+  ship; concrete Azure classes are written when that migration executes
+- AI-provider abstraction (`LLMService`/`EmbeddingService`) — named above as
+  a future extension of this same pattern, not built here
 - Any change to the existing internal portal
-- More than one Products-layer example (Sector Thesis) — further products
-  are follow-on work using the now-established pattern
+- More than one Products/Services-layer example (Sector Thesis) — further
+  products are follow-on work using the now-established pattern
 - GraphQL
 
 ## Testing
@@ -218,12 +327,13 @@ yet.
 
 ## Open questions carried into planning
 
-- Exact function signatures for each `lib/data/*` module — requires a
+- Exact method signatures for each repository interface — requires a
   careful per-file audit of current call-site behavior during planning, not
   guessed here.
 - Exact field-by-field response shape for the Sector Thesis product.
-- Given the combined scope (11 wrapper modules + a full new API subsystem),
-  the resulting implementation plan is large. It may make sense to split it
-  into two plans at the writing-plans stage — wrapper-and-migration, then
-  API-layer-on-top — even though this is one spec. That decision is
-  deferred to planning, not made here.
+- Given the combined scope (11 repositories + composition root + a full new
+  API/Services subsystem), the resulting implementation plan is large. It
+  may make sense to split it into two plans at the writing-plans stage —
+  repositories-and-migration, then services-and-API-layer-on-top — even
+  though this is one spec. That decision is deferred to planning, not made
+  here.
