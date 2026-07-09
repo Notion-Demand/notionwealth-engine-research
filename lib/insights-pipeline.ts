@@ -11,6 +11,8 @@ import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
 import type { Schema } from "@google/generative-ai";
 import pdfParse from "pdf-parse";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { insightsRepo } from "@/lib/repositories";
+import { fromInsightsWirePayload, toInsightsWirePayload } from "@/lib/repositories/insights";
 
 // ── Progress events ───────────────────────────────────────────────────────────
 
@@ -255,22 +257,9 @@ async function getCachedInsights(
   ticker: string,
   qKey: string
 ): Promise<InsightsPayload | null> {
-  try {
-    const cutoff = new Date(
-      Date.now() - CACHE_TTL_DAYS * 24 * 60 * 60 * 1000
-    ).toISOString();
-    const { data, error } = await supabaseAdmin()
-      .from("insights_cache")
-      .select("payload")
-      .eq("ticker", ticker)
-      .eq("quarters_key", qKey)
-      .gte("created_at", cutoff)
-      .maybeSingle();
-    if (error || !data) return null;
-    return data.payload as InsightsPayload;
-  } catch {
-    return null;
-  }
+  const entity = await insightsRepo.getCached(ticker, qKey, CACHE_TTL_DAYS);
+  if (!entity) return null;
+  return toInsightsWirePayload(entity);
 }
 
 async function setCachedInsights(
@@ -278,12 +267,7 @@ async function setCachedInsights(
   qKey: string,
   payload: InsightsPayload
 ): Promise<void> {
-  await supabaseAdmin()
-    .from("insights_cache")
-    .upsert(
-      { ticker, quarters_key: qKey, payload, created_at: new Date().toISOString() },
-      { onConflict: "ticker,quarters_key" }
-    );
+  await insightsRepo.saveInsights(ticker, qKey, fromInsightsWirePayload(payload));
 }
 
 // ── Storage helpers ───────────────────────────────────────────────────────────
