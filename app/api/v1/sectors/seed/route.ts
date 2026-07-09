@@ -5,7 +5,8 @@ import { ALL_SECTOR_UNIVERSE } from "@/lib/sub-sectors";
 import { fetchAndUploadTranscripts } from "@/lib/transcript-fetcher";
 import { runPipeline, resolvePdfKey } from "@/lib/pipeline";
 import type { DashboardPayload } from "@/lib/pipeline";
-import { getCachedAnalysis, saveAnalysis } from "@/lib/analysis-cache";
+import { analysisRepo } from "@/lib/repositories";
+import { toDashboardPayload, fromDashboardPayload } from "@/lib/repositories/analysis";
 import { generateSectorNarrative } from "@/lib/sector-narrative";
 import type { SectorNarrative } from "@/lib/sector-narrative";
 import { sampleNifty200Signals } from "@/lib/nifty200-sampler";
@@ -368,9 +369,9 @@ export async function POST(request: Request) {
             for (let qi = 0; qi < quarters.length - 1; qi++) {
                 const qC = quarters[qi];     // newer
                 const qP = quarters[qi + 1]; // older
-                const hit = await getCachedAnalysis(ticker, qP, qC, { strict: false });
+                const hit = await analysisRepo.getCachedAnalysis(ticker, qP, qC, { strict: false });
                 if (hit) {
-                    foundCached = { payload: hit, qCurr: qC, qPrev: qP };
+                    foundCached = { payload: toDashboardPayload(hit), qCurr: qC, qPrev: qP };
                     break;
                 }
             }
@@ -400,7 +401,7 @@ export async function POST(request: Request) {
                 const payload = await runPipeline(qPrevKey, qCurrKey);
 
                 // Save to cache
-                await saveAnalysis(null, ticker, qPrev, qCurr, payload);
+                await analysisRepo.saveAnalysis(null, ticker, qPrev, qCurr, fromDashboardPayload(ticker, qPrev, qCurr, payload));
                 companyPayloads.push({ ticker, payload, quarter: qCurr, quarterPrev: qPrev });
                 newPipelineRuns++;
                 log.push(`[${sector}/${ticker}] Analysis complete. Overall: ${payload.overall_signal} (${payload.overall_score})`);

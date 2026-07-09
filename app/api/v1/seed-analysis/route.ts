@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { NIFTY200 } from "@/lib/nifty200";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { runPipeline, resolvePdfKey } from "@/lib/pipeline";
-import { getCachedAnalysis, saveAnalysis } from "@/lib/analysis-cache";
+import { analysisRepo } from "@/lib/repositories";
+import { fromDashboardPayload } from "@/lib/repositories/analysis";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -91,7 +92,7 @@ export async function POST(req: NextRequest) {
         try {
           // Check cache first (unless force)
           if (!force) {
-            const existing = await getCachedAnalysis(ticker, qPrev, qCurr);
+            const existing = await analysisRepo.getCachedAnalysis(ticker, qPrev, qCurr);
             if (existing) {
               cached++;
               send({
@@ -100,8 +101,8 @@ export async function POST(req: NextRequest) {
                 ticker,
                 name: info.name,
                 status: "cached",
-                overall_signal: existing.overall_signal,
-                overall_score: existing.overall_score,
+                overall_signal: existing.overallSignal,
+                overall_score: existing.overallScore,
               });
               continue;
             }
@@ -123,7 +124,7 @@ export async function POST(req: NextRequest) {
           const payload = await runPipeline(qPrevKey, qCurrKey);
 
           // Save to DB
-          await saveAnalysis(null, ticker, qPrev, qCurr, payload);
+          await analysisRepo.saveAnalysis(null, ticker, qPrev, qCurr, fromDashboardPayload(ticker, qPrev, qCurr, payload));
           analyzed++;
 
           send({

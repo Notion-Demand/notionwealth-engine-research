@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase/admin";
 import { NIFTY200 } from "@/lib/nifty200";
 import { NIFTY50, QUARTERS } from "@/lib/nifty50";
+import { analysisRepo } from "@/lib/repositories";
+import type { AnalysisRecord } from "@/lib/repositories/analysis";
 
 export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
@@ -22,21 +23,6 @@ interface MetricDelta {
 interface SectionalInsight {
     section_name: string;
     metrics: MetricDelta[];
-}
-
-interface StoredPayload {
-    company_ticker: string;
-    quarter: string;
-    quarter_previous: string;
-    overall_score: number;
-    overall_signal: "Positive" | "Negative" | "Mixed" | "Noise";
-    summary: string;
-    insights: SectionalInsight[];
-    earnings_delta?: string[];
-    // Signal quality fields (all present in pipeline output)
-    validation_score?: number;        // 0–100
-    flagged_count?: number;           // integer ≥ 0
-    executive_evasiveness_score?: number; // 0–10
 }
 
 export interface ScreenerSignal {
@@ -144,26 +130,19 @@ function qIdx(q: string): number {
 
 // ── Signal builder ────────────────────────────────────────────────────────────
 
-type DbRow = { company_ticker: string; q_curr: string; q_prev: string; payload: unknown; created_at: string };
-
 function buildSignal(
     ticker: string,
-    row: DbRow,
+    record: AnalysisRecord,
     isNifty50: boolean,
 ): ScreenerSignal | null {
-    let payload: StoredPayload;
-    try {
-        payload = typeof row.payload === "string" ? JSON.parse(row.payload) : row.payload as StoredPayload;
-    } catch {
-        return null;
-    }
-    if (!payload?.insights || !Array.isArray(payload.insights)) return null;
+    const { analysis } = record;
+    if (!analysis?.sections || !Array.isArray(analysis.sections)) return null;
 
     // Collect all non-Noise metrics
     const allMetrics: { metric: MetricDelta; section: string }[] = [];
-    for (const insight of payload.insights) {
+    for (const insight of analysis.sections) {
         if (!insight.metrics) continue;
-        for (const m of insight.metrics) {
+        for (const m of insight.metrics as unknown as MetricDelta[]) {
             if (m.signal_classification !== "Noise" && Math.abs(m.signal_score) > 0.5) {
                 allMetrics.push({ metric: m, section: insight.section_name });
             }
@@ -174,12 +153,12 @@ function buildSignal(
     allMetrics.sort((a, b) => Math.abs(b.metric.signal_score) - Math.abs(a.metric.signal_score));
     const top = allMetrics[0];
 
-    const validationScore = payload.validation_score ?? 70;
-    const flaggedCount = payload.flagged_count ?? 0;
-    const evasiveness = payload.executive_evasiveness_score ?? 5;
+    const validationScore = analysis.validationScore ?? 70;
+    const flaggedCount = analysis.flaggedCount ?? 0;
+    const evasiveness = analysis.evasivenessScore ?? 5;
     const disclosureInflation = detectDisclosureInflation(
-        payload.summary ?? "",
-        payload.earnings_delta ?? []
+        analysis.summary ?? "",
+        analysis.earningsDelta ?? []
     );
     const confidence = computeConfidence(
         validationScore,
@@ -196,16 +175,16 @@ function buildSignal(
         score: top.metric.signal_score,
         signal: top.metric.signal_classification,
         section: top.section,
-        overall_score: payload.overall_score ?? 0,
-        overall_signal: payload.overall_signal ?? "Noise",
-        summary: payload.summary ?? "",
-        quarter: row.q_curr,
-        quarter_previous: row.q_prev,
-        earnings_delta: payload.earnings_delta ?? [],
+        overall_score: analysis.overallScore ?? 0,
+        overall_signal: analysis.overallSignal ?? "Noise",
+        summary: analysis.summary ?? "",
+        quarter: record.quarter,
+        quarter_previous: record.quarterPrevious,
+        earnings_delta: analysis.earningsDelta ?? [],
         confidence_pct: confidence.pct,
         adjusted_score: Math.round(top.metric.signal_score * confidence.multiplier * 100) / 100,
         flags: confidence.flags,
-        is_current_quarter: row.q_curr === Q_CURR && row.q_prev === Q_PREV,
+        is_current_quarter: record.quarter === Q_CURR && record.quarterPrevious === Q_PREV,
         is_nifty50: isNifty50,
     };
 }
@@ -233,11 +212,7 @@ export async function GET() {
     const nifty200OnlyTickers = nifty200Tickers.filter((t) => !nifty50Set.has(t));
 
     // ── Pass 1: Nifty 50 — best available analysis per ticker ─────────────────
-    const { data: n50Rows, error: n50Err } = await supabaseAdmin()
-        .from("analysis_results")
-        .select("company_ticker, q_curr, q_prev, payload, created_at")
-        .in("company_ticker", nifty50Tickers)
-        .order("created_at", { ascending: false });
+    const { records: n50Records, error: n50Err } = await analysisRepo.listAllByTickers(nifty50Tickers);
 
     if (n50Err) {
         console.error("[screener] Nifty50 DB error:", n50Err);
@@ -245,27 +220,21 @@ export async function GET() {
     }
 
     // Keep the row with the highest q_curr per ticker
-    const n50Best = new Map<string, DbRow>();
-    for (const row of (n50Rows ?? [])) {
-        const existing = n50Best.get(row.company_ticker);
-        if (!existing || qIdx(row.q_curr) > qIdx(existing.q_curr)) {
-            n50Best.set(row.company_ticker, row as DbRow);
+    const n50Best = new Map<string, AnalysisRecord>();
+    for (const record of n50Records) {
+        const existing = n50Best.get(record.ticker);
+        if (!existing || qIdx(record.quarter) > qIdx(existing.quarter)) {
+            n50Best.set(record.ticker, record);
         }
     }
 
     // ── Pass 2: Nifty 200 (non-N50) — current quarter pair only ──────────────
-    const { data: n200Rows } = await supabaseAdmin()
-        .from("analysis_results")
-        .select("company_ticker, q_curr, q_prev, payload, created_at")
-        .eq("q_prev", Q_PREV)
-        .eq("q_curr", Q_CURR)
-        .in("company_ticker", nifty200OnlyTickers)
-        .order("created_at", { ascending: false });
+    const n200Records = await analysisRepo.listByTickersAndQuarterPair(nifty200OnlyTickers, Q_PREV, Q_CURR);
 
-    const n200Best = new Map<string, DbRow>();
-    for (const row of (n200Rows ?? [])) {
-        if (!n200Best.has(row.company_ticker)) {
-            n200Best.set(row.company_ticker, row as DbRow);
+    const n200Best = new Map<string, AnalysisRecord>();
+    for (const record of n200Records) {
+        if (!n200Best.has(record.ticker)) {
+            n200Best.set(record.ticker, record);
         }
     }
 

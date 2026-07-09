@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { NIFTY200 } from "@/lib/nifty200";
+import { analysisRepo } from "@/lib/repositories";
 
 export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
@@ -163,11 +164,8 @@ export async function GET(req: NextRequest) {
     const relevantTickers = Array.from(new Set((dbRows ?? []).map((r) => r.ticker)));
     let analyzedTickers = new Set<string>();
     if (relevantTickers.length > 0) {
-        const { data: analyzed } = await supabaseAdmin()
-            .from("analysis_results")
-            .select("company_ticker")
-            .in("company_ticker", relevantTickers);
-        analyzedTickers = new Set((analyzed ?? []).map((r) => r.company_ticker));
+        const tickers = await analysisRepo.listTickersWithAnalysis(relevantTickers);
+        analyzedTickers = new Set(tickers);
     }
 
     const events: Record<string, CalendarEvent[]> = {};

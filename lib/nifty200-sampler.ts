@@ -6,9 +6,8 @@
  * These "extended context" signals give Gemini a broader picture of the sector.
  */
 
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import { analysisRepo } from "@/lib/repositories";
 import { NIFTY200 } from "@/lib/nifty200";
-import type { DashboardPayload } from "@/lib/pipeline";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -85,44 +84,29 @@ export async function sampleNifty200Signals(
     if (candidateTickers.length === 0) return [];
 
     // Batch query — fetch extra rows to allow for dedup/quality filtering
-    const { data, error } = await supabaseAdmin()
-        .from("analysis_results")
-        .select("company_ticker, payload")
-        .eq("q_curr", qCurr)
-        .in("company_ticker", candidateTickers)
-        .order("created_at", { ascending: false })
-        .limit(maxSamples * 3);
-
-    if (error || !data || data.length === 0) return [];
+    const records = await analysisRepo.listRecentByTickersAndQuarter(candidateTickers, qCurr, maxSamples * 3);
+    if (records.length === 0) return [];
 
     const seen = new Set<string>();
     const results: CompactSignal[] = [];
 
-    for (const row of data) {
-        if (seen.has(row.company_ticker)) continue;
-        seen.add(row.company_ticker);
+    for (const record of records) {
+        if (seen.has(record.ticker)) continue;
+        seen.add(record.ticker);
 
-        // Parse payload
-        let payload: DashboardPayload;
-        try {
-            payload = typeof row.payload === "string"
-                ? (JSON.parse(row.payload) as DashboardPayload)
-                : (row.payload as unknown as DashboardPayload);
-        } catch {
-            continue;
-        }
+        const { analysis } = record;
 
         // Skip empty or low-quality results
-        if (!Array.isArray(payload.insights) || payload.insights.length === 0) continue;
-        if (!payload.summary?.trim()) continue;
+        if (!Array.isArray(analysis.sections) || analysis.sections.length === 0) continue;
+        if (!analysis.summary?.trim()) continue;
 
-        const info = NIFTY200[row.company_ticker];
+        const info = NIFTY200[record.ticker];
         results.push({
-            ticker: row.company_ticker,
-            name: info?.name ?? row.company_ticker,
-            overall_signal: payload.overall_signal ?? "Neutral",
-            overall_score: payload.overall_score ?? 0,
-            summary: payload.summary.trim(),
+            ticker: record.ticker,
+            name: info?.name ?? record.ticker,
+            overall_signal: analysis.overallSignal ?? "Neutral",
+            overall_score: analysis.overallScore ?? 0,
+            summary: analysis.summary.trim(),
         });
 
         if (results.length >= maxSamples) break;

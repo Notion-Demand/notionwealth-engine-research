@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUserId } from "@/lib/auth";
 import { runPipeline, resolvePdfKey } from "@/lib/pipeline";
-import { getCachedAnalysis, saveAnalysis } from "@/lib/analysis-cache";
+import { analysisRepo } from "@/lib/repositories";
+import { toDashboardPayload, fromDashboardPayload } from "@/lib/repositories/analysis";
 import { checkAndDeduct } from "@/lib/credits";
 
 export const maxDuration = 300;
@@ -52,14 +53,14 @@ export async function POST(req: NextRequest) {
   const encoder = new TextEncoder();
 
   // ── Cache hit: serve instantly ────────────────────────────────────────────
-  const cached = force ? null : await getCachedAnalysis(tickerUp, q_prev, q_curr);
+  const cached = force ? null : await analysisRepo.getCachedAnalysis(tickerUp, q_prev, q_curr);
   if (cached) {
     console.log(`[Cache] HIT for ${tickerUp} ${q_prev}→${q_curr}`);
     const stream = new ReadableStream({
       start(controller) {
         controller.enqueue(
           encoder.encode(
-            JSON.stringify({ type: "done", payload: cached, id: "cached", fromCache: true }) + "\n"
+            JSON.stringify({ type: "done", payload: toDashboardPayload(cached), id: "cached", fromCache: true }) + "\n"
           )
         );
         controller.close();
@@ -106,7 +107,7 @@ export async function POST(req: NextRequest) {
 
       try {
         const payload = await runPipeline(qPrevKey, qCurrKey, send);
-        const savedId = await saveAnalysis(userId, tickerUp, q_prev, q_curr, payload);
+        const savedId = await analysisRepo.saveAnalysis(userId, tickerUp, q_prev, q_curr, fromDashboardPayload(tickerUp, q_prev, q_curr, payload));
         send({ type: "done", payload, id: savedId });
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);

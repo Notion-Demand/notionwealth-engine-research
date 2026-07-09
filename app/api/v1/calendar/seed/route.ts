@@ -16,6 +16,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { analysisRepo } from "@/lib/repositories";
 import { NIFTY200 } from "@/lib/nifty200";
 import { QUARTERS, MARKET_CAPS } from "@/lib/nifty50";
 
@@ -450,11 +451,9 @@ export async function POST(req: NextRequest) {
     const bseMap = buildBseToTicker();
 
     // Fetch existing analysis results to mark confirmed tickers
-    const { data: analyzed } = await supabaseAdmin()
-        .from("analysis_results")
-        .select("company_ticker, q_curr");
+    const pairs = await analysisRepo.listAllTickerQuarterPairs();
     const confirmedSet = new Set(
-        (analyzed ?? []).map((r) => `${r.company_ticker}:${r.q_curr}`)
+        pairs.map((p) => `${p.ticker}:${p.qCurr}`)
     );
 
     let totalUpserted = 0;
