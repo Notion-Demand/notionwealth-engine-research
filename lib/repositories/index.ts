@@ -5,6 +5,7 @@ import { SupabaseWatchlistRepository } from "./watchlist";
 import { SupabaseCreditsRepository } from "./credits";
 import { SupabaseSoloAnalysisRepository } from "./soloAnalysis";
 import { SupabaseInsightsRepository } from "./insights";
+import { SupabasePromoterActivityRepository } from "./promoterActivity";
 
 export const analysisRepo = new SupabaseAnalysisRepository();
 export const sectorRepo = new SupabaseSectorRepository();
@@ -13,3 +14,4 @@ export const watchlistRepo = new SupabaseWatchlistRepository();
 export const creditsRepo = new SupabaseCreditsRepository();
 export const soloAnalysisRepo = new SupabaseSoloAnalysisRepository();
 export const insightsRepo = new SupabaseInsightsRepository();
+export const promoterActivityRepo = new SupabasePromoterActivityRepository();
