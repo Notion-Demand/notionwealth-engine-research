@@ -25,37 +25,43 @@ signup flow, no self-serve billing in this version.
 
 **Design posture:** this revision deliberately invests in more structure than
 the strict v1 feature set needs — a formal Service layer, interface-based
-Repositories, and a dependency-injection composition root — because the
-target is a multi-year platform (Azure migration, growing partner API
-surface, eventual AI-provider diversification), not a one-off script. Each
-addition is justified below against what it actually buys, not adopted for
-its own sake.
+Repositories returning domain entities, and a dependency-injection
+composition root — because the target is a multi-year platform (Azure
+migration, growing partner API surface, eventual AI-provider
+diversification), not a one-off script. Each addition is justified below
+against what it actually buys, not adopted for its own sake.
 
 ## Architectural principles
 
-These six rules are the checklist for every future addition to this system
-— repositories, services, or routes — not just what's built in this spec:
+These seven rules are the checklist for every future addition to this
+system — repositories, services, or routes — not just what's built in this
+spec:
 
 1. Repositories own persistence only — no orchestration, no caching, no
    calls to other repositories.
-2. Services own orchestration — composition, caching decisions, and (later)
+2. Repositories return domain entities that they own and define — never a
+   type borrowed from the pipeline/UI layer, and never the raw
+   persisted/storage shape.
+3. Services own orchestration — composition, caching decisions, and (later)
    AI/ranking workflows.
-3. Routes stay thin — parse the request, call one service or repository,
+4. Routes stay thin — parse the request, call one service or repository,
    shape the response. No business logic in a route file.
-4. Provider-specific SDKs (Supabase today, Azure later) never escape the
+5. Provider-specific SDKs (Supabase today, Azure later) never escape the
    repository layer — nothing above it imports `@supabase/supabase-js`
    directly.
-5. External API contracts never expose internal models — every public
+6. External API contracts never expose internal models — every public
    response passes through the anti-corruption mapping layer.
-6. Infrastructure is replaceable through the composition roots
-   (`lib/data/index.ts`, `lib/services/index.ts`) — swapping a provider or
-   faking a dependency for a test never requires touching a caller.
+7. Infrastructure is replaceable through the composition roots
+   (`lib/repositories/index.ts`, `lib/services/index.ts`) — swapping a
+   provider or faking a dependency for a test never requires touching a
+   caller.
 
 ## Named patterns this design follows
 
-- **Repository Pattern** (Fowler, *PoEAA*) — domain-oriented objects exposing
-  purpose-built methods (`getCachedAnalysis()`), never raw query-builder
-  chains.
+- **Repository Pattern** (Fowler, *PoEAA*) — domain-oriented objects
+  exposing purpose-built methods (`getCachedAnalysis()`) that return domain
+  entities, never raw query-builder chains and never a storage-shaped
+  payload.
 - **Service Layer** (Fowler, *PoEAA*) — a layer above repositories that owns
   orchestration, composition, and (later) caching; repositories stay
   persistence-only.
@@ -65,19 +71,23 @@ These six rules are the checklist for every future addition to this system
   `AzureXRepository` is a second implementation behind the same interface,
   swapped without touching any caller.
 - **Dependency Injection via a composition root** — one file
-  (`lib/data/index.ts`) decides which concrete repository implementation is
-  active; nothing else in the codebase imports a concrete class directly.
-  Services follow the same discipline one layer up: each service takes its
-  repository dependencies through its constructor rather than importing
-  them inline, and a second composition root (`lib/services/index.ts`)
-  wires services to the repo instances from `lib/data/index.ts`. This makes
-  every service trivially testable with fake repositories whenever a test
-  runner is adopted — not needed today, but the cost of building it in now
-  is small and the retrofit cost later is not.
-- **Anti-Corruption Layer** (Evans, DDD) — the public API's response-mapping
-  layer: internal shapes (`DashboardPayload`, `SectorNarrative`, etc.) are
-  translated into a stable external contract, so internal pipeline changes
-  never leak into partner integrations.
+  (`lib/repositories/index.ts`) decides which concrete repository
+  implementation is active; nothing else in the codebase imports a concrete
+  class directly. Services follow the same discipline one layer up: each
+  service takes its repository dependencies through its constructor rather
+  than importing them inline, and a second composition root
+  (`lib/services/index.ts`) wires services to the repo instances from
+  `lib/repositories/index.ts`. This makes every service trivially testable
+  with fake repositories whenever a test runner is adopted — not needed
+  today, but the cost of building it in now is small and the retrofit cost
+  later is not.
+- **Anti-Corruption Layer** (Evans, DDD) — applied twice, at two different
+  seams: (1) inside each repository, translating whatever shape is actually
+  persisted (today, largely mirrors pipeline output like `DashboardPayload`)
+  into that repository's own domain entity; (2) in the public API, mapping
+  domain entities into a stable external contract. Internal storage/pipeline
+  changes never reach a repository's callers; internal model changes never
+  reach a partner integration.
 - **Strangler Fig** (Fowler) — the migration strategy: domain-by-domain
   replacement of direct Supabase calls behind the new interfaces, live
   system running throughout, never a big-bang rewrite.
@@ -88,32 +98,39 @@ These six rules are the checklist for every future addition to this system
 ## Layering
 
 ```
-app/api/**                  Route handlers (thin — parse request, call a
-                             service or repository, shape the response)
+app/api/**                     Route handlers (thin — parse request, call a
+                                service or repository, shape the response)
         ↓
-lib/services/**              Orchestration: compose multiple repositories,
-                             own caching decisions, the future home for
-                             LLM/ranking/embedding calls. Classes,
-                             constructor-injected with their repo deps.
+lib/services/**                 Orchestration: compose multiple repositories,
+                                own caching decisions, the future home for
+                                LLM/ranking/embedding calls. Classes,
+                                constructor-injected with their repo deps.
         ↓
-lib/services/index.ts        Composition root — constructs each service
-                             with repo instances pulled from lib/data/index.ts
+lib/services/index.ts           Composition root — constructs each service
+                                with repo instances pulled from
+                                lib/repositories/index.ts
         ↓
-lib/data/** (Repositories)   Interfaces + Supabase-backed implementations.
-                             Persistence only — no orchestration, no caching,
-                             no cross-domain composition.
+lib/repositories/** (domain entities returned here)
+                                Interfaces + Supabase-backed implementations.
+                                Persistence only — maps the stored/pipeline
+                                shape into this repository's own domain
+                                entity before returning it.
         ↓
-lib/data/index.ts            Composition root — the ONLY file that
-                             instantiates concrete repository classes
+lib/repositories/index.ts       Composition root — the ONLY file that
+                                instantiates concrete repository classes
         ↓
 Supabase (today) / Azure (later)
 ```
 
 **Where each concern lives, and why:**
-- **Repositories answer "how do I fetch/persist this one thing."** One
-  repository per domain (`AnalysisRepository`, `SectorRepository`, etc.),
-  each a TypeScript `interface` plus a `SupabaseXRepository implements`
-  class. No caching, no calls to other repositories, no business logic.
+- **Repositories answer "how do I fetch/persist this one thing, and what
+  domain shape do I hand back."** One repository per domain
+  (`AnalysisRepository`, `SectorRepository`, etc.), each a TypeScript
+  `interface` plus a `SupabaseXRepository implements` class. Each repository
+  defines and owns its own domain entity (e.g. `Analysis`), and maps
+  whatever is actually persisted into that entity internally — callers
+  never see the storage shape. No caching, no calls to other repositories,
+  no business logic.
 - **Services answer "what does this feature need, and should I even fetch
   it."** A service can call multiple repositories, decide whether to serve
   from cache, and (later) call an LLM or ranking step. Services are
@@ -127,7 +144,7 @@ Supabase (today) / Azure (later)
   service or repository function, and shape the HTTP response — no
   orchestration logic ever lives directly in a route file.
 
-## Part 1: Repositories (`lib/data/`)
+## Part 1: Repositories (`lib/repositories/`)
 
 ### Scope
 
@@ -160,32 +177,67 @@ Building a universal Auth abstraction now, before the target is known, risks
 over-engineering around the wrong requirements. Auth gets its own dedicated
 project when the Azure migration is actually executed.
 
-### Structure
+### Structure: interface, domain entity, and Supabase implementation
 
-Each domain gets one file, `lib/data/<domain>.ts`, containing:
+Each domain gets one file, `lib/repositories/<domain>.ts`, containing three
+things: the domain entity, the repository interface, and the Supabase
+implementation.
 
 ```ts
+// lib/repositories/analysis.ts
+
+// The domain entity — owned by this repository, named and shaped for what
+// the business actually is (an analysis), not for how it's stored or how
+// the pipeline happens to have produced it. Note the clean camelCase
+// naming: today's persisted/pipeline shape (DashboardPayload, in
+// lib/pipeline.ts) uses snake_case field names because it mirrors a JSON
+// wire format — that's a storage/wire concern, not a fact about the
+// business domain, and it stops at this boundary.
+export interface Analysis {
+  ticker: string;
+  quarter: string;
+  quarterPrevious: string;
+  overallSignal: "Positive" | "Negative" | "Mixed" | "Noise";
+  overallScore: number;
+  summary: string;
+  sections: SectionalInsight[];
+  keyMetrics?: KeyMetrics;
+  evasivenessScore: number;
+  stockPriceChange: number;
+  earningsDelta: string[];
+  fcfImplications: string[];
+}
+
 export interface AnalysisRepository {
-  getCachedAnalysis(ticker: string, qPrev: string, qCurr: string): Promise<DashboardPayload | null>;
-  saveAnalysis(userId: string | null, ticker: string, qPrev: string, qCurr: string, payload: DashboardPayload): Promise<string>;
+  getCachedAnalysis(ticker: string, qPrev: string, qCurr: string): Promise<Analysis | null>;
+  saveAnalysis(userId: string | null, ticker: string, qPrev: string, qCurr: string, analysis: Analysis): Promise<string>;
 }
 
 export class SupabaseAnalysisRepository implements AnalysisRepository {
-  async getCachedAnalysis(ticker, qPrev, qCurr) { /* today's supabaseAdmin() query, unchanged behavior */ }
-  async saveAnalysis(userId, ticker, qPrev, qCurr, payload) { /* today's supabaseAdmin() query, unchanged behavior */ }
+  async getCachedAnalysis(ticker, qPrev, qCurr): Promise<Analysis | null> {
+    // today's supabaseAdmin() query against analysis_results, which
+    // persists a DashboardPayload-shaped JSONB blob — map it to Analysis
+    // before returning; this repository is the only place that mapping
+    // happens.
+  }
+  async saveAnalysis(userId, ticker, qPrev, qCurr, analysis): Promise<string> {
+    // map Analysis back to the persisted shape, then today's insert query
+  }
 }
 ```
 
-Interface and Supabase implementation live in the same file — not split
-across separate `types.ts`/`supabase.ts` files. A future `AzureAnalysisRepository
-implements AnalysisRepository` is a new class added to the same file when the
-Azure migration actually happens; it is **not built now** — building a
-placeholder Azure implementation today, before the target Postgres client is
-even chosen, would be pure speculation with no code to verify it against.
-The interface is what "prepares" for it; the second implementation is
-future work with a clear, well-defined shape once that day comes.
+Interface, entity, and Supabase implementation live in the same file — not
+split across separate `types.ts`/`supabase.ts` files. A future
+`AzureAnalysisRepository implements AnalysisRepository` is a new class added
+to the same file when the Azure migration actually happens, returning the
+exact same `Analysis` entity — the entity is what stays stable across a
+provider swap, which is the point of owning it at the repository boundary
+rather than reusing whatever the pipeline happens to produce. It is **not
+built now** — building a placeholder Azure implementation today, before the
+target Postgres client is even chosen, would be pure speculation with no
+code to verify it against.
 
-**Composition root** — `lib/data/index.ts`:
+**Composition root** — `lib/repositories/index.ts`:
 
 ```ts
 import { SupabaseAnalysisRepository } from "./analysis";
@@ -197,29 +249,37 @@ export const sectorRepo = new SupabaseSectorRepository();
 // ...
 ```
 
-Every caller — the existing 31 files being migrated, the new Services layer,
-route handlers — imports instances from `lib/data/index.ts` (e.g.
-`import { analysisRepo } from "@/lib/data"`), never a concrete class
+Every caller — the existing 31 files being migrated, the Services layer,
+route handlers — imports instances from `lib/repositories/index.ts` (e.g.
+`import { analysisRepo } from "@/lib/repositories"`), never a concrete class
 directly. The Azure cutover, when it happens, is: implement the new classes,
 then change 11 lines in this one file. No other file changes.
 
 Two existing files already exemplify the target shape and become the
 template: `lib/analysis-cache.ts` (→ `AnalysisRepository`) and
-`lib/credits.ts` (→ `CreditsRepository`).
+`lib/credits.ts` (→ `CreditsRepository`) — both already isolate their
+table's access behind purpose-built functions; this work additionally gives
+each one an owned domain entity and formal interface.
 
-Each repository's exact method set is determined during planning by
-auditing that domain's actual current call sites — not designed in the
-abstract here.
+Each repository's exact method set **and** its domain entity's exact field
+list are determined during planning, one domain at a time, by auditing that
+domain's actual current call sites and current persisted shape — not
+designed in the abstract here. `Analysis` above is a worked illustration of
+the pattern (and reasonably close to the eventual real shape, since
+`DashboardPayload` is already well understood), not a commitment to the
+other ten entities' fields.
 
 ### Migration strategy
 
 Strangler Fig, domain-by-domain — 11 independent steps, each:
 
-1. Write the new `lib/data/<domain>.ts` — interface, `SupabaseXRepository`
-   class wrapping today's actual queries (same behavior, relocated, not
-   redesigned), and its entry in `lib/data/index.ts`.
+1. Write the new `lib/repositories/<domain>.ts` — domain entity, interface,
+   `SupabaseXRepository` class wrapping today's actual queries (same
+   underlying behavior, now mapped to the entity rather than returning the
+   raw persisted shape), and its entry in `lib/repositories/index.ts`.
 2. Update that domain's call sites to import the repo instance from
-   `lib/data/index.ts` instead of calling `supabaseAdmin()` directly.
+   `lib/repositories/index.ts` instead of calling `supabaseAdmin()`
+   directly, and to use the new domain entity's field names.
 3. Verify: `npx tsc --noEmit`, plus a manual smoke check of the affected
    screen(s)/route(s) via the dev server (no test runner exists in this
    repo).
@@ -233,23 +293,26 @@ in one repository never puts working code for the other ten at risk.
 ### Scope
 
 Consumers: enterprise partners only, manually provisioned — PMS firms first,
-AMCs second. All public API code depends exclusively on `lib/data/index.ts`
-repository instances — never `supabaseAdmin()` directly, from day one (no
-need to wait for the full Part 1 migration to finish; the public API is new
-code, written against the repositories from the start).
+AMCs second. All public API code depends exclusively on
+`lib/repositories/index.ts` repository instances — never `supabaseAdmin()`
+directly, from day one (no need to wait for the full Part 1 migration to
+finish; the public API is new code, written against the repositories from
+the start).
 
 ### Architecture: two-layer REST, with Services as the second layer
 
 - **Data layer** — stable resource endpoints under `app/api/public/v1/data/*`
   (e.g. `/v1/data/companies/{ticker}`, `/v1/data/sectors/{sector}`), each a
-  thin route handler calling one repository method and mapping the result
-  through a versioned external type (the anti-corruption layer — see below).
+  thin route handler calling one repository method (receiving a domain
+  entity back) and mapping it through a versioned external type (the
+  anti-corruption layer — see below).
 - **Products layer** — endpoints under `app/api/public/v1/products/*`, each a
   thin route handler calling one **Service**. A service composes multiple
-  repositories in-process (direct method calls, not HTTP calls to the Data
-  layer — same app, same runtime), and is also where caching and any future
-  LLM/ranking/embedding steps live. New products are new services; they
-  never require new repository plumbing.
+  repositories in-process (direct method calls, working with domain
+  entities — not HTTP calls to the Data layer, same app, same runtime), and
+  is also where caching and any future LLM/ranking/embedding steps live.
+  New products are new services; they never require new repository
+  plumbing.
 - v1 ships the *pattern* plus **one concrete example product**:
 
   ```ts
@@ -262,14 +325,15 @@ code, written against the repositories from the start).
     }) {}
 
     async getSectorThesis(sector: string): Promise<SectorThesisResult> {
-      // compose deps.sectorRepo / deps.kpiRepo / deps.analysisRepo
+      // compose deps.sectorRepo / deps.kpiRepo / deps.analysisRepo,
+      // working with their domain entities (Sector, Kpi, Analysis)
     }
   }
   ```
 
   ```ts
   // lib/services/index.ts — composition root for services
-  import { sectorRepo, kpiRepo, analysisRepo } from "@/lib/data";
+  import { sectorRepo, kpiRepo, analysisRepo } from "@/lib/repositories";
   import { SectorThesisService } from "./sectorThesisService";
 
   export const sectorThesisService = new SectorThesisService({ sectorRepo, kpiRepo, analysisRepo });
@@ -277,8 +341,8 @@ code, written against the repositories from the start).
 
   The route handler imports `sectorThesisService` from `lib/services/index.ts`
   — it never constructs a service itself, mirroring how callers consume
-  repositories from `lib/data/index.ts`. Its exact field-by-field response
-  shape is a planning-level detail, not fixed here.
+  repositories from `lib/repositories/index.ts`. Its exact field-by-field
+  response shape is a planning-level detail, not fixed here.
 
 **Caching rule:** if/when a product needs caching, it is added inside that
 product's service function, never inside a repository. A repository never
@@ -289,8 +353,8 @@ added.
 
 ### Auth & entitlements
 
-New repository `ApiAccessRepository` (`lib/data/apiAccess.ts`) and three new
-tables:
+New repository `ApiAccessRepository` (`lib/repositories/apiAccess.ts`) and
+three new tables:
 
 - `api_partners` — `id`, `name`, `created_at`.
 - `api_keys` — `id`, `partner_id`, `key_hash`, `active`, `created_at`.
@@ -349,15 +413,15 @@ a layer exists that's actually worth measuring, not preemptively.
 
 `/v1/` prefix from day one, under both `/data/` and `/products/`.
 
-### Response contract stability (the anti-corruption layer)
+### Response contract stability (the anti-corruption layer, second seam)
 
 New versioned TypeScript types under `lib/api-contracts/v1/*.ts`, hand-defined
-per public resource/product — never the internal types (`DashboardPayload`,
-`SectorNarrative`, etc.) exposed directly. Mapper functions transform
-internal shapes into these external types. When the internal pipeline
-changes, the mapper changes; the external contract doesn't move underneath
-partners. A breaking change to what's exposed gets a new `/v2/` namespace,
-never a silent mutation of `/v1/`.
+per public resource/product — never a repository's domain entity
+(`Analysis`, `Sector`, etc.) exposed directly. Mapper functions transform
+domain entities into these external types. When an internal entity changes,
+the mapper changes; the external contract doesn't move underneath partners.
+A breaking change to what's exposed gets a new `/v2/` namespace, never a
+silent mutation of `/v1/`.
 
 ### What "without revealing the code" actually means here
 
@@ -395,26 +459,14 @@ optional transaction handle) rather than services attempting multi-step
 consistency themselves by calling repositories serially. Documented now so
 it's a deliberate extension later, not a scramble.
 
-## Future extension (named, not built): domain entities instead of DTOs
-
-Repositories in this design return today's existing internal types
-(`DashboardPayload`, `SectorNarrative`, etc.) unchanged — not a new domain-
-entity layer (e.g. `AnalysisAggregate`). This is fine while the portal and
-the public API/Services layer are the only consumers. If this data is ever
-consumed by more shapes of caller — background jobs, internal tooling, an
-AI pipeline reading its own prior output — a repository returning a true
-domain entity (rather than a payload shaped for today's dashboard UI)
-becomes the better long-term boundary. Not building that now: there's no
-second consumer shape yet to justify it, and the existing types work fine
-for the portal and the anti-corruption-layer mapping alike.
-
 ## Non-goals
 
 - Self-serve signup or billing UI
 - Auth-provider abstraction (stays on Supabase Auth; revisit when the Azure
   migration actually executes)
-- Building `AzureXRepository` implementations now — the interfaces are what
-  ship; concrete Azure classes are written when that migration executes
+- Building `AzureXRepository` implementations now — the interfaces (and
+  their domain entities) are what ship; concrete Azure classes are written
+  when that migration executes
 - AI-provider abstraction (`LLMService`/`EmbeddingService`) — named above as
   a future extension of this same pattern, not built here
 - Transaction-aware repository methods — named above as a future
@@ -424,6 +476,10 @@ for the portal and the anti-corruption-layer mapping alike.
 - Per-layer observability (DB duration, cache hit/miss, AI latency) —
   basic request-level logging ships now; the rest waits for a layer worth
   measuring (see Observability)
+- Designing all 11 domain entities' exact field lists now — the pattern and
+  one worked example (`Analysis`) are fixed here; the other ten are designed
+  during their own migration step, per-domain, against their actual current
+  persisted shape and call sites
 - Any change to the existing internal portal
 - More than one Products/Services-layer example (Sector Thesis) — further
   products are follow-on work using the now-established pattern
@@ -441,9 +497,10 @@ yet.
 
 ## Open questions carried into planning
 
-- Exact method signatures for each repository interface — requires a
-  careful per-file audit of current call-site behavior during planning, not
-  guessed here.
+- Exact method signatures and domain-entity field lists for the ten
+  repositories beyond `Analysis` — requires a careful per-file audit of
+  current call-site behavior and current persisted shape during planning,
+  not guessed here.
 - Exact field-by-field response shape for the Sector Thesis product.
 - Given the combined scope (11 repositories + composition root + a full new
   API/Services subsystem), the resulting implementation plan is large. It
