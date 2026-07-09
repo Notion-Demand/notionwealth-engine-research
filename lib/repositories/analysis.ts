@@ -50,6 +50,8 @@ export interface AnalysisRepository {
   listAllTickerQuarterPairs(): Promise<{ ticker: string; qCurr: string }[]>;
   /** analyze/history route: one user's own recent analyses. */
   listUserHistory(userId: string, limit: number): Promise<(AnalysisRecord & { id: string })[]>;
+  /** public API companies endpoint: most recent analysis for this ticker, any quarter. */
+  getLatestByTicker(ticker: string): Promise<Analysis | null>;
 }
 
 // ── Mapping: persisted (DashboardPayload-shaped JSONB) <-> Analysis entity ────
@@ -216,6 +218,18 @@ export class SupabaseAnalysisRepository implements AnalysisRepository {
       createdAt: row.created_at,
     }));
     return { records, error: null };
+  }
+
+  async getLatestByTicker(ticker: string): Promise<Analysis | null> {
+    const { data } = await supabaseAdmin()
+      .from("analysis_results")
+      .select("company_ticker, q_curr, q_prev, payload, created_at")
+      .eq("company_ticker", ticker)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (!data) return null;
+    return toEntity(data.company_ticker, data.q_prev, data.q_curr, data.payload);
   }
 
   async listByTickersAndQuarterPair(tickers: string[], qPrev: string, qCurr: string): Promise<AnalysisRecord[]> {
