@@ -85,7 +85,13 @@ export class SectorThesisService {
       };
 
       const kpiSnapshot = kpiByTicker.get(t.ticker);
-      const highlight = kpiSnapshot?.kpis.find((k) => k.is_highlight);
+      const highlights = kpiSnapshot?.kpis.filter((k) => k.is_highlight) ?? [];
+      const highlight = highlights.reduce<typeof highlights[number] | undefined>((best, k) => {
+        if (!best) return k;
+        const bestMag = best.change_pct !== null ? Math.abs(best.change_pct) : -1;
+        const kMag = k.change_pct !== null ? Math.abs(k.change_pct) : -1;
+        return kMag > bestMag ? k : best;
+      }, undefined);
       if (highlight) {
         company.topKpi = { name: highlight.name, changePct: highlight.change_pct };
       }
