@@ -4,6 +4,7 @@ async function main() {
   const client = new Client({
     connectionString: process.env.POSTGRES_CONNECTION_STRING,
     ssl: { rejectUnauthorized: true },
+    connectionTimeoutMillis: 8000,
   });
   await client.connect();
   const result = await client.query("SELECT version()");
