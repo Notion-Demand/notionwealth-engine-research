@@ -14,6 +14,8 @@ The decision to move to Azure was made 2026-07-09 (see project memory `infra-clo
 
 **Sequencing (revised during review):** app hosting is also moving off Vercel onto Azure compute (Container Apps/App Service) — motivated by the same AMC-security-review logic driving the whole migration. That migration is **a prerequisite for this spec, not a follow-on to it.** The reason: Vercel's serverless functions have no stable outbound IPs, so a Postgres server reachable from Vercel has no choice but public-access networking (allow-all-IPs + SSL + credentials as the only real control) — a strictly worse security posture than the private/VNet access Azure-to-Azure traffic can use, and one that would just be thrown away the moment hosting moves anyway. Doing hosting first means this spec's Postgres server never needs public exposure at all. This spec assumes the Hosting migration (its own separate spec, covering deployment pipeline, SSR runtime target, custom domain, CI/CD) is **already complete** by the time this one executes.
 
+**Hosting migration is now actually complete** (2026-07-10, `docs/superpowers/plans/2026-07-10-azure-hosting-migration.md`): the app runs on Azure App Service (`quantalyze-app`, `quantalyze-prod-rg`, Central India), with regional VNet integration already added into `quantalyze-prod-vnet` (`10.0.0.0/16`), via a delegated subnet `appservice-integration-subnet` (`10.0.1.0/24`, delegated to `Microsoft.Web/serverFarms`). This spec's networking design (below) builds on that real VNet rather than a hypothetical one.
+
 This spec covers **only Data + Storage migration**, on the assumption that the app is already running on Azure compute. Auth migration stays out of scope, as does the Hosting migration itself (it's a prerequisite, specified and built separately).
 
 ## Scope
@@ -95,13 +97,19 @@ This is a real interface change (not just an Azure-side implementation detail), 
 
 `lib/repositories/index.ts` — the only file that changes which concrete class backs each exported singleton. During implementation, both `SupabaseXRepository` and the new `PostgresXRepository`/`AzureBlobStorageRepository` classes coexist in the codebase (so they can be built and tested independently); the composition root is edited once, at cutover time, to instantiate the new classes instead of the Supabase ones. This is a direct code edit, not a runtime-configurable flag — per the Non-goals above, this migration is a one-time cutover, not a permanent dual-backend system.
 
+### Networking
+
+Postgres Flexible Server needs its own dedicated subnet — it can't share App Service's `appservice-integration-subnet` (a subnet accepts only one delegation). A new subnet, `postgres-delegated-subnet` (`10.0.2.0/24`), is added to the existing `quantalyze-prod-vnet`, delegated to `Microsoft.DBforPostgreSQL/flexibleServers`, alongside a Private DNS Zone linked to that VNet for the server's private name resolution. The Postgres Flexible Server is provisioned with "Private access (VNet integration)" networking — no public endpoint is ever created, satisfying this spec's original private-only design exactly as written before Hosting existed for real. App Service (already VNet-integrated via its own subnet in the same VNet) reaches Postgres over this private network; nothing about the app's *outbound* connectivity needs to change beyond the connection string itself.
+
+Blob Storage's account-level networking is left at its default (public endpoint, access-key-authenticated via `AZURE_STORAGE_CONNECTION_STRING`) — Blob traffic isn't subject to the same "never expose Postgres publicly" reasoning that drove Hosting's sequencing, and Azure Storage's access-key model is a reasonable, already-industry-standard control for this app's current scale. Private Endpoints for Blob Storage are a possible future hardening step, not built here (consistent with this spec's existing non-goals around infrastructure scope).
+
 ## Schema migration
 
 There is exactly one logical schema, not two — `supabase/migrations/*.sql` (001–011) stays the single source of truth, and no second, hand-maintained copy is created that could silently drift from it over time. A migration adapter script reads each existing `.sql` file and mechanically strips every `REFERENCES auth.users(id)` foreign key constraint before replaying the (now-adapted) DDL against the Azure Postgres instance — a scripted transformation, applied fresh from the existing files each time it's needed, not a parallel schema someone has to remember to keep in sync by hand. Referential integrity against Supabase-issued user IDs becomes an application-level concern for the affected columns (unchanged behavior from the application's point of view — it never validated this FK itself; Postgres did). This is the same seam that would be cut again if Auth ever moves to Azure too.
 
 Extensions used by the existing schema (`pgcrypto` for `gen_random_uuid()`) are standard and available on Azure Database for PostgreSQL Flexible Server without modification.
 
-**Version pinning:** the Azure Postgres Flexible Server is provisioned at a specific major version (e.g. 16), and the `pg_dump`/`pg_restore`/`psql` client tools used for the data migration are the matching major version — not whatever happens to be on the operator's machine or newest-available. A client newer than the server (e.g. a `pg_dump` 17 client against a Postgres 15 server) can silently emit syntax or options the server rejects, or dump-format warnings that are easy to miss in a live cutover. The exact version is a planning-level decision, but the *rule* — client and server major versions must match — is fixed here.
+**Version pinning:** the Azure Postgres Flexible Server is provisioned at **major version 17** (Central India offers 11 through 18 at time of writing; 17 is current and stable without being the just-released 18), and the `pg_dump`/`pg_restore`/`psql` client tools used for the data migration are installed at the matching major version — not whatever happens to be on the operator's machine or newest-available. A client newer than the server (e.g. a `pg_dump` 18 client against a Postgres 17 server) can silently emit syntax or options the server rejects, or dump-format warnings that are easy to miss in a live cutover.
 
 ## Data migration
 
@@ -124,8 +132,8 @@ Row counts alone can miss corruption (e.g. a JSON payload column truncated or mi
 
 ## Cutover procedure
 
-0. **Prerequisite:** Hosting migration (separate spec) is complete — the app is running on Azure compute, in a network the new Postgres server can privately join.
-1. Provision Azure Postgres Flexible Server + Storage account (Central India / Pune), with private/VNet-only network access (no public endpoint).
+0. **Prerequisite:** Hosting migration (separate spec) is complete — the app is running on Azure compute, in a network the new Postgres server can privately join. (Done, 2026-07-10.)
+1. Add `postgres-delegated-subnet` (`10.0.2.0/24`, delegated to `Microsoft.DBforPostgreSQL/flexibleServers`) to `quantalyze-prod-vnet`, plus a linked Private DNS Zone. Provision Azure Postgres Flexible Server (version 17, `Standard_B1ms`, Central India) into that subnet with private-only access, and the Storage account (Central India), per the Networking section above.
 2. Replay adapted schema (FK-dropped) onto the new Postgres instance.
 3. Implement and unit-verify (via `npx tsc --noEmit`, no live calls) all eleven `PostgresXRepository` classes plus `AzureBlobStorageRepository` (twelve total) against the schema from step 2, using a scratch/dev Azure instance if available, or structural review if not.
 4. **Maintenance window begins.**
@@ -173,10 +181,9 @@ No automated test runner exists in this repo (established throughout prior work)
 
 ## Open questions carried into planning
 
-- Exact Azure Postgres Flexible Server SKU/tier (compute + storage sizing) — a planning-level/cost decision, not fixed here; should default to the smallest tier that fits current data volume given this is a pre-launch app, with a documented easy upgrade path.
-- Exact Postgres major version to pin (server + client tools) — likely the latest version Azure Flexible Server offers at provisioning time, but fixed as a specific number during planning, not left to whatever's installed locally.
+Resolved during reconciliation with the now-complete Hosting migration (2026-07-10): Postgres Flexible Server SKU (`Standard_B1ms`, Burstable), major version (17), and VNet/subnet design (see Networking section above). Still open:
+
 - Exact Blob Storage container name and access tier (Hot/Cool) — functionally equivalent to today's `transcripts` bucket either way.
 - Dump/restore tool specifics: plain-text `pg_dump` + `psql`, vs. custom-format `pg_dump -Fc` + `pg_restore` — a mechanical choice with no architectural impact, deferred to planning.
 - Whether a scratch/dev Azure Postgres instance is provisioned separately from the production one for implementation-time testing, or whether the production instance itself is used pre-cutover (schema exists, no real data yet) — planning should decide based on actual Azure cost/complexity at provisioning time.
-- Exact VNet/subnet/private-endpoint configuration linking the Postgres server to the app's network — this depends on decisions made in the (prerequisite, separate) Hosting migration spec, and should be finalized once that spec's networking design is fixed, not guessed here.
 - Full enumeration of call sites currently using `StorageRepository.download()`/`upload()` that need updating to handle the new stream return type — a mechanical audit, deferred to planning.
