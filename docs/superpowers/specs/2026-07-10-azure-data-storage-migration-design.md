@@ -41,16 +41,23 @@ This spec covers **only Data + Storage migration**, on the assumption that the a
 
 The following must remain unchanged by this migration — this is the whole point of having built the repository pattern before attempting a provider swap:
 
-- Repository *interfaces* (`AnalysisRepository`, `SectorRepository`, `StorageRepository`, etc. — the method signatures and domain entities every caller already codes against)
+- Repository *interfaces* (`AnalysisRepository`, `SectorRepository`, `StorageRepository`, etc. — the method signatures and domain entities every caller already codes against), **with one necessary exception**: `WatchlistRepository`'s three methods (`list`, `add`, `remove`) currently take a Supabase `SupabaseClient` as their first parameter — a type that names a specific provider and genuinely cannot be "reused as-is" by a Postgres implementation, unlike every other interface in this migration. This parameter existed solely to carry a request-scoped, RLS-authenticated client so Postgres's Row-Level Security could do the actual `user_id` filtering invisibly (see the Watchlist security model note below). All three methods change to take `userId: string` as their first parameter instead.
 - Domain entities (`Analysis`, `Sector`, `KpiSnapshot`, ...)
 - The service layer (`lib/services/*`)
 - Public API contracts (`lib/api-contracts/v1/*`)
-- Route handlers (`app/api/**/route.ts`) — no exceptions; `StorageRepository`'s method signatures are unchanged (see Storage implementation below)
+- Route handlers (`app/api/**/route.ts`) — one exception, directly following from the interface change above: `app/api/v1/user-tickers/route.ts` already extracts `user.id` via `supabase.auth.getUser()` (Supabase Auth, unrelated to this migration) before calling into `watchlistRepo`; its three call sites change from passing `supabase` to passing `user.id` directly. No other route handler changes.
 
 Only these change:
 - Repository *implementations* (new `PostgresXRepository`/`AzureBlobStorageRepository` classes)
 - The connection module (`lib/postgres/client.ts`, plus Blob Storage setup)
 - The composition root (`lib/repositories/index.ts`)
+- `WatchlistRepository`'s interface signature and its one call site, as described above
+
+### Watchlist security model
+
+`WatchlistRepository.list()` today has **no application-level `user_id` filter at all** — it relies entirely on Postgres Row-Level Security (`CREATE POLICY ... USING (auth.uid() = user_id)` on `user_tickers`) plus a request-scoped, RLS-authenticated Supabase client threading the caller's JWT through automatically. A raw `pg.Pool` connection to Azure Postgres has no equivalent mechanism — there's no JWT-to-RLS wiring without Supabase's PostgREST layer sitting in front of Postgres, and every one of this codebase's other ten repositories already relies on application-level correctness with zero RLS (all accessed via the `supabaseAdmin()` service-role client, which bypasses RLS entirely).
+
+Rather than rebuilding Postgres-native RLS with per-request session-scoped GUCs (`SET app.current_user_id = $1` before each query, which would also complicate the simple lazy-singleton `pg.Pool` design this migration otherwise uses everywhere), this migration adds explicit `WHERE user_id = $1` filtering to `list()` (and keeps it, redundantly with today, in `remove()`) — consciously, as a deliberate decision recorded here, not as a silent side effect. This makes `WatchlistRepository`'s security model consistent with the other ten repositories rather than uniquely different. `SupabaseWatchlistRepository`'s existing implementation is updated in the same commit to match — switching from the passed-in RLS-scoped client to `supabaseAdmin()` with the same explicit `WHERE user_id` filtering — so both implementations share one security model going forward, and the dormant Supabase class isn't left implementing a different, now-inconsistent interface.
 
 If a task in the eventual implementation plan touches anything outside that second list, it's out of scope for this migration and should be flagged, not built.
 
