@@ -316,8 +316,52 @@ function adaptStatement(rawStatement: string): string | null {
   return adapted + ";";
 }
 
+/**
+ * Splits SQL text into statements on `;`, but tracks dollar-quoted string
+ * state (`$$ ... $$` or `$tag$ ... $tag$`, used by function bodies like
+ * update_updated_at() in 001_initial.sql) so semicolons *inside* a function
+ * body don't get treated as statement terminators. A naive split on every
+ * `;` breaks any CREATE FUNCTION statement whose body contains its own
+ * semicolons — exactly the case here (discovered by actually running this
+ * script against a real Azure Postgres instance, not just type-checking it).
+ */
 function splitStatements(sqlText: string): string[] {
-  return sqlText.split(/;\s*\n/).map((s) => s.trim()).filter((s) => s.length > 0);
+  const statements: string[] = [];
+  let current = "";
+  let inDollarQuote = false;
+  let dollarTag = "";
+  let i = 0;
+  while (i < sqlText.length) {
+    if (sqlText[i] === "$") {
+      const match = sqlText.slice(i).match(/^\$([a-zA-Z_]*)\$/);
+      if (match) {
+        const tag = match[0];
+        if (!inDollarQuote) {
+          inDollarQuote = true;
+          dollarTag = tag;
+          current += tag;
+          i += tag.length;
+          continue;
+        } else if (tag === dollarTag) {
+          inDollarQuote = false;
+          dollarTag = "";
+          current += tag;
+          i += tag.length;
+          continue;
+        }
+      }
+    }
+    if (sqlText[i] === ";" && !inDollarQuote) {
+      statements.push(current.trim());
+      current = "";
+      i++;
+      continue;
+    }
+    current += sqlText[i];
+    i++;
+  }
+  if (current.trim()) statements.push(current.trim());
+  return statements.filter((s) => s.length > 0);
 }
 
 async function main() {
