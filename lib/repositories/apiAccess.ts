@@ -29,11 +29,12 @@ interface StoredKeyRow {
 
 export class SupabaseApiAccessRepository implements ApiAccessRepository {
   async getKeyByHash(keyHash: string): Promise<ApiKeyInfo | null> {
-    const { data } = await supabaseAdmin()
+    const { data, error } = await supabaseAdmin()
       .from("api_keys")
       .select("id, partner_id, active, daily_quota, api_partners(name), api_key_products(product_name)")
       .eq("key_hash", keyHash)
       .maybeSingle();
+    if (error) throw new Error(`getKeyByHash failed: ${error.message}`);
     if (!data) return null;
     const row = data as unknown as StoredKeyRow;
     return {
