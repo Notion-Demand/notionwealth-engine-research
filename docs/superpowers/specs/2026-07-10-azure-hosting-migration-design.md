@@ -40,7 +40,8 @@ The following must remain unchanged by this migration:
 - Repository implementations (still Supabase-backed; untouched by this spec)
 - Services (`lib/services/*`)
 - Authentication (still Supabase Auth)
-- The database and storage the app talks to (still Supabase)
+- Database schema and data (still Supabase; hosting migration never touches schema or data — that's the entire next spec's job)
+- The storage the app talks to (still Supabase)
 - The public API (`app/api/public/v1/*`, `middleware.ts`)
 
 Only these change:
@@ -55,13 +56,13 @@ If a task in the eventual implementation plan touches anything outside that seco
 
 ### App Service
 
-Linux, Node.js runtime (exact version pinned during planning to match the current LTS Azure App Service supports, consistent with this repo's local Node 22 development environment), Central India (Pune), single instance tier sized for current pre-launch traffic with a documented upgrade path (exact SKU is a planning-level/cost decision, not fixed here).
+Linux, Node.js runtime (exact version pinned during planning against the project's supported LTS Node version at the time of migration — not tied to whatever happens to be on a developer's local machine, which can move faster than Azure App Service's supported stack list), Central India (Pune), single instance tier sized for current pre-launch traffic with a documented upgrade path (exact SKU is a planning-level/cost decision, not fixed here).
 
 ### Build artifact
 
 `next.config.mjs` gains `output: "standalone"`. This isn't required by App Service's Node runtime the way it would be for a Docker image, but it's adopted anyway: it produces a minimal, self-contained server bundle (only the files and dependencies actually needed at runtime, resolved via Next.js's own dependency tracing — the same tracing mechanism already relied on for `outputFileTracingIncludes`'s local PDF bundling), which means a smaller deployment, faster cold starts, and — importantly — no accidental runtime dependency on a local file that happens to exist in the dev/build environment but wasn't actually traced into the deployable artifact.
 
-**GitHub Actions performs the build. App Service receives the built artifact rather than rebuilding the application.** The workflow runs `npm ci && npm run build`, producing the standalone output, then deploys that artifact directly via `azure/webapps-deploy`, authenticated through an OIDC federated credential (GitHub Actions ↔ Azure AD trust, short-lived tokens, no publish-profile secret stored in GitHub). App Service does not run its own build step (Oryx) — this keeps what's deployed exactly what CI built and tested, not a second, potentially different build performed at deploy time.
+**GitHub Actions builds the application into Next.js standalone output and deploys the resulting runtime artifact to App Service** — that artifact is `.next/standalone` plus `.next/static` and `public/` copied alongside it (standalone mode doesn't include static assets by default; those two directories still need to travel with it), not literally just the standalone folder on its own. The workflow runs `npm ci && npm run build`, assembles those three pieces, then deploys via `azure/webapps-deploy`, authenticated through an OIDC federated credential (GitHub Actions ↔ Azure AD trust, short-lived tokens, no publish-profile secret stored in GitHub). App Service does not run its own build step (Oryx) — this keeps what's deployed exactly what CI built and tested, not a second, potentially different build performed at deploy time.
 
 ### Environment variables
 
@@ -69,11 +70,11 @@ The existing set (`NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `GOOG
 
 ### Observability
 
-Application Insights is added from day one — not full Azure Monitor, just Application Insights, App Service's native lightweight APM. It gives exceptions, response times, failed-request tracking, availability, and log aggregation without any custom instrumentation code required (App Service's Node.js runtime supports auto-instrumentation via a connection string in Application Settings). This is proportionate now — cheap to add, and genuinely useful the moment the app has any real traffic, rather than something to retrofit later under pressure.
+Application Insights is added from day one — not full Azure Monitor, just Application Insights, App Service's native lightweight APM. It gives exceptions, response times, failed-request tracking, availability, and log aggregation without any custom instrumentation code required (App Service's Node.js runtime supports auto-instrumentation via a connection string in Application Settings). This is proportionate now — cheap to add, and genuinely useful the moment the app has any real traffic, rather than something to retrofit later under pressure. **Request-level telemetry (the auto-instrumentation above) is sufficient scope for this migration; custom business metrics (e.g. instrumenting the analysis pipeline's own stages) are future work, not built here** — this migration is about hosting, not about deepening observability into application-specific logic.
 
 ### Health endpoint
 
-A new route, `app/api/health/route.ts`, returns a simple `200 OK` for App Service's health check feature to poll — deliberately minimal (confirms the Node process is alive and responding), not a deep dependency check (it doesn't need to verify Supabase connectivity or anything else, since this migration doesn't change what the app depends on, and a health check that fails when an *external* dependency has a transient blip would cause App Service to needlessly recycle a perfectly healthy instance).
+A new route, `app/api/health/route.ts`, returns `200 OK` with a body of `{"status": "ok"}` for App Service's health check feature to poll — deliberately minimal, answering exactly one question: can Node answer HTTP requests? It does **not** check Supabase, the database, Storage, or the Gemini API — this migration doesn't change what the app depends on, and a health check that fails when an *external* dependency has a transient blip would cause App Service to needlessly recycle a perfectly healthy instance.
 
 ## Cutover procedure
 
@@ -81,10 +82,11 @@ A new route, `app/api/health/route.ts`, returns a simple `200 OK` for App Servic
 2. Add `output: "standalone"` to `next.config.mjs` and the health endpoint; verify locally (`npm run build && npm run start`, confirm `/api/health` returns 200) and via `npx tsc --noEmit`.
 3. Migrate environment variables into Application Settings.
 4. Deploy via the GitHub Actions workflow to App Service's own `*.azurewebsites.net` URL (custom domain not yet repointed).
-5. Smoke-test directly against the `*.azurewebsites.net` URL: confirm the app loads, login works (still against Supabase Auth), a sample of existing routes return expected data, Application Insights is receiving telemetry.
-6. Repoint the custom domain's DNS to App Service.
-7. Verify against the custom domain once DNS propagates; confirm Google/Slack OAuth login still works (redirect URIs are domain-based and the domain hasn't changed, so no OAuth app config changes are expected — but this is verified live, not just assumed).
-8. Vercel deployment is left in place, unused, for a short safety window (same exit criteria as the Data + Storage spec's safety window: one successful production deployment, verification passed, 7 days with no migration-related incidents) before being decommissioned.
+5. Verify App Service's startup logs show a successful boot (no missing env vars, no missing package, no startup crash) before doing anything else — this catches configuration problems while nothing is customer-facing yet.
+6. Smoke-test directly against the `*.azurewebsites.net` URL: confirm the app loads, login works (still against Supabase Auth), a sample of existing routes return expected data, Application Insights is receiving telemetry.
+7. Repoint the custom domain's DNS to App Service.
+8. Verify against the custom domain once DNS propagates; confirm Google/Slack OAuth login still works (redirect URIs are domain-based and the domain hasn't changed, so no OAuth app config changes are expected — but this is verified live, not just assumed).
+9. Vercel deployment is left in place, unused, for a short safety window (same exit criteria as the Data + Storage spec's safety window: one successful production deployment, verification passed, 7 days with no migration-related incidents) before being decommissioned.
 
 ## Rollback plan
 
@@ -96,7 +98,7 @@ Because Vercel is never decommissioned until the safety window passes, rollback 
 
 ## Testing
 
-No automated test runner exists in this repo. Verification is `npx tsc --noEmit` for the two code changes (`next.config.mjs`, the health endpoint), plus the manual cutover checklist above (steps 5 and 7) run against both the pre-DNS-cutover `*.azurewebsites.net` URL and the post-cutover custom domain.
+No automated test runner exists in this repo. Verification is `npx tsc --noEmit` for the two code changes (`next.config.mjs`, the health endpoint), plus the manual cutover checklist above (steps 6 and 8) run against both the pre-DNS-cutover `*.azurewebsites.net` URL and the post-cutover custom domain.
 
 ## Future extensions (named, not built here)
 
