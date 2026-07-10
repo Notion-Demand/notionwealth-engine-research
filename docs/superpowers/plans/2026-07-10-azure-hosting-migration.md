@@ -602,3 +602,13 @@ All 7 tasks completed 2026-07-10. Resource names used exactly as planned, no web
 - **Apex domain on GoDaddy needs two A records**, not a single IP: Azure App Service's managed-certificate validation specifically required both `20.192.171.16` and `20.192.171.17` present as separate A records for the same `@` host — a single-IP A record was rejected as "missing one DNS record."
 
 **Safety window**: cutover completed and fully verified (health endpoint, Application Insights telemetry, live OAuth login via Google/Slack against `https://quantalyze.me`) on 2026-07-10. Per the plan's exit criteria, Vercel should be decommissioned no earlier than 2026-07-17 (7 days with no migration-related incidents), and only after re-confirming the other two criteria (successful production deployment, verification passed) still hold at that time.
+
+## Post-completion addendum: VNet integration (2026-07-10)
+
+Added after this plan's 7 tasks were done, as a prerequisite discovered while starting to plan the Data + Storage migration: that spec assumed App Service would already have VNet integration in place for private Postgres access, but nothing in this Hosting plan's original scope required a VNet. Closed the gap rather than revise the Data + Storage spec:
+
+- Created `quantalyze-prod-vnet` (address space `10.0.0.0/16`) in `quantalyze-prod-rg`, Central India, with a subnet `appservice-integration-subnet` (`10.0.1.0/24`) delegated to `Microsoft.Web/serverFarms`.
+- Ran `az webapp vnet-integration add` to connect `quantalyze-app` to that subnet (regional VNet integration — outbound traffic from the app can now reach resources in this VNet privately; this doesn't affect inbound traffic/availability).
+- This triggers an app restart — confirmed via a brief window of `503`s (~60–90 seconds) followed by stable `200`s on `/api/health`, consistent with expected VNet-integration restart behavior, not a regression.
+
+This VNet and subnet are what the Data + Storage spec's Postgres Flexible Server should be provisioned into (or peered with) for private-only access, once that plan is written.
