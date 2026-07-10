@@ -102,12 +102,25 @@ Expected: `network.publicNetworkAccess` is `"Disabled"` (VNet-integrated servers
 
 - [ ] **Step 6: Construct and save the connection string**
 
+Use the server's own reported FQDN, not the private DNS zone's name — they're different hostnames. Confirm first:
+
 ```bash
-POSTGRES_CONNECTION_STRING="postgresql://quantalyzeadmin:${POSTGRES_ADMIN_PASSWORD}@quantalyze-postgres.private.postgres.database.azure.com:5432/postgres?sslmode=require"
+az postgres flexible-server show \
+  --resource-group quantalyze-prod-rg \
+  --name quantalyze-postgres \
+  --query fullyQualifiedDomainName -o tsv
+```
+
+Expected: `quantalyze-postgres.postgres.database.azure.com` (note: **no** `.private.` in this hostname, even though the private DNS zone created in Step 4 is named `quantalyze-postgres.private.postgres.database.azure.com` — that zone name and the server's connection hostname are deliberately different; Azure resolves the server's public-style FQDN to the private IP automatically for any resource inside a VNet linked to that zone. Using the zone's own name as the connection hostname will fail DNS resolution.)
+
+```bash
+POSTGRES_CONNECTION_STRING="postgresql://quantalyzeadmin:${POSTGRES_ADMIN_PASSWORD}@quantalyze-postgres.postgres.database.azure.com:5432/postgres?sslmode=require"
 echo "Connection string constructed (length: ${#POSTGRES_CONNECTION_STRING} chars)"
 ```
 
-Save this value securely now — it's needed as the `POSTGRES_CONNECTION_STRING` App Service Application Setting in Task 18, and for local testing in every repository task below (Tasks 4–14). Do not print it in full to any shared log.
+Save this value securely now — it's needed as the `POSTGRES_CONNECTION_STRING` App Service Application Setting in Task 18, and for testing in every repository task below (Tasks 4–14).
+
+**Note on testing connectivity:** this Postgres server has no public endpoint — neither your local machine nor Kudu's SCM sandbox (which does not share the main site's VNet integration) can reach it directly. Testing requires either the actual deployed App Service (once code is deployed there) or a temporary jump-box inside `quantalyze-prod-vnet` (e.g., an Azure Container Instance with its own delegated subnet) for the duration of Tasks 2–17's live verification steps. Do not print connection strings in full to any shared log.
 
 - [ ] **Step 7: Provision the Storage account and container**
 
@@ -137,11 +150,59 @@ az storage container create \
 
 Expected: `{"created": true}`. The container is named `transcripts`, matching the existing Supabase bucket name (functionally equivalent, per spec).
 
-- [ ] **Step 8: Verify connectivity from App Service's VNet-integrated network**
+- [ ] **Step 8: Provision a temporary jump-box for testing (discovered necessary during execution)**
 
-Since Postgres has no public endpoint, the only way to verify connectivity right now (before any application code exists) is from a resource inside the same VNet. App Service is already VNet-integrated (from the Hosting migration). Temporarily verify via App Service's Kudu/SSH console, or defer this check to Task 3 (schema replay), which will fail immediately and clearly if connectivity doesn't work. Proceeding to Task 2 either way.
+Neither your local machine nor Kudu's SCM sandbox can reach the private Postgres server — Kudu is documented as not sharing the main site's VNet integration. A temporary Azure Container Instance, in its own delegated subnet within the same VNet, is the practical way to run every live-verification step in Tasks 2–17.
 
-No commit for this task — nothing in this repo's tracked files changes.
+```bash
+az network vnet subnet create \
+  --resource-group quantalyze-prod-rg \
+  --vnet-name quantalyze-prod-vnet \
+  --name aci-migration-subnet \
+  --address-prefixes 10.0.3.0/24 \
+  --delegations Microsoft.ContainerInstance/containerGroups
+```
+
+If this is the first Container Instance in the subscription, register the provider first (one-time): `az provider register --namespace Microsoft.ContainerInstance`, then poll `az provider show --namespace Microsoft.ContainerInstance --query registrationState -o tsv` until `Registered`.
+
+```bash
+GH_TOKEN=$(gh auth token)
+POSTGRES_CONNECTION_STRING="<value from Step 6>"
+AZURE_STORAGE_CONNECTION_STRING="<value from Step 7>"
+
+az container create \
+  --resource-group quantalyze-prod-rg \
+  --name quantalyze-migration-jumpbox \
+  --location centralindia \
+  --image mcr.microsoft.com/devcontainers/javascript-node:22-bookworm \
+  --os-type Linux \
+  --cpu 1 --memory 2 \
+  --vnet quantalyze-prod-vnet \
+  --subnet aci-migration-subnet \
+  --restart-policy Never \
+  --secure-environment-variables \
+    GH_TOKEN="$GH_TOKEN" \
+    POSTGRES_CONNECTION_STRING="$POSTGRES_CONNECTION_STRING" \
+    AZURE_STORAGE_CONNECTION_STRING="$AZURE_STORAGE_CONNECTION_STRING" \
+    AZURE_STORAGE_CONTAINER="transcripts" \
+  --command-line 'bash -c "apt-get update -qq; apt-get install -y -qq postgresql-client git curl; git clone https://x-access-token:${GH_TOKEN}@github.com/Notion-Demand/notionwealth-engine-research.git /app; cd /app && git checkout <your-feature-branch> && npm install; sleep infinity"'
+```
+
+**Critical: never let `${GH_TOKEN}` (or any other secret) be expanded by your own local shell before reaching Azure** — the entire `--command-line` value above must stay single-quoted so your shell passes `${GH_TOKEN}` through literally, letting the *container's own* `bash -c` resolve it from the secure environment variable at runtime. If you interpolate the token yourself (e.g., via double-quoting, or an escaping mistake), the raw token value gets baked into the container's command-line property, which Azure stores and echoes back in every `show`/`create`/`delete` response — a real credential leak. If this happens, revoke the token immediately (`gh auth logout`, then also manually confirm via GitHub → Settings → Applications → Authorized OAuth Apps) and recreate the container with a fresh token, quoted correctly.
+
+Push your feature branch to origin first (`git push -u origin <branch>`) — the container clones from GitHub, not your local disk.
+
+**Running commands in the jump-box:** use `az container exec --resource-group quantalyze-prod-rg --name quantalyze-migration-jumpbox --exec-command "<command>"`. Keep commands simple (a single binary + args, or a call to a committed script file) — nested quotes inside `--exec-command` are unreliable and will produce confusing shell-parsing errors. For anything non-trivial, write it as a script file, commit and push it, then `git -C /app pull` inside the jump-box (via a plain `az container exec`) and run the file directly, rather than fighting inline quoting. `az container logs` only shows the container's original startup command output, not the output of separate `exec` sessions — use the `exec` command's own returned output for those.
+
+**Connectivity gotcha:** the connection hostname is the server's own FQDN (`<server>.postgres.database.azure.com`, confirmed in Step 6) — not the private DNS zone's name (`<server>.private.postgres.database.azure.com`, from Step 4). Using the zone name as the connection host fails DNS resolution even from inside the correct VNet.
+
+This jump-box is deleted once Task 18's cutover is verified and no further live testing is needed:
+
+```bash
+az container delete --resource-group quantalyze-prod-rg --name quantalyze-migration-jumpbox --yes
+```
+
+No commit for the infrastructure itself — nothing in this repo's tracked files changes, though the temporary debug scripts referenced above should not be merged into the final PR (see Task 18's cleanup).
 
 ---
 
