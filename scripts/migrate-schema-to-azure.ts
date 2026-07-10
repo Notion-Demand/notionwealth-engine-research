@@ -37,14 +37,54 @@ function adaptStatement(rawStatement: string): string | null {
  * `;` breaks any CREATE FUNCTION statement whose body contains its own
  * semicolons — exactly the case here.
  */
+/**
+ * Splits SQL text into statements on `;`, tracking three kinds of state that
+ * must NOT be treated as containing real statement boundaries, even though
+ * they can contain a literal `;` character:
+ *   - dollar-quoted strings (`$$ ... $$` or `$tag$ ... $tag$`), used by
+ *     function bodies like update_updated_at() in 001_initial.sql
+ *   - `--` line comments, several of which in these files contain a `;`
+ *     mid-sentence (e.g. "-- Populated on-demand; avoids re-hitting..." in
+ *     005_concall_links.sql) — the semicolon there is prose, not SQL
+ *   - single-quoted string literals (not hit by any of these 11 files today,
+ *     but a real SQL splitter should handle this class of case regardless)
+ * Both bugs above were found by actually running this script against a real
+ * Azure Postgres instance, not just type-checking it — re-verify with a live
+ * run after any further change to this function.
+ */
 function splitStatements(sqlText: string): string[] {
   const statements: string[] = [];
   let current = "";
   let inDollarQuote = false;
   let dollarTag = "";
+  let inLineComment = false;
+  let inSingleQuote = false;
   let i = 0;
   while (i < sqlText.length) {
-    if (sqlText[i] === "$") {
+    const char = sqlText[i];
+
+    if (inLineComment) {
+      current += char;
+      if (char === "\n") inLineComment = false;
+      i++;
+      continue;
+    }
+
+    if (!inDollarQuote && !inSingleQuote && char === "-" && sqlText[i + 1] === "-") {
+      inLineComment = true;
+      current += "--";
+      i += 2;
+      continue;
+    }
+
+    if (!inDollarQuote && char === "'") {
+      inSingleQuote = !inSingleQuote;
+      current += char;
+      i++;
+      continue;
+    }
+
+    if (!inSingleQuote && char === "$") {
       const match = sqlText.slice(i).match(/^\$([a-zA-Z_]*)\$/);
       if (match) {
         const tag = match[0];
@@ -63,13 +103,15 @@ function splitStatements(sqlText: string): string[] {
         }
       }
     }
-    if (sqlText[i] === ";" && !inDollarQuote) {
+
+    if (char === ";" && !inDollarQuote && !inSingleQuote) {
       statements.push(current.trim());
       current = "";
       i++;
       continue;
     }
-    current += sqlText[i];
+
+    current += char;
     i++;
   }
   if (current.trim()) statements.push(current.trim());
