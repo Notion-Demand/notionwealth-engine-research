@@ -35,11 +35,28 @@ This spec covers **only Data + Storage migration**, on the assumption that the a
 - **A permanent multi-provider abstraction** (e.g., a runtime env-var flag to choose Supabase vs. Azure per-request). This is a one-time cutover, not a long-lived dual-backend system — the old `SupabaseXRepository` classes are deleted once the cutover is confirmed stable, not kept as a permanent alternate path.
 - **Connection pooling middleware** (PgBouncer, Azure's built-in pooling tier) — not needed at current scale; the existing lazy-singleton client pattern (`lib/supabase/admin.ts`) is mirrored as a lazy-singleton `pg.Pool`, which handles connection reuse adequately for a low-traffic pre-launch app.
 
+## Migration invariants
+
+The following must remain unchanged by this migration — this is the whole point of having built the repository pattern before attempting a provider swap:
+
+- Repository *interfaces* (`AnalysisRepository`, `SectorRepository`, `StorageRepository`, etc. — the method signatures and domain entities every caller already codes against)
+- Domain entities (`Analysis`, `Sector`, `KpiSnapshot`, ...)
+- The service layer (`lib/services/*`)
+- Public API contracts (`lib/api-contracts/v1/*`)
+- Route handlers (`app/api/**/route.ts`) — with the sole, already-noted exception of call sites consuming the two `StorageRepository` methods whose *return type* changes (buffer → stream)
+
+Only these change:
+- Repository *implementations* (new `PostgresXRepository`/`AzureBlobStorageRepository` classes)
+- The connection module (`lib/postgres/client.ts`, plus Blob Storage setup)
+- The composition root (`lib/repositories/index.ts`)
+
+If a task in the eventual implementation plan touches anything outside that second list, it's out of scope for this migration and should be flagged, not built.
+
 ## Architecture
 
 ### Connection module
 
-`lib/azure/postgres.ts` is the **only Azure-specific file** in this design — repositories themselves talk to plain Postgres and don't know or care that Azure is hosting it (see naming rationale below). It exports:
+`lib/postgres/client.ts` is a plain Postgres connection module with nothing Azure-specific in it at all — not even the folder name, per the same reasoning as the repository naming below: the code inside is just `pg.Pool` construction from a connection string, which works identically against any Postgres host. It exports:
 
 ```ts
 export function pgPool(): Pool  // pg.Pool, created once, reused across invocations
@@ -51,11 +68,11 @@ export function query<T>(text: string, params?: unknown[]): Promise<T[]>
 // being repeated eleven times.
 ```
 
-Configured from a single `AZURE_POSTGRES_CONNECTION_STRING` env var (not separate host/port/user/password/database vars) — one secret to rotate, one thing to get right in the deployment environment's env var UI, and it's the standard shape `psql`/`pg_dump`/`pg.Pool` all accept directly.
+Configured from a single `POSTGRES_CONNECTION_STRING` env var (not separate host/port/user/password/database vars, and not `AZURE_`-prefixed, since the module itself isn't Azure-specific) — one secret to rotate, one thing to get right in the deployment environment's env var UI, and it's the standard shape `psql`/`pg_dump`/`pg.Pool` all accept directly. (`AzureBlobStorageRepository`'s connection setup, by contrast, is genuinely Azure-specific — see the naming exception below — so its env vars stay `AZURE_`-prefixed.)
 
 ### Repository implementations — naming
 
-Classes are named `PostgresAnalysisRepository`, `PostgresSectorRepository`, etc. — **not** `AzurePostgresAnalysisRepository`. The reasoning: Azure Database for PostgreSQL Flexible Server is standard Postgres; the SQL these classes write is portable to any Postgres host (RDS, Neon, Crunchy, Railway, self-hosted). The only thing in this whole design that is actually Azure-specific is `lib/azure/postgres.ts`'s connection setup — the repositories themselves only know they're talking to Postgres via `pg`. Naming the classes after Azure would wrongly suggest the query logic itself is Azure-coupled, when it isn't. If the Postgres host ever changes again, only the connection module changes; not one of the eleven repository files.
+Classes are named `PostgresAnalysisRepository`, `PostgresSectorRepository`, etc. — **not** `AzurePostgresAnalysisRepository`. The reasoning: Azure Database for PostgreSQL Flexible Server is standard Postgres; the SQL these classes write is portable to any Postgres host (RDS, Neon, Crunchy, Railway, self-hosted). The only thing in this whole design that is actually Azure-specific is `lib/postgres/client.ts`'s connection *setup* (which env var it reads, which private network it's provisioned on) — the code and the repositories themselves only know they're talking to Postgres via `pg`. Naming the classes after Azure would wrongly suggest the query logic itself is Azure-coupled, when it isn't. If the Postgres host ever changes again, only the connection module's configuration changes; not one of the eleven repository files.
 
 (The one exception is `AzureBlobStorageRepository` — Blob Storage's API genuinely is Azure-specific, unlike raw Postgres wire protocol, so that name is accurate as given.)
 
@@ -67,12 +84,12 @@ The eleven Postgres-backed interfaces: `AnalysisRepository`, `SectorRepository`,
 
 ### Storage implementation
 
-`AzureBlobStorageRepository` implements `StorageRepository` using `@azure/storage-blob`, against a single Blob container (name TBD at planning time, functionally equivalent to today's `transcripts` bucket). Two of the interface's methods change shape from the original design, to handle large PDFs efficiently rather than buffering entire files in memory:
+`AzureBlobStorageRepository` implements `StorageRepository` using `@azure/storage-blob`, against a single Blob container (name TBD at planning time, functionally equivalent to today's `transcripts` bucket). Two of the interface's methods change *return type* from the original design, to handle large PDFs efficiently rather than buffering entire files in memory — but keep their existing names, since the interface should describe the capability ("fetch this file's content" / "store this file's content"), not the current implementation strategy. A future change from a Node stream to, say, an async iterable would be exactly the same kind of internal detail the interface already shouldn't expose:
 
-- `download(path: string): Promise<Buffer>` → **`downloadStream(path: string): Promise<NodeJS.ReadableStream>`**
-- `upload(path: string, data: Buffer): Promise<void>` → **`uploadStream(path: string, data: NodeJS.ReadableStream): Promise<void>`**
+- `download(path: string): Promise<Buffer>` → **`download(path: string): Promise<NodeJS.ReadableStream>`**
+- `upload(path: string, data: Buffer): Promise<void>` → **`upload(path: string, data: NodeJS.ReadableStream): Promise<void>`**
 
-This is a real interface change (not just an Azure-side implementation detail), since `SupabaseStorageRepository` also implements `StorageRepository` — both implementations move to streaming together, in the same commit that changes the interface, so the interface never has two different method shapes across its implementers. Call sites that currently do `const buf = await storageRepo.download(path)` become `const stream = await storageRepo.downloadStream(path)` and pipe or consume the stream directly (e.g., straight into an HTTP response body, or into a PDF-parsing library that accepts a stream) — this is deferred to planning to enumerate exact call sites and confirm each one can consume a stream. `createSignedUrl` maps to Azure's SAS (Shared Access Signature) token generation — same purpose (time-limited, unauthenticated read access to one blob), different mechanism than Supabase's signed URLs, but the interface's return type (`Promise<string>`, a URL) is unchanged. `list`/`listAllPaginated` are also unchanged.
+This is a real interface change (not just an Azure-side implementation detail), since `SupabaseStorageRepository` also implements `StorageRepository` — both implementations move to streaming together, in the same commit that changes the interface, so the interface never has two different method shapes across its implementers. Call sites that currently do `const buf = await storageRepo.download(path)` and treat the result as a `Buffer` (e.g. checking `.length`, passing it somewhere expecting bytes) need updating to consume a stream instead (e.g., piping straight into an HTTP response body, or into a PDF-parsing library that accepts a stream) — TypeScript will flag every such call site once the return type changes, but the full enumeration and fix is deferred to planning. `createSignedUrl` maps to Azure's SAS (Shared Access Signature) token generation — same purpose (time-limited, unauthenticated read access to one blob), different mechanism than Supabase's signed URLs, but the interface's return type (`Promise<string>`, a URL) is unchanged. `list`/`listAllPaginated` are also unchanged.
 
 ### Composition root
 
@@ -80,7 +97,7 @@ This is a real interface change (not just an Azure-side implementation detail), 
 
 ## Schema migration
 
-The existing `supabase/migrations/*.sql` files (001–011) remain as historical record of the Supabase-era schema — they are not rewritten. A new, separate schema definition is created for Azure by replaying that same DDL with one systematic change applied: every `REFERENCES auth.users(id)` foreign key constraint is dropped, leaving the referencing column as a plain `UUID` with no FK constraint. Referential integrity against Supabase-issued user IDs becomes an application-level concern (unchanged behavior from the application's point of view — it never validated this FK itself; Postgres did). This is the same seam that would be cut again if Auth ever moves to Azure too.
+There is exactly one logical schema, not two — `supabase/migrations/*.sql` (001–011) stays the single source of truth, and no second, hand-maintained copy is created that could silently drift from it over time. A migration adapter script reads each existing `.sql` file and mechanically strips every `REFERENCES auth.users(id)` foreign key constraint before replaying the (now-adapted) DDL against the Azure Postgres instance — a scripted transformation, applied fresh from the existing files each time it's needed, not a parallel schema someone has to remember to keep in sync by hand. Referential integrity against Supabase-issued user IDs becomes an application-level concern for the affected columns (unchanged behavior from the application's point of view — it never validated this FK itself; Postgres did). This is the same seam that would be cut again if Auth ever moves to Azure too.
 
 Extensions used by the existing schema (`pgcrypto` for `gen_random_uuid()`) are standard and available on Azure Database for PostgreSQL Flexible Server without modification.
 
@@ -88,9 +105,11 @@ Extensions used by the existing schema (`pgcrypto` for `gen_random_uuid()`) are 
 
 ## Data migration
 
-**Table data:** `pg_dump --data-only --no-owner` (client version matching the server, per above) against the Supabase connection string, `psql` (or `pg_restore`, depending on dump format chosen at planning time) to load into the already-schema'd Azure Postgres instance. Schema and data are migrated as two separate steps (schema replay first, from the adapted migration files; then data-only dump/restore) rather than one combined `pg_dump`, specifically so the `auth.users` FK removal is a clean, reviewable schema change rather than something patched into a dump file after the fact.
+All migration tooling below is **operational code, not application code** — it lives under `scripts/` (alongside the existing `scripts/provision-api-key.ts` from the earlier public-API plan), never under `lib/`, so ops tooling stays clearly separated from the code the running app actually imports.
 
-**Blob files:** a one-time script using the already-existing `StorageRepository.listAllPaginated()` to enumerate every object in the Supabase `transcripts` bucket, streaming each one directly from `SupabaseStorageRepository.downloadStream()` into `AzureBlobStorageRepository.uploadStream()` without buffering the whole file in memory — important given some existing transcript PDFs are large enough that a buffer-based copy is wasteful (and, at some size, a real memory-pressure risk in a serverless function). Reusing the existing repository methods for this (rather than calling the Supabase/Azure SDKs directly in the migration script) keeps the migration script itself thin and exercises the very code paths being shipped.
+**Table data:** `scripts/migrate-postgres-data.ts` orchestrates `pg_dump --data-only --no-owner` (client version matching the server, per above) against the Supabase connection string, then `psql` (or `pg_restore`, depending on dump format chosen at planning time) to load into the already-schema'd Azure Postgres instance. Schema and data are migrated as two separate steps (schema replay first, via the migration adapter above; then data-only dump/restore) rather than one combined `pg_dump`, specifically so the `auth.users` FK removal is a clean, reviewable schema change rather than something patched into a dump file after the fact.
+
+**Blob files:** `scripts/copy-blobs-to-azure.ts` uses the already-existing `StorageRepository.listAllPaginated()` to enumerate every object in the Supabase `transcripts` bucket, streaming each one directly from `SupabaseStorageRepository.download()` into `AzureBlobStorageRepository.upload()` without buffering the whole file in memory — important given some existing transcript PDFs are large enough that a buffer-based copy is wasteful (and, at some size, a real memory-pressure risk in a serverless function). Reusing the existing repository methods for this (rather than calling the Supabase/Azure SDKs directly in the migration script) keeps the migration script itself thin and exercises the very code paths being shipped.
 
 ## Verification
 
@@ -99,7 +118,9 @@ Row counts alone can miss corruption (e.g. a JSON payload column truncated or mi
 1. **Row counts per table** — `SELECT count(*)` on both databases, for every migrated table, must match exactly.
 2. **Random-sample content hashing** — for the tables carrying the largest/most complex payloads (`analysis_results`, `sector_intelligence`, `kpi_snapshots`), pull a random sample (e.g. 100 rows via `ORDER BY random() LIMIT 100`, using the same seed/ticker+quarter keys on both sides so the *same* logical rows are compared) from both the source (Supabase) and destination (Azure) databases, and compare a hash of the key identifying columns plus the JSON payload column between the two. A mismatch means the dump/restore altered data, not just that a row is missing.
 
-**Blob verification** follows the same two-layer principle: every migrated blob's file size is compared between source and destination (cheap, catches truncation), and a SHA-256 hash of a random sample of blobs is compared (catches corruption that preserves file size, e.g. from a partial/retried stream write). Both checks are scriptable using the same repository methods used for the migration itself.
+**Blob verification** follows the same two-layer principle, with a size-based rule rather than pure random sampling: every migrated blob's file size is compared between source and destination (cheap, catches truncation, done for 100% of blobs regardless of size). For SHA-256 content hashing — which catches corruption that preserves file size, e.g. from a partial/retried stream write — every blob under 10 MB is hashed and compared in full, and blobs at or above 10 MB are hashed on a random sample; full hashing of every blob regardless of size isn't needed to catch systematic corruption, and this keeps verification cheap without weakening it where it matters most (the common case of many small-to-medium transcripts).
+
+`scripts/verify-migration.ts` implements both the Postgres and blob verification checks above, using the same repository methods used for the migration itself.
 
 ## Cutover procedure
 
@@ -114,11 +135,14 @@ Row counts alone can miss corruption (e.g. a JSON payload column truncated or mi
 8. Edit the composition root to instantiate the new classes; set the env vars below in the deployment environment; deploy.
 9. Post-deploy verification: the existing manual smoke-test routes (per the Plan A/B testing conventions already established in this repo — `npx tsc --noEmit` plus manual route hits) return expected data; the public API endpoints built in the prior plan (`/api/public/v1/data/companies/{ticker}`, `/api/public/v1/data/sectors/{sector}`, `/api/public/v1/products/sector-thesis`) return 200s with real data for the first time (previously blocked by placeholder Supabase credentials — this migration is also what unblocks that).
 10. **Maintenance window ends** once step 9 passes.
-11. Old `SupabaseXRepository`/`SupabaseStorageRepository` classes and their `lib/supabase/admin.ts` usages are kept, unused, for a short safety window (exact duration decided at planning time), then deleted in a follow-up cleanup once the cutover is confirmed stable in production.
+11. Old `SupabaseXRepository`/`SupabaseStorageRepository` classes and their `lib/supabase/admin.ts` usages are kept, unused, until all three exit criteria are met, then deleted in a follow-up cleanup:
+    - one successful production deployment on the new implementations,
+    - the Verification checks (step 7) passed with no unresolved discrepancies,
+    - 7 days in production with no migration-related incidents.
 
 ### New environment variables
 
-- `AZURE_POSTGRES_CONNECTION_STRING` — full Postgres connection string (host, port, user, password, database, `sslmode`), private-network address (not a public hostname, per the networking design below).
+- `POSTGRES_CONNECTION_STRING` — full Postgres connection string (host, port, user, password, database, `sslmode`), private-network address (not a public hostname, per the networking design above). Not `AZURE_`-prefixed — see the Connection module naming note above.
 - `AZURE_STORAGE_CONNECTION_STRING` — Blob Storage account connection string.
 - `AZURE_STORAGE_CONTAINER` — the Blob container name (equivalent to today's `transcripts` bucket; exact name decided at planning time).
 
@@ -153,7 +177,6 @@ No automated test runner exists in this repo (established throughout prior work)
 - Exact Postgres major version to pin (server + client tools) — likely the latest version Azure Flexible Server offers at provisioning time, but fixed as a specific number during planning, not left to whatever's installed locally.
 - Exact Blob Storage container name and access tier (Hot/Cool) — functionally equivalent to today's `transcripts` bucket either way.
 - Dump/restore tool specifics: plain-text `pg_dump` + `psql`, vs. custom-format `pg_dump -Fc` + `pg_restore` — a mechanical choice with no architectural impact, deferred to planning.
-- Exact duration of the "keep old Supabase classes dormant" safety window before deletion.
 - Whether a scratch/dev Azure Postgres instance is provisioned separately from the production one for implementation-time testing, or whether the production instance itself is used pre-cutover (schema exists, no real data yet) — planning should decide based on actual Azure cost/complexity at provisioning time.
 - Exact VNet/subnet/private-endpoint configuration linking the Postgres server to the app's network — this depends on decisions made in the (prerequisite, separate) Hosting migration spec, and should be finalized once that spec's networking design is fixed, not guessed here.
-- Full enumeration of call sites currently using `StorageRepository.download()`/`upload()` that need updating to the new stream-based methods — a mechanical audit, deferred to planning.
+- Full enumeration of call sites currently using `StorageRepository.download()`/`upload()` that need updating to handle the new stream return type — a mechanical audit, deferred to planning.
