@@ -53,7 +53,11 @@ async function verifyContentHashes(supabasePg: PgClient, azurePg: PgClient): Pro
     );
     let mismatches = 0;
     for (const row of sRows.rows) {
-      const aRes = await azurePg.query(`SELECT payload FROM ${table} WHERE id = $1`, [row.id]);
+      // kpi_snapshots' JSONB column is named `kpis`, not `payload` — SELECT *
+      // (matching sRows above) rather than a hardcoded column name, since not
+      // every HASH_SAMPLE_TABLES table shares the same JSONB column name.
+      // Found by running this script against real production data.
+      const aRes = await azurePg.query(`SELECT * FROM ${table} WHERE id = $1`, [row.id]);
       if (aRes.rows.length === 0) {
         console.log(`${table} id=${row.id}: MISSING on Azure`);
         mismatches++;
