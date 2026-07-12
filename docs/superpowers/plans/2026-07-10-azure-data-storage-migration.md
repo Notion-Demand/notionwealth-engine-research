@@ -2060,14 +2060,30 @@ const HASH_SAMPLE_TABLES = ["analysis_results", "sector_intelligence", "kpi_snap
 const SAMPLE_SIZE = 100;
 const BLOB_HASH_THRESHOLD_BYTES = 10 * 1024 * 1024; // 10 MB
 
+async function countOrZeroIfMissing(pg: PgClient, table: string): Promise<string> {
+  try {
+    const res = await pg.query(`SELECT count(*) FROM ${table}`);
+    return res.rows[0].count;
+  } catch (err) {
+    // 42P01 = undefined_table. Some tables in TABLES (e.g. user_credits,
+    // api_partners/api_keys/api_key_products/api_usage) belong to features
+    // whose migrations were never actually run against production Supabase —
+    // confirmed by querying information_schema.tables directly, not assumed.
+    // Treating "table doesn't exist on the source" as 0 rows is correct here:
+    // there is genuinely nothing to migrate for it, not a lost-data case.
+    if (err instanceof Error && "code" in err && (err as { code: string }).code === "42P01") {
+      return "0";
+    }
+    throw err;
+  }
+}
+
 async function verifyRowCounts(supabasePg: PgClient, azurePg: PgClient): Promise<boolean> {
   console.log("\n=== Row count verification ===");
   let allMatch = true;
   for (const table of TABLES) {
-    const sRes = await supabasePg.query(`SELECT count(*) FROM ${table}`);
-    const aRes = await azurePg.query(`SELECT count(*) FROM ${table}`);
-    const sCount = sRes.rows[0].count;
-    const aCount = aRes.rows[0].count;
+    const sCount = await countOrZeroIfMissing(supabasePg, table);
+    const aCount = await countOrZeroIfMissing(azurePg, table);
     const match = sCount === aCount;
     console.log(`${table}: Supabase=${sCount} Azure=${aCount} ${match ? "OK" : "MISMATCH"}`);
     if (!match) allMatch = false;
