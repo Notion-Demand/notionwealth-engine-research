@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { query } from "@/lib/postgres/client";
 import type { SectionalInsight, KeyMetrics, DashboardPayload } from "@/lib/pipeline";
 
 // ── Domain entity ─────────────────────────────────────────────────────────────
@@ -271,6 +272,140 @@ export class SupabaseAnalysisRepository implements AnalysisRepository {
       .order("created_at", { ascending: false })
       .limit(limit);
     return (data ?? []).map((row) => ({
+      id: row.id,
+      ticker: row.company_ticker,
+      quarterPrevious: "",
+      quarter: row.q_curr,
+      analysis: toEntity(row.company_ticker, "", row.q_curr, row.payload),
+      createdAt: row.created_at,
+    }));
+  }
+}
+
+// ── Postgres implementation ──────────────────────────────────────────────────
+
+export class PostgresAnalysisRepository implements AnalysisRepository {
+  async getCachedAnalysis(ticker: string, qPrev: string, qCurr: string, opts: { strict?: boolean } = {}): Promise<Analysis | null> {
+    const strict = opts.strict ?? true;
+    const rows = await query<{ payload: unknown }>(
+      `SELECT payload FROM analysis_results
+       WHERE company_ticker = $1 AND q_prev = $2 AND q_curr = $3
+       ORDER BY created_at DESC LIMIT 1`,
+      [ticker.toUpperCase(), qPrev, qCurr]
+    );
+    if (rows.length === 0) return null;
+    let raw: Record<string, unknown>;
+    try {
+      raw = (typeof rows[0].payload === "string" ? JSON.parse(rows[0].payload as string) : rows[0].payload) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+    if (!Array.isArray(raw.insights) || raw.insights.length === 0) return null;
+    if (strict && !Array.isArray(raw.earnings_delta)) return null;
+    return toEntity(ticker.toUpperCase(), qPrev, qCurr, raw);
+  }
+
+  async saveAnalysis(userId: string | null, ticker: string, qPrev: string, qCurr: string, analysis: Analysis): Promise<string> {
+    try {
+      if (!Array.isArray(analysis.sections) || analysis.sections.length === 0) {
+        return "not-cached-empty";
+      }
+      const tickerUp = ticker.toUpperCase();
+      await query(`DELETE FROM analysis_results WHERE company_ticker = $1 AND q_prev = $2 AND q_curr = $3`, [tickerUp, qPrev, qCurr]);
+      const rows = await query<{ id: string }>(
+        `INSERT INTO analysis_results (user_id, company_ticker, q_prev, q_curr, payload)
+         VALUES ($1, $2, $3, $4, $5::jsonb) RETURNING id`,
+        [userId, tickerUp, qPrev, qCurr, JSON.stringify(fromEntity(analysis))]
+      );
+      return rows[0]?.id ?? "unknown";
+    } catch (e) {
+      console.error("Failed to save analysis result:", e);
+      return "unknown";
+    }
+  }
+
+  async listRecentByTickersAndQuarter(tickers: string[], qCurr: string, limit: number): Promise<AnalysisRecord[]> {
+    const rows = await query<{ company_ticker: string; payload: unknown }>(
+      `SELECT company_ticker, payload FROM analysis_results
+       WHERE q_curr = $1 AND company_ticker = ANY($2::text[])
+       ORDER BY created_at DESC LIMIT $3`,
+      [qCurr, tickers, limit]
+    );
+    return rows.map((row) => ({
+      ticker: row.company_ticker,
+      quarterPrevious: "",
+      quarter: qCurr,
+      analysis: toEntity(row.company_ticker, "", qCurr, row.payload),
+      createdAt: "",
+    }));
+  }
+
+  async listAllByTickers(tickers: string[]): Promise<{ records: AnalysisRecord[]; error: string | null }> {
+    try {
+      const rows = await query<{ company_ticker: string; q_curr: string; q_prev: string; payload: unknown; created_at: string }>(
+        `SELECT company_ticker, q_curr, q_prev, payload, created_at FROM analysis_results
+         WHERE company_ticker = ANY($1::text[]) ORDER BY created_at DESC`,
+        [tickers]
+      );
+      const records = rows.map((row) => ({
+        ticker: row.company_ticker,
+        quarterPrevious: row.q_prev,
+        quarter: row.q_curr,
+        analysis: toEntity(row.company_ticker, row.q_prev, row.q_curr, row.payload),
+        createdAt: row.created_at,
+      }));
+      return { records, error: null };
+    } catch (err) {
+      return { records: [], error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  async getLatestByTicker(ticker: string): Promise<Analysis | null> {
+    const rows = await query<{ company_ticker: string; q_curr: string; q_prev: string; payload: unknown }>(
+      `SELECT company_ticker, q_curr, q_prev, payload FROM analysis_results
+       WHERE company_ticker = $1 ORDER BY created_at DESC LIMIT 1`,
+      [ticker]
+    );
+    if (rows.length === 0) return null;
+    return toEntity(rows[0].company_ticker, rows[0].q_prev, rows[0].q_curr, rows[0].payload);
+  }
+
+  async listByTickersAndQuarterPair(tickers: string[], qPrev: string, qCurr: string): Promise<AnalysisRecord[]> {
+    const rows = await query<{ company_ticker: string; q_curr: string; q_prev: string; payload: unknown; created_at: string }>(
+      `SELECT company_ticker, q_curr, q_prev, payload, created_at FROM analysis_results
+       WHERE q_prev = $1 AND q_curr = $2 AND company_ticker = ANY($3::text[])
+       ORDER BY created_at DESC`,
+      [qPrev, qCurr, tickers]
+    );
+    return rows.map((row) => ({
+      ticker: row.company_ticker,
+      quarterPrevious: row.q_prev,
+      quarter: row.q_curr,
+      analysis: toEntity(row.company_ticker, row.q_prev, row.q_curr, row.payload),
+      createdAt: row.created_at,
+    }));
+  }
+
+  async listTickersWithAnalysis(tickers: string[]): Promise<string[]> {
+    const rows = await query<{ company_ticker: string }>(
+      `SELECT company_ticker FROM analysis_results WHERE company_ticker = ANY($1::text[])`,
+      [tickers]
+    );
+    return rows.map((r) => r.company_ticker);
+  }
+
+  async listAllTickerQuarterPairs(): Promise<{ ticker: string; qCurr: string }[]> {
+    const rows = await query<{ company_ticker: string; q_curr: string }>(`SELECT company_ticker, q_curr FROM analysis_results`);
+    return rows.map((r) => ({ ticker: r.company_ticker, qCurr: r.q_curr }));
+  }
+
+  async listUserHistory(userId: string, limit: number): Promise<(AnalysisRecord & { id: string })[]> {
+    const rows = await query<{ id: string; company_ticker: string; q_curr: string; payload: unknown; created_at: string }>(
+      `SELECT id, company_ticker, q_curr, payload, created_at FROM analysis_results
+       WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2`,
+      [userId, limit]
+    );
+    return rows.map((row) => ({
       id: row.id,
       ticker: row.company_ticker,
       quarterPrevious: "",
