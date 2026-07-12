@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { query } from "@/lib/postgres/client";
 
 export interface SoloSection {
   title: string;
@@ -84,6 +85,32 @@ export class SupabaseSoloAnalysisRepository implements SoloAnalysisRepository {
         .select("id")
         .single();
       return data?.id ?? "unknown";
+    } catch {
+      return "unknown";
+    }
+  }
+}
+
+export class PostgresSoloAnalysisRepository implements SoloAnalysisRepository {
+  async getCached(ticker: string, quarter: string): Promise<SoloAnalysis | null> {
+    const rows = await query<{ payload: unknown }>(
+      `SELECT payload FROM solo_analysis_cache WHERE ticker = $1 AND quarter = $2`,
+      [ticker, quarter]
+    );
+    if (rows.length === 0) return null;
+    const entity = toEntity(ticker, quarter, rows[0].payload);
+    if (!entity.sections || entity.sections.length === 0) return null;
+    return entity;
+  }
+
+  async saveAnalysis(ticker: string, quarter: string, analysis: SoloAnalysis): Promise<string> {
+    try {
+      await query(`DELETE FROM solo_analysis_cache WHERE ticker = $1 AND quarter = $2`, [ticker, quarter]);
+      const rows = await query<{ id: string }>(
+        `INSERT INTO solo_analysis_cache (ticker, quarter, payload) VALUES ($1, $2, $3::jsonb) RETURNING id`,
+        [ticker, quarter, JSON.stringify(fromEntity(analysis))]
+      );
+      return rows[0]?.id ?? "unknown";
     } catch {
       return "unknown";
     }
