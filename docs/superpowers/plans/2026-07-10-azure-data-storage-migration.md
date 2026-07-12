@@ -1958,6 +1958,7 @@ Expected: no errors.
 Create `scripts/copy-blobs-to-azure.ts`. Per the spec, this bypasses `StorageRepository`'s Buffer-based interface and streams directly between the Supabase Storage SDK and `@azure/storage-blob`, since this is the one place true streaming matters (a long-running bulk copy of potentially many large PDFs), not the app's normal one-file-at-a-time request/response cycle:
 
 ```ts
+import { Readable } from "node:stream";
 import { createClient } from "@supabase/supabase-js";
 import { BlobServiceClient } from "@azure/storage-blob";
 import { storageRepo } from "@/lib/repositories";
@@ -1987,9 +1988,15 @@ async function main() {
       console.error(`FAILED to download ${file.name}: ${downloadError?.message}`);
       continue;
     }
-    const stream = downloadData.stream() as unknown as NodeJS.ReadableStream;
+    // downloadData.stream() returns a Web Streams API ReadableStream (from
+    // supabase-js's fetch-based Blob implementation), not a Node.js Readable —
+    // @azure/storage-blob's uploadStream() requires the latter. Found by
+    // running this script against real production data, not just type-checking
+    // it (an `as unknown as NodeJS.ReadableStream` cast had silenced the type
+    // error without fixing the actual runtime shape mismatch).
+    const stream = Readable.fromWeb(downloadData.stream() as any);
     const blockBlobClient = containerClient.getBlockBlobClient(file.name);
-    await blockBlobClient.uploadStream(stream as any, undefined, undefined, {
+    await blockBlobClient.uploadStream(stream, undefined, undefined, {
       blobHTTPHeaders: { blobContentType: "application/pdf" },
     });
     copied++;
