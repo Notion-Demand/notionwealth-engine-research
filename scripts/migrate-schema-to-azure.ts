@@ -19,12 +19,19 @@ const MIGRATIONS_DIR = join(process.cwd(), "supabase", "migrations");
  *     Postgres; Auth stays on Supabase)
  * Returns null for statements that should be dropped entirely (comments-only
  * fragments, or RLS/policy statements).
+ *
+ * Note: RLS/policy statements are detected without a leading `^` anchor
+ * because several of these files have the actual SQL keyword preceded by a
+ * `--` line comment within the same split statement (e.g. 006_user_tickers.sql:
+ * "-- Users can only read / write their own rows\nCREATE POLICY ..."). An
+ * anchored `^CREATE POLICY` regex misses these — found by running this script
+ * against a real Azure Postgres instance, not just type-checking it.
  */
 function adaptStatement(rawStatement: string): string | null {
   const trimmed = rawStatement.trim();
   if (trimmed === "") return null;
   if (/ENABLE ROW LEVEL SECURITY/i.test(trimmed)) return null;
-  if (/^CREATE POLICY/i.test(trimmed)) return null;
+  if (/CREATE POLICY/i.test(trimmed)) return null;
   const adapted = trimmed.replace(/REFERENCES\s+auth\.users\(id\)(\s+ON DELETE CASCADE)?/gi, "");
   return adapted + ";";
 }
