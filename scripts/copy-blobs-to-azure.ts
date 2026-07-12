@@ -1,3 +1,4 @@
+import { Readable } from "node:stream";
 import { createClient } from "@supabase/supabase-js";
 import { BlobServiceClient } from "@azure/storage-blob";
 import { storageRepo } from "@/lib/repositories";
@@ -27,9 +28,15 @@ async function main() {
       console.error(`FAILED to download ${file.name}: ${downloadError?.message}`);
       continue;
     }
-    const stream = downloadData.stream() as unknown as NodeJS.ReadableStream;
+    // downloadData.stream() returns a Web Streams API ReadableStream (from
+    // supabase-js's fetch-based Blob implementation), not a Node.js Readable —
+    // @azure/storage-blob's uploadStream() requires the latter. Found by
+    // running this script against real production data, not just type-checking
+    // it (the `as unknown as NodeJS.ReadableStream` cast had silenced the
+    // type error without fixing the actual runtime shape mismatch).
+    const stream = Readable.fromWeb(downloadData.stream() as any);
     const blockBlobClient = containerClient.getBlockBlobClient(file.name);
-    await blockBlobClient.uploadStream(stream as any, undefined, undefined, {
+    await blockBlobClient.uploadStream(stream, undefined, undefined, {
       blobHTTPHeaders: { blobContentType: "application/pdf" },
     });
     copied++;
