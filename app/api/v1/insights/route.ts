@@ -1,17 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getUserId } from "@/lib/auth";
+import { getCurrentUser } from "@/lib/auth";
 import { runInsightsPipeline } from "@/lib/insights-pipeline";
 import { checkAndDeduct } from "@/lib/credits";
 
 export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
-  let userId: string;
-  try {
-    userId = await getUserId(req);
-  } catch {
-    return NextResponse.json({ detail: "Unauthorized" }, { status: 401 });
-  }
+  const user = await getCurrentUser();
+  if (!user) return NextResponse.json({ detail: "Unauthorized" }, { status: 401 });
+  const userId = user.id;
 
   let body: { ticker?: string; force?: boolean };
   try {

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getUserId } from "@/lib/auth";
+import { getCurrentUser } from "@/lib/auth";
 import { runPipeline, resolvePdfKey } from "@/lib/pipeline";
 import { analysisRepo } from "@/lib/repositories";
 import { toDashboardPayload, fromDashboardPayload } from "@/lib/repositories/analysis";
@@ -9,12 +9,9 @@ export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
   // Validate auth + params before opening the stream
-  let userId: string;
-  try {
-    userId = await getUserId(req);
-  } catch {
-    return NextResponse.json({ detail: "Unauthorized" }, { status: 401 });
-  }
+  const user = await getCurrentUser();
+  if (!user) return NextResponse.json({ detail: "Unauthorized" }, { status: 401 });
+  const userId = user.id;
 
   let body: { ticker?: string; q_prev?: string; q_curr?: string };
   try {

@@ -1,17 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getUserId } from "@/lib/auth";
+import { getCurrentUser } from "@/lib/auth";
 import { getCreditStatus } from "@/lib/credits";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
-  let userId: string;
-  try {
-    userId = await getUserId(req);
-  } catch {
-    return NextResponse.json({ detail: "Unauthorized" }, { status: 401 });
-  }
+  const user = await getCurrentUser();
+  if (!user) return NextResponse.json({ detail: "Unauthorized" }, { status: 401 });
 
-  const status = await getCreditStatus(userId);
+  const status = await getCreditStatus(user.id);
   return NextResponse.json(status);
 }

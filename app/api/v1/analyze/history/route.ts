@@ -1,19 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { analysisRepo } from "@/lib/repositories";
-import { getUserId } from "@/lib/auth";
+import { getCurrentUser } from "@/lib/auth";
 
 export async function GET(req: NextRequest) {
+  const user = await getCurrentUser();
+  if (!user) return NextResponse.json({ detail: "Unauthorized" }, { status: 401 });
+
   try {
-    const userId = await getUserId(req);
-
-    const history = await analysisRepo.listUserHistory(userId, 20);
-
+    const history = await analysisRepo.listUserHistory(user.id, 20);
     return NextResponse.json(history);
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    if (msg === "Unauthorized") {
-      return NextResponse.json({ detail: "Unauthorized" }, { status: 401 });
-    }
+  } catch {
     return NextResponse.json({ detail: "Internal error" }, { status: 500 });
   }
 }

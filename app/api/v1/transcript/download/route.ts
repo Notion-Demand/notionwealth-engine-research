@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getUserId } from "@/lib/auth";
+import { getCurrentUser } from "@/lib/auth";
 import { storageRepo } from "@/lib/repositories";
 
 /**
@@ -7,11 +7,8 @@ import { storageRepo } from "@/lib/repositories";
  * Returns a short-lived signed URL for the raw transcript PDF.
  */
 export async function GET(req: NextRequest) {
-  try {
-    await getUserId(req);
-  } catch {
-    return NextResponse.json({ detail: "Unauthorized" }, { status: 401 });
-  }
+  const user = await getCurrentUser();
+  if (!user) return NextResponse.json({ detail: "Unauthorized" }, { status: 401 });
 
   const { searchParams } = new URL(req.url);
   const ticker = searchParams.get("ticker")?.toUpperCase();
