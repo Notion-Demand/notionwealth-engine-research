@@ -1,33 +1,20 @@
 /**
- * FastAPI client helpers.
+ * Next.js API route client helpers (app/api/v1/*).
  *
- * All requests attach the Supabase session JWT as a Bearer token so that
- * FastAPI's `get_current_user` dependency can verify the caller.
+ * All requests are same-origin, so the Auth.js session cookie is sent
+ * automatically — no manual token extraction or Authorization header needed.
  */
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "/api/v1";
-
-async function getToken(): Promise<string> {
-  // Must be called in a browser context after Supabase session is established
-  const { createClient } = await import("@/lib/supabase/client");
-  const supabase = createClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session) throw new Error("Not authenticated");
-  return session.access_token;
-}
 
 async function apiFetch<T>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const token = await getToken();
   const res = await fetch(`${API_URL}${path}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
       ...(options.headers ?? {}),
     },
   });
@@ -69,12 +56,10 @@ export async function runAnalysisStream(
   params: AnalyzeParams,
   onEvent: (event: PipelineProgressEvent) => void
 ): Promise<AnalyzeResult> {
-  const token = await getToken();
   const response = await fetch(`${API_URL}/analyze`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify(params),
   });
@@ -140,10 +125,8 @@ export async function getTranscriptDownloadUrl(
   ticker: string,
   quarter: string
 ): Promise<{ url: string; filename: string }> {
-  const token = await getToken();
   const res = await fetch(
-    `${API_URL}/transcript/download?ticker=${encodeURIComponent(ticker)}&quarter=${encodeURIComponent(quarter)}`,
-    { headers: { Authorization: `Bearer ${token}` } }
+    `${API_URL}/transcript/download?ticker=${encodeURIComponent(ticker)}&quarter=${encodeURIComponent(quarter)}`
   );
   if (!res.ok) {
     const err = await res.text();
@@ -166,12 +149,10 @@ export async function runInsightsStream(
   onEvent: (event: InsightsProgressEvent) => void,
   options?: { force?: boolean }
 ): Promise<Record<string, unknown>> {
-  const token = await getToken();
   const response = await fetch(`${API_URL}/insights`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify({ ticker, force: options?.force }),
   });
@@ -228,12 +209,10 @@ export async function runSoloAnalysisStream(
   onEvent: (event: SoloProgressEvent) => void,
   options?: { force?: boolean }
 ): Promise<{ id: string; payload: Record<string, unknown> }> {
-  const token = await getToken();
   const response = await fetch(`${API_URL}/analyze/solo`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify({ ticker, quarter, force: options?.force }),
   });

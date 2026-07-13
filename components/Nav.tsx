@@ -7,7 +7,7 @@ import {
     LogOut, BarChart2, BarChart3, TrendingUp,
     Inbox, Layers, CalendarDays, Bell, CheckCircle2, Clock, X, Youtube,
 } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
+import { signOut } from "next-auth/react";
 import clsx from "clsx";
 
 const NAV_ITEMS = [
@@ -195,16 +195,10 @@ function CreditsIndicator() {
     const [credits, setCredits] = useState<{ used: number; quota: number; remaining: number } | null>(null);
 
     useEffect(() => {
-        const supabase = createClient();
-        supabase.auth.getSession().then(({ data: { session } }) => {
-            if (!session) return;
-            fetch("/api/v1/credits", {
-                headers: { Authorization: `Bearer ${session.access_token}` },
-            })
-                .then((r) => (r.ok ? r.json() : null))
-                .then((d) => { if (d) setCredits(d); })
-                .catch(() => {});
-        });
+        fetch("/api/v1/credits")
+            .then((r) => (r.ok ? r.json() : null))
+            .then((d) => { if (d) setCredits(d); })
+            .catch(() => {});
     }, []);
 
     if (!credits) return null;
@@ -230,13 +224,10 @@ function CreditsIndicator() {
 // ── Main nav ──────────────────────────────────────────────────────────────────
 
 export default function Nav() {
-    const router = useRouter();
     const pathname = usePathname();
-    const supabase = createClient();
 
-    async function signOut() {
-        await supabase.auth.signOut();
-        router.push("/login");
+    async function handleSignOut() {
+        await signOut({ callbackUrl: "/login" });
     }
 
     return (
@@ -269,7 +260,7 @@ export default function Nav() {
                 <CreditsIndicator />
                 <EarningsBell />
                 <button
-                    onClick={signOut}
+                    onClick={handleSignOut}
                     className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800"
                 >
                     <LogOut size={15} />
