@@ -1,15 +1,12 @@
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
-import { createClient } from "@/lib/supabase/server";
+import { getCurrentUser } from "@/lib/auth";
 import DashboardClient from "./DashboardClient";
 
 export default async function DashboardPage() {
-  const supabase = await createClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+  const user = await getCurrentUser();
 
-  if (!session) redirect("/login");
+  if (!user) redirect("/login");
 
   return (
     <Suspense>

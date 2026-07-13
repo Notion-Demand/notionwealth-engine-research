@@ -1,14 +1,11 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { getCurrentUser } from "@/lib/auth";
 import RequestClient from "./RequestClient";
 
 export default async function RequestPage() {
-  const supabase = await createClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+  const user = await getCurrentUser();
 
-  if (!session) redirect("/login");
+  if (!user) redirect("/login");
 
   return <RequestClient />;
 }
