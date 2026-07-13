@@ -1,83 +1,33 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-
-type Mode = "signin" | "forgot";
-
-async function authProxy(body: Record<string, string>) {
-  const res = await fetch("/api/v1/auth", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const json = await res.json();
-  if (!res.ok) throw new Error(json.error ?? "Authentication failed");
-  return json;
-}
+import { useSearchParams } from "next/navigation";
+import { signIn } from "next-auth/react";
 
 export default function LoginClient() {
-  const router = useRouter();
   const searchParams = useSearchParams();
 
   const urlError = searchParams.get("error");
   const initialError =
-    urlError === "not_authorized"
+    urlError === "AccessDenied"
       ? "Access is by invitation only. Contact us to request access."
       : urlError
       ? "Authentication failed. Please try again."
       : null;
 
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [mode, setMode] = useState<Mode>("signin");
   const [error, setError] = useState<string | null>(initialError);
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
 
-  function switchMode(next: Mode) {
-    setMode(next);
+  async function handleSignIn() {
     setError(null);
-    setMessage(null);
-  }
-
-  async function handleEmailAuth(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setMessage(null);
     setLoading(true);
-
     try {
-      if (mode === "forgot") {
-        await authProxy({
-          action: "reset",
-          email,
-          redirectTo: `${window.location.origin}/auth/reset-callback`,
-        });
-        setMessage("Password reset link sent — check your email.");
-      } else {
-        await authProxy({ action: "signin", email, password });
-        router.push("/dashboard");
-        router.refresh();
-      }
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Authentication failed");
-    } finally {
+      await signIn("microsoft-entra-id", { callbackUrl: "/dashboard" });
+    } catch {
+      setError("Authentication failed. Please try again.");
       setLoading(false);
     }
   }
-
-  function handleGoogleSignIn() {
-    // Route through our server-side OAuth proxy so the browser never contacts
-    // *.supabase.co — required for Indian ISPs (Jio/Airtel) that block supabase.co.
-    window.location.href = "/api/v1/auth/google-start";
-  }
-
-  const submitLabel = loading
-    ? "Please wait…"
-    : mode === "forgot"
-    ? "Send reset link"
-    : "Sign in";
 
   return (
     <div className="flex min-h-screen items-center justify-center px-4">
@@ -89,85 +39,19 @@ export default function LoginClient() {
           Earnings Concall Analysis
         </p>
 
-        <form onSubmit={handleEmailAuth} className="space-y-4">
-          <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">
-              Email
-            </label>
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-            />
-          </div>
+        {error && <p className="mb-4 text-center text-sm text-red-600">{error}</p>}
 
-          {mode !== "forgot" && (
-            <div>
-              <div className="mb-1 flex items-center justify-between">
-                <label className="block text-sm font-medium text-gray-700">
-                  Password
-                </label>
-                <button
-                  type="button"
-                  onClick={() => switchMode("forgot")}
-                  className="text-xs text-brand-600 hover:underline"
-                >
-                  Forgot password?
-                </button>
-              </div>
-              <input
-                type="password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-              />
-            </div>
-          )}
+        <button
+          onClick={handleSignIn}
+          disabled={loading}
+          className="w-full rounded-md bg-brand-600 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
+        >
+          {loading ? "Please wait…" : "Sign in"}
+        </button>
 
-          {error && <p className="text-sm text-red-600">{error}</p>}
-          {message && <p className="text-sm text-green-600">{message}</p>}
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full rounded-md bg-brand-600 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
-          >
-            {submitLabel}
-          </button>
-        </form>
-
-        {mode === "forgot" ? (
-          <p className="mt-6 text-center text-sm text-gray-500">
-            <button
-              onClick={() => switchMode("signin")}
-              className="font-medium text-brand-600 hover:underline"
-            >
-              Back to sign in
-            </button>
-          </p>
-        ) : (
-          <>
-            <div className="my-4 flex items-center gap-3">
-              <div className="h-px flex-1 bg-gray-200" />
-              <span className="text-xs text-gray-400">or</span>
-              <div className="h-px flex-1 bg-gray-200" />
-            </div>
-
-            <button
-              onClick={handleGoogleSignIn}
-              className="w-full rounded-md border border-gray-300 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-            >
-              Continue with Google
-            </button>
-
-            <p className="mt-6 text-center text-sm text-gray-400">
-              Access is by invitation only.
-            </p>
-          </>
-        )}
+        <p className="mt-6 text-center text-sm text-gray-400">
+          Access is by invitation only.
+        </p>
       </div>
     </div>
   );
