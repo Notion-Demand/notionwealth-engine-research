@@ -1,28 +1,21 @@
-import { createClient } from "@supabase/supabase-js";
-import { NextRequest } from "next/server";
+import { auth } from "@/auth";
+
+export interface CurrentUser {
+  id: string;
+  email: string | null;
+}
 
 /**
- * Verify the Supabase JWT from the Authorization: Bearer <token> header.
- * Returns the authenticated user's ID.
- * Throws "Unauthorized" if missing or invalid.
+ * Returns the currently authenticated user (via Auth.js's session cookie),
+ * or null if not authenticated. Never throws — callers decide whether a
+ * missing user means a 401 (API routes) or a redirect (Server Component
+ * pages). Centralizing this here (rather than calling auth() directly in
+ * every route/page) means a future change — e.g. reintroducing a portable
+ * bearer token for a separate backend — only requires changing this one
+ * function, not every call site.
  */
-export async function getUserId(req: NextRequest): Promise<string> {
-  const authHeader = req.headers.get("authorization");
-  if (!authHeader?.startsWith("Bearer ")) {
-    throw new Error("Unauthorized");
-  }
-  const token = authHeader.slice(7);
-
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
-
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser(token);
-
-  if (error || !user) throw new Error("Unauthorized");
-  return user.id;
+export async function getCurrentUser(): Promise<CurrentUser | null> {
+  const session = await auth();
+  if (!session?.user?.id) return null;
+  return { id: session.user.id, email: session.user.email ?? null };
 }
