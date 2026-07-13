@@ -1279,10 +1279,14 @@ az webapp config appsettings set \
     AUTH_MICROSOFT_ENTRA_ID_ID="$AUTH_MICROSOFT_ENTRA_ID_ID" \
     AUTH_MICROSOFT_ENTRA_ID_SECRET="$AUTH_MICROSOFT_ENTRA_ID_SECRET" \
     AUTH_MICROSOFT_ENTRA_ID_ISSUER="$AUTH_MICROSOFT_ENTRA_ID_ISSUER" \
+    AUTH_URL="https://quantalyze.me" \
+    AUTH_TRUST_HOST="true" \
   --query "[].name" -o tsv
 ```
 
 (Using shell variables set from Task 1's saved values — never paste the raw client secret or `AUTH_SECRET` into a shared chat/log.)
+
+**`AUTH_URL` and `AUTH_TRUST_HOST` are both required, found by testing the real deployment**: Azure App Service's Linux container reverse proxy doesn't forward the original `Host` the way Auth.js expects by default. Without `AUTH_TRUST_HOST=true`, Auth.js constructed every redirect URI from the container's own internal hostname (e.g. `https://<container-id>:8080/api/auth/callback/microsoft-entra-id`) instead of `https://quantalyze.me/...`, causing Entra to reject the sign-in with `AADSTS50011: redirect URI mismatch`. The code-level `trustHost: true` in `auth.ts` alone was not sufficient — the separate `AUTH_TRUST_HOST` env var is what actually makes Auth.js honor the proxy's forwarded host on this platform. `AUTH_URL` was set too as a second, more explicit safeguard, though `AUTH_TRUST_HOST` was the fix that mattered. Confirmed working via `GET /api/auth/providers`, which should show `signinUrl`/`callbackUrl` both starting with `https://quantalyze.me`, not a container hostname.
 
 - [ ] **Step 7: Search for any remaining `ALLOWED_EMAILS` references**
 
