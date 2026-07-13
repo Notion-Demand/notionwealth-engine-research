@@ -23,7 +23,7 @@ export async function GET() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const { tickers, error } = await watchlistRepo.list(supabase);
+    const { tickers, error } = await watchlistRepo.list(user.id);
 
     if (error) return NextResponse.json({ error }, { status: 500 });
     return NextResponse.json(tickers.map(toWire));
@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Invalid ticker" }, { status: 400 });
     }
 
-    const { ticker: saved, error } = await watchlistRepo.add(supabase, user.id, ticker, name, sector);
+    const { ticker: saved, error } = await watchlistRepo.add(user.id, ticker, name, sector);
 
     if (error) return NextResponse.json({ error }, { status: 500 });
     return NextResponse.json(saved ? toWire(saved) : null);
@@ -62,7 +62,7 @@ export async function DELETE(req: NextRequest) {
     const ticker = searchParams.get("ticker")?.toUpperCase();
     if (!ticker) return NextResponse.json({ error: "ticker required" }, { status: 400 });
 
-    await watchlistRepo.remove(supabase, user.id, ticker);
+    await watchlistRepo.remove(user.id, ticker);
 
     return NextResponse.json({ ok: true });
 }

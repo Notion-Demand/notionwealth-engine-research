@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { query } from "@/lib/postgres/client";
 import type { QuarterBrief, RecurringTheme, GuidanceTrack } from "@/lib/insights-pipeline";
 
 export interface InsightsSummary {
@@ -116,5 +117,38 @@ export class SupabaseInsightsRepository implements InsightsRepository {
       .limit(1)
       .maybeSingle();
     return (data?.payload as Record<string, unknown>) ?? null;
+  }
+}
+
+export class PostgresInsightsRepository implements InsightsRepository {
+  async getCached(ticker: string, quartersKey: string, ttlDays: number): Promise<InsightsSummary | null> {
+    try {
+      const cutoff = new Date(Date.now() - ttlDays * 24 * 60 * 60 * 1000).toISOString();
+      const rows = await query<{ payload: InsightsWirePayload }>(
+        `SELECT payload FROM insights_cache WHERE ticker = $1 AND quarters_key = $2 AND created_at >= $3`,
+        [ticker, quartersKey, cutoff]
+      );
+      if (rows.length === 0) return null;
+      return toEntity(rows[0].payload);
+    } catch {
+      return null;
+    }
+  }
+
+  async saveInsights(ticker: string, quartersKey: string, insights: InsightsSummary): Promise<void> {
+    await query(
+      `INSERT INTO insights_cache (ticker, quarters_key, payload, created_at)
+       VALUES ($1, $2, $3::jsonb, $4)
+       ON CONFLICT (ticker, quarters_key) DO UPDATE SET payload = EXCLUDED.payload, created_at = EXCLUDED.created_at`,
+      [ticker, quartersKey, JSON.stringify(fromEntity(insights)), new Date().toISOString()]
+    );
+  }
+
+  async getLatestRawPayload(ticker: string): Promise<Record<string, unknown> | null> {
+    const rows = await query<{ payload: Record<string, unknown> }>(
+      `SELECT payload FROM insights_cache WHERE ticker = $1 ORDER BY created_at DESC LIMIT 1`,
+      [ticker]
+    );
+    return rows.length > 0 ? rows[0].payload : null;
   }
 }

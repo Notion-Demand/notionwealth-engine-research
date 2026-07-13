@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { query } from "@/lib/postgres/client";
 import type { KPIEntry } from "@/lib/kpi-extractor";
 
 // Only fields actually persisted in kpi_snapshots — a company display name is
@@ -106,5 +107,68 @@ export class SupabaseKpiRepository implements KpiRepository {
       .delete()
       .neq("id", "00000000-0000-0000-0000-000000000000");
     return { error: error ? error.message : null };
+  }
+}
+
+export class PostgresKpiRepository implements KpiRepository {
+  async getLatestByTicker(ticker: string): Promise<KpiSnapshot | null> {
+    const rows = await query<StoredKpiRow>(
+      `SELECT company_ticker, sector, quarter, quarter_previous, kpis FROM kpi_snapshots
+       WHERE company_ticker = $1 ORDER BY created_at DESC LIMIT 1`,
+      [ticker]
+    );
+    return rows.length > 0 ? toEntity(rows[0]) : null;
+  }
+
+  async getLatestByTickers(tickers: string[]): Promise<Map<string, KpiSnapshot>> {
+    if (tickers.length === 0) return new Map();
+    const rows = await query<StoredKpiRow>(
+      `SELECT DISTINCT ON (company_ticker) company_ticker, sector, quarter, quarter_previous, kpis
+       FROM kpi_snapshots WHERE company_ticker = ANY($1::text[])
+       ORDER BY company_ticker, created_at DESC`,
+      [tickers]
+    );
+    const result = new Map<string, KpiSnapshot>();
+    for (const row of rows) result.set(row.company_ticker, toEntity(row));
+    return result;
+  }
+
+  async upsertSnapshot(snapshot: KpiSnapshot): Promise<{ error: string | null }> {
+    try {
+      await query(
+        `INSERT INTO kpi_snapshots (company_ticker, quarter, quarter_previous, sector, kpis)
+         VALUES ($1, $2, $3, $4, $5::jsonb)
+         ON CONFLICT (company_ticker, quarter) DO UPDATE SET
+           quarter_previous = EXCLUDED.quarter_previous, sector = EXCLUDED.sector, kpis = EXCLUDED.kpis`,
+        [snapshot.ticker, snapshot.quarter, snapshot.quarterPrevious, snapshot.sector, JSON.stringify(snapshot.kpis)]
+      );
+      return { error: null };
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  async listAll(sectorFilter?: string): Promise<{ snapshots: KpiSnapshot[]; error: string | null }> {
+    try {
+      const rows = await query<StoredKpiRow>(
+        `SELECT DISTINCT ON (company_ticker) company_ticker, sector, quarter, quarter_previous, kpis
+         FROM kpi_snapshots
+         WHERE $1::text IS NULL OR sector = $1
+         ORDER BY company_ticker, created_at DESC`,
+        [sectorFilter ?? null]
+      );
+      return { snapshots: rows.map(toEntity), error: null };
+    } catch (err) {
+      return { snapshots: [], error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  async deleteAll(): Promise<{ error: string | null }> {
+    try {
+      await query(`DELETE FROM kpi_snapshots`);
+      return { error: null };
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : String(err) };
+    }
   }
 }

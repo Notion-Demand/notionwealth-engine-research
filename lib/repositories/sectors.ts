@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { query } from "@/lib/postgres/client";
 import type { SectorNarrative } from "@/lib/sector-narrative";
 
 export interface CompanySignal {
@@ -178,5 +179,48 @@ export class SupabaseSectorRepository implements SectorRepository {
       .select("id")
       .single();
     return { id: data?.id ?? null, error: error ? `${error.message} (code=${error.code})` : null };
+  }
+}
+
+export class PostgresSectorRepository implements SectorRepository {
+  async listBySectors(sectors: string[]): Promise<{ records: SectorRecord[]; error: string | null }> {
+    try {
+      const rows = await query<{ sector: string; quarter: string; payload: unknown; created_at: string }>(
+        `SELECT sector, quarter, payload, created_at FROM sector_intelligence
+         WHERE sector = ANY($1::text[]) ORDER BY created_at DESC`,
+        [sectors]
+      );
+      const records = rows.map((row) => ({
+        sector: row.sector,
+        quarter: row.quarter,
+        payload: toEntity(row.payload),
+        createdAt: row.created_at,
+      }));
+      return { records, error: null };
+    } catch (err) {
+      return { records: [], error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  async getBySector(sector: string): Promise<Sector | null> {
+    const rows = await query<{ payload: unknown }>(
+      `SELECT payload FROM sector_intelligence WHERE sector = $1 ORDER BY created_at DESC LIMIT 1`,
+      [sector]
+    );
+    if (rows.length === 0) return null;
+    return toEntity(rows[0].payload);
+  }
+
+  async replaceSector(sector: string, quarter: string, payload: Sector): Promise<{ id: string | null; error: string | null }> {
+    try {
+      await query(`DELETE FROM sector_intelligence WHERE sector = $1`, [sector]);
+      const rows = await query<{ id: string }>(
+        `INSERT INTO sector_intelligence (sector, quarter, payload) VALUES ($1, $2, $3::jsonb) RETURNING id`,
+        [sector, quarter, JSON.stringify(fromEntity(payload))]
+      );
+      return { id: rows[0]?.id ?? null, error: null };
+    } catch (err) {
+      return { id: null, error: err instanceof Error ? err.message : String(err) };
+    }
   }
 }
