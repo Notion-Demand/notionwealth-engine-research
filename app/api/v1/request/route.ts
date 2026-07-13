@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import pdfParse from "pdf-parse";
 import { storageRepo } from "@/lib/repositories";
-import { createClient } from "@/lib/supabase/server";
+import { getCurrentUser } from "@/lib/auth";
 
 export const maxDuration = 60;
 
@@ -319,8 +319,7 @@ async function downloadPdf(url: string): Promise<Buffer> {
 // ── Route handler ─────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) return NextResponse.json({ detail: "Unauthorized" }, { status: 401 });
 
   let body: { ticker?: string };

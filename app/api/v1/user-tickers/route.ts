@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { getCurrentUser } from "@/lib/auth";
 import { watchlistRepo } from "@/lib/repositories";
 import type { WatchlistTicker } from "@/lib/repositories/watchlist";
 
@@ -19,8 +19,7 @@ function toWire(t: WatchlistTicker): UserTicker {
 // ── GET — list caller's custom tickers ───────────────────────────────────────
 
 export async function GET() {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await getCurrentUser();
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const { tickers, error } = await watchlistRepo.list(user.id);
@@ -32,8 +31,7 @@ export async function GET() {
 // ── POST — add a ticker to caller's list ─────────────────────────────────────
 
 export async function POST(req: NextRequest) {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await getCurrentUser();
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const body = await req.json().catch(() => ({}));
@@ -54,8 +52,7 @@ export async function POST(req: NextRequest) {
 // ── DELETE — remove a ticker from caller's list ──────────────────────────────
 
 export async function DELETE(req: NextRequest) {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await getCurrentUser();
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const { searchParams } = new URL(req.url);
