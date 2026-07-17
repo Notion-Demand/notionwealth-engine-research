@@ -28,14 +28,19 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     signIn: "/login",
   },
   callbacks: {
-    // Entra's OIDC `sub` claim (the user's unique ID in this tenant) is on
-    // the `token`, not the default `session.user` shape — Auth.js does not
-    // expose an ID on session.user unless a callback copies it there. Every
-    // consumer in this app needs a stable user ID (matching what the old
-    // Supabase `user.id` provided), so this callback is required, not optional.
-    async jwt({ token, account }) {
+    // Every Postgres table's user_id column is typed UUID (matching Supabase's
+    // UUID-based auth.users.id, unchanged by the Data+Storage migration).
+    // account.providerAccountId maps to the OIDC `sub` claim, which for
+    // Microsoft Entra External ID is an opaque pairwise identifier, NOT a
+    // UUID (e.g. "vZy-_Fa8xnKr..." instead of a GUID) — this broke every
+    // credits/analysis query with "invalid input syntax for type uuid",
+    // found by testing the real deployment, not caught by type-checking.
+    // Entra's `oid` claim is the user's actual Object ID in the tenant and
+    // IS a real GUID (matching what Microsoft Graph assigns/returns when
+    // creating users), so it's used here instead.
+    async jwt({ token, account, profile }) {
       if (account) {
-        token.sub = account.providerAccountId;
+        token.sub = (profile?.oid as string | undefined) ?? account.providerAccountId;
       }
       return token;
     },
