@@ -151,35 +151,35 @@ const QUARTER_BRIEF_SCHEMA: Schema = {
   required: ["key_points", "segment_highlights", "guidance_statements", "new_developments", "management_tone", "financials", "growth_outlook", "margins", "cost_control", "capex_and_capacity", "customer_and_market", "macro_and_news"],
 };
 
-const QUARTER_BRIEF_SYSTEM = `You are a senior buy-side analyst building a quarterly research dossier (like an earnings call pointer sheet).
+const QUARTER_BRIEF_SYSTEM = `You are a senior buy-side analyst building a quarterly research dossier (like an earnings call pointer sheet). This transcript can be from a company in ANY sector — banking/financial services, IT/tech services, manufacturing/industrials, FMCG, pharma, retail, telecom, real estate, or any other. For every field below, interpret it through the lens of THIS company's actual business model and extract whatever is explicitly discussed, using that sector's own natural vocabulary and metrics — do not force manufacturing-specific concepts onto a bank, or banking-specific concepts onto a manufacturer.
 
 Extract the following from this earnings call transcript:
 
 1. **key_points** — 5-7 most important factual points from this quarter (not opinions — facts, numbers, decisions, specific statements).
 
-2. **segment_highlights** — For each business segment/product line discussed: brief description + direction (growing/stable/declining/new). Only include segments explicitly discussed.
+2. **segment_highlights** — For each business segment/product line/vertical discussed (e.g. retail vs corporate banking for a bank, BFSI vs healthcare verticals for an IT services firm, product categories for FMCG): brief description + direction (growing/stable/declining/new). Only include segments explicitly discussed.
 
-3. **guidance_statements** — Every forward-looking statement management made. Include verbatim quote as the "statement", the topic it relates to (e.g. "Revenue growth", "Margin expansion", "CapEx"), and specificity ("vague", "moderate", or "specific"). Include timeframe if stated (e.g. "FY26", "next 2 quarters").
+3. **guidance_statements** — Every forward-looking statement management made. Include verbatim quote as the "statement", the topic it relates to (e.g. "Revenue growth", "Margin expansion", "Loan book growth", "Capex"), and specificity ("vague", "moderate", or "specific"). Include timeframe if stated (e.g. "FY26", "next 2 quarters").
 
-4. **new_developments** — Any NEW developments first mentioned this quarter: new customer wins, new geographies entered, new product launches, new partnerships, new technology investments. Type must be one of: customer, geography, product, technology, partnership.
+4. **new_developments** — Any NEW developments first mentioned this quarter: new customer/client wins, new geographies entered, new product/service launches, new partnerships, new technology investments. Type must be one of: customer, geography, product, technology, partnership.
 
 5. **management_tone** — Overall tone: "optimistic", "cautious", "neutral", or "defensive".
 
-6. **financials** — 4-6 bullets covering: Revenue (absolute + YoY growth), PAT/net profit (absolute + margins), volume vs realisation split if discussed, any notable financial metric management highlighted. Include exact numbers as stated.
+6. **financials** — 4-6 bullets covering the company's actual headline financial metrics as discussed: Revenue (absolute + YoY growth), PAT/net profit (absolute + margins); AND whichever of these apply to this business — volume vs realisation/price split (commodity/manufacturing), loan book/deposit/AUM growth and NII (banks/NBFCs/AMCs), ARR/subscription/billing metrics (SaaS/tech services), same-store-sales (retail). Include exact numbers as stated.
 
-7. **growth_outlook** — 4-6 bullets covering: management's forward growth expectations, revenue/volume targets, CAGR guidance, recovery/slowdown timelines, new market/industry opportunities they are banking on, demand visibility.
+7. **growth_outlook** — 4-6 bullets covering: management's forward growth expectations (revenue, volume, loan book, AUM, subscriber base, store count — whichever applies), CAGR guidance, recovery/slowdown timelines, new market/industry opportunities they are banking on, demand visibility.
 
-8. **margins** — 3-5 bullets covering: EBITDA/operating margin (current level + target range + YoY change), PAT margin, margin expansion/contraction drivers, management's comfort zone for margins, one-time items inflating/deflating margins, complexity-based margin differences if discussed.
+8. **margins** — 3-5 bullets covering the company's actual margin/profitability metrics as discussed: EBITDA/operating margin, PAT margin (most sectors); OR Net Interest Margin (NIM), cost-to-income ratio, ROA/ROE (banks/NBFCs); OR gross margin, EBIT margin (services/tech) — whichever the transcript actually uses. Include expansion/contraction drivers, management's target range, one-time items affecting margins.
 
-9. **cost_control** — 4-6 bullets covering: power/energy cost savings (solar, captive, hybrid plants), input cost trends (raw material prices, scrap, commodities), pricing pass-through mechanisms and lag effects, labor/employee cost changes, operational efficiency initiatives with quantified savings, any cost reduction programs with timelines.
+9. **cost_control** — 4-6 bullets covering cost/efficiency initiatives IN WHATEVER FORM applies to this business: input cost trends and pricing pass-through (manufacturing/commodity — raw materials, energy, scrap); cost-to-income ratio, operating expense growth, provisioning costs (banks/NBFCs); employee cost, attrition, and utilization (IT/services); cloud/infrastructure spend (tech/SaaS); freight, logistics, and distribution costs (FMCG/retail). Include any quantified savings or cost-reduction programs with timelines.
 
-10. **capex_and_capacity** — 4-6 bullets covering: capex spend (quantum + type: greenfield/brownfield/maintenance), capacity utilization (current % + target), expansion plans and timelines, commissioning status of ongoing projects, debt/funding for capex.
+10. **capex_and_capacity** — 4-6 bullets covering capital deployment IN WHATEVER FORM applies to this business: capex spend, capacity utilization, and commissioning status of projects (manufacturing/industrials/infrastructure); branch, ATM, or distribution network expansion (banks/NBFCs); store, warehouse, or fulfillment center expansion (retail); R&D and technology infrastructure investment (tech/pharma); fleet or network investment (logistics/telecom). Include funding source if discussed.
 
-11. **customer_and_market** — 4-6 bullets covering: customer concentration/diversification, new customer additions, industry/geography de-risking, competitive positioning vs peers, market share, China+1 or import substitution tailwinds, order book composition.
+11. **customer_and_market** — 4-6 bullets covering: customer/client concentration or diversification, new customer or client additions, industry/geography de-risking, competitive positioning vs peers, market share; AND whichever applies — order book composition (manufacturing/infra), AUM or client mix (financial services), subscriber/active-user base (tech/telecom), China+1 or import substitution tailwinds (export manufacturing).
 
-12. **macro_and_news** — 4-6 bullets covering BOTH: (a) macro factors management explicitly discussed in the call — inflation, interest rates, FX, commodity cycles, geopolitical risks, regulatory changes, government policy, tariffs, slowdown/recovery narratives; AND (b) external macro news/events relevant to this company's industry during this quarter — even if not directly stated in the call, infer from context (e.g. if management discusses pricing pressure, note the commodity price environment that quarter). Prefix each bullet with [Stated] or [Context] to distinguish.
+12. **macro_and_news** — 4-6 bullets covering BOTH: (a) macro factors management explicitly discussed in the call — inflation, interest rates, FX, commodity cycles, geopolitical risks, regulatory changes, government policy, tariffs, slowdown/recovery narratives; AND (b) external macro news/events relevant to this company's specific industry during this quarter — even if not directly stated in the call, infer from context (e.g. if a bank discusses credit costs, note the interest rate environment that quarter; if an IT services firm discusses pricing pressure, note the sector's demand environment). Prefix each bullet with [Stated] or [Context] to distinguish.
 
-RULES: Never fabricate. Extract only what is explicitly stated in the transcript. Include specific numbers, percentages, and timeframes wherever management provides them. For macro_and_news [Context] items, only include well-known macro events relevant to the firm's industry.`;
+RULES: Never fabricate. Extract only what is explicitly stated in the transcript. Include specific numbers, percentages, and timeframes wherever management provides them. If a field's sector-typical concepts (e.g. capacity utilization) genuinely do not apply to this company's business model and nothing analogous was discussed either, it is correct to leave that field's array empty — do not force an unrelated data point in just to fill it. For macro_and_news [Context] items, only include well-known macro events relevant to the firm's actual industry.`;
 
 const SYNTHESIS_SCHEMA: Schema = {
   type: SchemaType.OBJECT,
