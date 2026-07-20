@@ -157,6 +157,281 @@ export default function DevelopersPage() {
             </p>
           </section>
 
+          {/* Endpoints */}
+          <section>
+            <h2 className="mb-3 text-base font-semibold text-white">Endpoints</h2>
+            <p className="mb-8">
+              Example responses below are illustrative placeholders showing field
+              names, shapes, and types — not real analysis output.
+            </p>
+
+            <div className="space-y-12">
+
+              {/* GET /data/companies/:ticker */}
+              <div>
+                <div className="mb-3 flex flex-wrap items-center gap-3">
+                  <span className="rounded bg-emerald-400/10 px-2 py-0.5 text-xs font-semibold text-emerald-400">
+                    GET
+                  </span>
+                  <code className="text-sm text-white/90">/data/companies/&#123;ticker&#125;</code>
+                  <span className="ml-auto text-xs text-white/30">
+                    Product: <code className="rounded bg-white/10 px-1">data:companies</code>
+                  </span>
+                </div>
+                <p className="mb-3">
+                  Latest earnings-call analysis for a single company, identified by NSE ticker.
+                </p>
+                <table className="mb-4 w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-white/10">
+                      <th className="px-2 py-2 text-left font-medium text-white/60">Path Parameter</th>
+                      <th className="px-2 py-2 text-left font-medium text-white/60">Description</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td className="px-2 py-2 font-mono text-white/80">ticker</td>
+                      <td className="px-2 py-2 text-white/60">
+                        NSE ticker symbol, e.g. <code className="rounded bg-white/10 px-1 text-xs">RELIANCE</code>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+                <CodeBlock
+                  lang="bash"
+                  code={`curl -H "Authorization: Bearer YOUR_API_KEY" \\\n  ${BASE_URL}/data/companies/RELIANCE`}
+                />
+                <div className="mt-3">
+                  <CodeBlock
+                    lang="json"
+                    code={JSON.stringify(
+                      {
+                        ticker: "RELIANCE",
+                        quarter: "Q2 FY26",
+                        quarterPrevious: "Q1 FY26",
+                        overallSignal: "Positive",
+                        overallScore: 7.8,
+                        summary:
+                          "Management raised full-year revenue guidance on strong retail and digital services growth, while flagging near-term margin pressure from refining spreads.",
+                        keyMetrics: {
+                          revenue: "₹2,43,000 Cr",
+                          revenueGrowth: "+11.2% YoY",
+                          ebitdaMargin: "16.8%",
+                          patGrowth: "+8.4% YoY",
+                        },
+                        earningsDelta: [
+                          "Raised FY26 revenue guidance from 'high single digits' to 'low double digits'",
+                          "First explicit mention of refining margin pressure in three quarters",
+                        ],
+                        generatedAt: "2026-07-19T09:15:00.000Z",
+                      },
+                      null,
+                      2
+                    )}
+                  />
+                </div>
+              </div>
+
+              {/* GET /data/sectors/:sector */}
+              <div>
+                <div className="mb-3 flex flex-wrap items-center gap-3">
+                  <span className="rounded bg-emerald-400/10 px-2 py-0.5 text-xs font-semibold text-emerald-400">
+                    GET
+                  </span>
+                  <code className="text-sm text-white/90">/data/sectors/&#123;sector&#125;</code>
+                  <span className="ml-auto text-xs text-white/30">
+                    Product: <code className="rounded bg-white/10 px-1">data:sectors</code>
+                  </span>
+                </div>
+                <p className="mb-3">
+                  Latest sector-level intelligence: scored dimensions and, where available, a
+                  qualitative sector narrative.
+                </p>
+                <table className="mb-4 w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-white/10">
+                      <th className="px-2 py-2 text-left font-medium text-white/60">Path Parameter</th>
+                      <th className="px-2 py-2 text-left font-medium text-white/60">Description</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td className="px-2 py-2 font-mono text-white/80">sector</td>
+                      <td className="px-2 py-2 text-white/60">
+                        Sector code, e.g. <code className="rounded bg-white/10 px-1 text-xs">IT</code>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+                <CodeBlock
+                  lang="bash"
+                  code={`curl -H "Authorization: Bearer YOUR_API_KEY" \\\n  ${BASE_URL}/data/sectors/IT`}
+                />
+                <div className="mt-3">
+                  <CodeBlock
+                    lang="json"
+                    code={JSON.stringify(
+                      {
+                        sector: "IT",
+                        sectorLabel: "Information Technology",
+                        quarter: "Q2 FY26",
+                        companyCount: 12,
+                        dimensions: [
+                          {
+                            dimension: "Deal Pipeline",
+                            signal: "Strengthening on large-deal TCV growth",
+                            direction: "strengthening",
+                            weightedScore: 7.4,
+                          },
+                          {
+                            dimension: "Margin Trajectory",
+                            signal: "Stable despite wage hikes",
+                            direction: "stable",
+                            weightedScore: 6.1,
+                          },
+                        ],
+                        narrative: {
+                          competitiveStructure:
+                            "Top-5 players consolidating large-deal share; mid-caps compete on niche verticals.",
+                          strategicTheme:
+                            "GenAI services monetization shifting from pilots to run-rate revenue.",
+                          tailwinds: [
+                            "Weaker rupee aiding realized margins",
+                            "Discretionary spend recovery in BFSI vertical",
+                          ],
+                          headwinds: [
+                            "Visa policy uncertainty in the US",
+                            "Continued pricing pressure on legacy application services",
+                          ],
+                          keyTriggers: [
+                            "Q3 large-deal TCV disclosures",
+                            "US client budget-cycle commentary",
+                          ],
+                          macroSensitivity:
+                            "High sensitivity to US discretionary tech spend and rupee-dollar movement.",
+                          transformationSignal:
+                            "Early signs of GenAI cannibalizing traditional staff-augmentation revenue.",
+                        },
+                        generatedAt: "2026-07-19T09:15:00.000Z",
+                      },
+                      null,
+                      2
+                    )}
+                  />
+                </div>
+              </div>
+
+              {/* GET /products/sector-thesis */}
+              <div>
+                <div className="mb-3 flex flex-wrap items-center gap-3">
+                  <span className="rounded bg-emerald-400/10 px-2 py-0.5 text-xs font-semibold text-emerald-400">
+                    GET
+                  </span>
+                  <code className="text-sm text-white/90">/products/sector-thesis</code>
+                  <span className="ml-auto text-xs text-white/30">
+                    Product: <code className="rounded bg-white/10 px-1">products:sector-thesis</code>
+                  </span>
+                </div>
+                <p className="mb-3">
+                  A synthesized investment thesis for a sector: narrative, scored dimensions, and
+                  the top-weighted companies driving the thesis.
+                </p>
+                <table className="mb-4 w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-white/10">
+                      <th className="px-2 py-2 text-left font-medium text-white/60">Query Parameter</th>
+                      <th className="px-2 py-2 text-left font-medium text-white/60">Description</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td className="px-2 py-2 font-mono text-white/80">sector</td>
+                      <td className="px-2 py-2 text-white/60">
+                        Required. Sector code, e.g. <code className="rounded bg-white/10 px-1 text-xs">IT</code>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+                <CodeBlock
+                  lang="bash"
+                  code={`curl -H "Authorization: Bearer YOUR_API_KEY" \\\n  "${BASE_URL}/products/sector-thesis?sector=IT"`}
+                />
+                <div className="mt-3">
+                  <CodeBlock
+                    lang="json"
+                    code={JSON.stringify(
+                      {
+                        sector: "IT",
+                        sectorLabel: "Information Technology",
+                        quarter: "Q2 FY26",
+                        quarterPrevious: "Q1 FY26",
+                        companyCount: 12,
+                        narrative: {
+                          competitiveStructure:
+                            "Top-5 players consolidating large-deal share; mid-caps compete on niche verticals.",
+                          strategicTheme:
+                            "GenAI services monetization shifting from pilots to run-rate revenue.",
+                          tailwinds: [
+                            "Weaker rupee aiding realized margins",
+                            "Discretionary spend recovery in BFSI vertical",
+                          ],
+                          headwinds: [
+                            "Visa policy uncertainty in the US",
+                            "Continued pricing pressure on legacy application services",
+                          ],
+                          keyTriggers: [
+                            "Q3 large-deal TCV disclosures",
+                            "US client budget-cycle commentary",
+                          ],
+                          macroSensitivity:
+                            "High sensitivity to US discretionary tech spend and rupee-dollar movement.",
+                          transformationSignal:
+                            "Early signs of GenAI cannibalizing traditional staff-augmentation revenue.",
+                        },
+                        dimensions: [
+                          {
+                            dimension: "Deal Pipeline",
+                            signal: "Strengthening on large-deal TCV growth",
+                            direction: "strengthening",
+                            weightedScore: 7.4,
+                          },
+                          {
+                            dimension: "Margin Trajectory",
+                            signal: "Stable despite wage hikes",
+                            direction: "stable",
+                            weightedScore: 6.1,
+                          },
+                        ],
+                        topCompanies: [
+                          {
+                            ticker: "TCS",
+                            signal: "Steady execution, cautious near-term outlook",
+                            direction: "neutral",
+                            weightPct: 24.5,
+                            topKpi: { name: "Large Deal TCV", changePct: 6.2 },
+                            managementConfidence: "moderate",
+                          },
+                          {
+                            ticker: "INFY",
+                            signal: "Upgraded guidance on strong deal wins",
+                            direction: "positive",
+                            weightPct: 19.8,
+                            topKpi: { name: "Revenue Growth", changePct: 4.1 },
+                            managementConfidence: "high",
+                          },
+                        ],
+                        generatedAt: "2026-07-19T09:15:00.000Z",
+                      },
+                      null,
+                      2
+                    )}
+                  />
+                </div>
+              </div>
+
+            </div>
+          </section>
+
         </div>
       </main>
     </div>
