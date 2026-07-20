@@ -109,6 +109,38 @@ export default function WhyQuantalyzePage() {
         </div>
       </section>
 
+      {/* ── CTA ─────────────────────────────────────────────────────────── */}
+      <section className="border-t border-gray-100">
+        <div className="mx-auto max-w-4xl px-6 py-20 text-center">
+          <h2 className="text-2xl font-bold text-gray-900 mb-3">
+            See how this looks on your own portfolio.
+          </h2>
+          <p className="text-sm text-gray-500 mb-8 max-w-md mx-auto">
+            Book a demo and we&apos;ll walk through a live earnings call using your own coverage list.
+          </p>
+          <a
+            href="https://calendly.com/quantalyze/say-hi"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex rounded border border-gray-900 bg-gray-900 px-8 py-3.5 text-xs font-semibold uppercase tracking-wider text-white transition hover:bg-gray-800"
+          >
+            Book a Demo
+          </a>
+        </div>
+      </section>
+
+      {/* ── Footer ──────────────────────────────────────────────────────── */}
+      <footer className="border-t border-gray-100">
+        <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-6 py-8 text-[11px] text-gray-400 sm:flex-row">
+          <span>© {new Date().getFullYear()} Quantalyze by Demandion</span>
+          <div className="flex gap-6">
+            <Link href="/developers" className="hover:text-gray-700 transition">API Docs</Link>
+            <Link href="/privacy" className="hover:text-gray-700 transition">Privacy</Link>
+            <Link href="/terms" className="hover:text-gray-700 transition">Terms</Link>
+            <a href="mailto:support@demandion.ai" className="hover:text-gray-700 transition">support@demandion.ai</a>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }
