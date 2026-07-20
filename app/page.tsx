@@ -16,6 +16,12 @@ export default async function RootPage() {
           Quantalyze
         </span>
         <div className="flex items-center gap-4">
+          <Link
+            href="/why-quantalyze"
+            className="text-xs font-medium text-gray-500 transition hover:text-gray-900"
+          >
+            Why Quantalyze
+          </Link>
           <a
             href="https://calendly.com/quantalyze/say-hi"
             target="_blank"
@@ -212,6 +218,12 @@ export default async function RootPage() {
               </div>
             ))}
           </div>
+          <Link
+            href="/why-quantalyze"
+            className="mt-6 inline-block text-sm font-medium text-gray-900 transition hover:text-gray-600"
+          >
+            See how these work &rarr;
+          </Link>
         </div>
       </section>
 
