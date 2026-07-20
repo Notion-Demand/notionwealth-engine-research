@@ -432,8 +432,93 @@ export default function DevelopersPage() {
             </div>
           </section>
 
+          {/* Rate limits */}
+          <section>
+            <h2 className="mb-3 text-base font-semibold text-white">Rate Limits</h2>
+            <p>
+              Each API key has a daily request quota set per partner when the key is provisioned.
+              Exceeding it returns:
+            </p>
+            <div className="mt-3">
+              <CodeBlock lang="json" code={JSON.stringify({ error: "daily rate limit exceeded" }, null, 2)} />
+            </div>
+            <p className="mt-3 text-sm text-white/50">
+              Quota is configured per partner, not a fixed platform-wide number.
+            </p>
+          </section>
+
+          {/* Errors */}
+          <section>
+            <h2 className="mb-3 text-base font-semibold text-white">Errors</h2>
+            <p className="mb-4">Every endpoint returns errors in the same shape:</p>
+            <CodeBlock lang="json" code={JSON.stringify({ error: "string" }, null, 2)} />
+            <div className="mt-4 overflow-hidden rounded-lg border border-white/10">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-white/10 bg-white/5">
+                    <th className="px-4 py-3 text-left font-medium text-white/80">Status</th>
+                    <th className="px-4 py-3 text-left font-medium text-white/80">Meaning</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5">
+                  {[
+                    ["400", "Bad request — e.g. a required query parameter is missing"],
+                    ["401", "Missing/malformed Authorization header, or an invalid/inactive API key"],
+                    ["403", "Key is valid but not entitled to the requested product"],
+                    ["404", "No data available for the given ticker or sector"],
+                    ["429", "Daily rate limit exceeded"],
+                    ["500", "Internal error"],
+                  ].map(([code, meaning]) => (
+                    <tr key={code}>
+                      <td className="px-4 py-3 font-mono text-white/80">{code}</td>
+                      <td className="px-4 py-3 text-white/60">{meaning}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          {/* Versioning */}
+          <section>
+            <h2 className="mb-3 text-base font-semibold text-white">Versioning</h2>
+            <p>
+              This page documents <code className="rounded bg-white/10 px-1 text-xs">v1</code>,
+              matching the <code className="rounded bg-white/10 px-1 text-xs">/api/public/v1/*</code>{" "}
+              path prefix used above. Future breaking changes ship as a new path prefix (
+              <code className="rounded bg-white/10 px-1 text-xs">/api/public/v2/*</code>) rather
+              than breaking changes within v1 — existing integrations on v1 keep working unchanged.
+            </p>
+          </section>
+
+          {/* Get API access */}
+          <section id="get-access">
+            <h2 className="mb-3 text-base font-semibold text-white">Get API Access</h2>
+            <p className="mb-5">
+              There&apos;s no self-serve signup yet — API keys are provisioned manually. Tell us
+              what you&apos;re building and we&apos;ll set you up.
+            </p>
+            <a
+              href={CALENDLY}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex rounded-full border border-white/20 bg-white/5 px-6 py-2.5 text-sm font-medium text-white/90 transition hover:bg-white/10"
+            >
+              Get in touch
+            </a>
+          </section>
+
         </div>
       </main>
+      <footer className="border-t border-white/5">
+        <div className="mx-auto flex max-w-3xl flex-col items-center justify-between gap-4 px-6 py-8 text-xs text-white/30 sm:flex-row">
+          <span>© {new Date().getFullYear()} Quantalyze. All rights reserved.</span>
+          <div className="flex gap-6">
+            <Link href="/privacy" className="hover:text-white/60 transition">Privacy Policy</Link>
+            <Link href="/terms" className="hover:text-white/60 transition">Terms of Service</Link>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }
