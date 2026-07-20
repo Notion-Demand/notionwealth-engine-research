@@ -136,7 +136,7 @@ export default function DevelopersPage() {
               </li>
               <li>
                 <code className="rounded bg-white/10 px-1 text-xs">401</code> — the API key is
-                invalid or has been deactivated
+                invalid or inactive
               </li>
               <li>
                 <code className="rounded bg-white/10 px-1 text-xs">403</code> — the key is valid
@@ -151,7 +151,7 @@ export default function DevelopersPage() {
             <p className="mt-4">
               API keys are provisioned manually — see{" "}
               <Link href="#get-access" className="text-sky-400 hover:underline">
-                Get API access
+                Get API Access
               </Link>{" "}
               below.
             </p>
@@ -169,15 +169,15 @@ export default function DevelopersPage() {
 
               {/* GET /data/companies/:ticker */}
               <div>
-                <div className="mb-3 flex flex-wrap items-center gap-3">
+                <h3 className="mb-3 flex flex-wrap items-center gap-3 text-base font-semibold text-white">
                   <span className="rounded bg-emerald-400/10 px-2 py-0.5 text-xs font-semibold text-emerald-400">
                     GET
                   </span>
                   <code className="text-sm text-white/90">/data/companies/&#123;ticker&#125;</code>
-                  <span className="ml-auto text-xs text-white/30">
+                  <span className="ml-auto text-xs font-normal text-white/30">
                     Product: <code className="rounded bg-white/10 px-1">data:companies</code>
                   </span>
-                </div>
+                </h3>
                 <p className="mb-3">
                   Latest earnings-call analysis for a single company, identified by NSE ticker.
                 </p>
@@ -234,15 +234,15 @@ export default function DevelopersPage() {
 
               {/* GET /data/sectors/:sector */}
               <div>
-                <div className="mb-3 flex flex-wrap items-center gap-3">
+                <h3 className="mb-3 flex flex-wrap items-center gap-3 text-base font-semibold text-white">
                   <span className="rounded bg-emerald-400/10 px-2 py-0.5 text-xs font-semibold text-emerald-400">
                     GET
                   </span>
                   <code className="text-sm text-white/90">/data/sectors/&#123;sector&#125;</code>
-                  <span className="ml-auto text-xs text-white/30">
+                  <span className="ml-auto text-xs font-normal text-white/30">
                     Product: <code className="rounded bg-white/10 px-1">data:sectors</code>
                   </span>
-                </div>
+                </h3>
                 <p className="mb-3">
                   Latest sector-level intelligence: scored dimensions and, where available, a
                   qualitative sector narrative.
@@ -323,15 +323,15 @@ export default function DevelopersPage() {
 
               {/* GET /products/sector-thesis */}
               <div>
-                <div className="mb-3 flex flex-wrap items-center gap-3">
+                <h3 className="mb-3 flex flex-wrap items-center gap-3 text-base font-semibold text-white">
                   <span className="rounded bg-emerald-400/10 px-2 py-0.5 text-xs font-semibold text-emerald-400">
                     GET
                   </span>
                   <code className="text-sm text-white/90">/products/sector-thesis</code>
-                  <span className="ml-auto text-xs text-white/30">
+                  <span className="ml-auto text-xs font-normal text-white/30">
                     Product: <code className="rounded bg-white/10 px-1">products:sector-thesis</code>
                   </span>
-                </div>
+                </h3>
                 <p className="mb-3">
                   A synthesized investment thesis for a sector: narrative, scored dimensions, and
                   the top-weighted companies driving the thesis.
