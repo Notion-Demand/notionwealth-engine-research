@@ -11,6 +11,14 @@ export function pgPool(): Pool {
       connectionString: process.env.POSTGRES_CONNECTION_STRING!,
       ssl: { rejectUnauthorized: true },
     });
+    // pg emits 'error' on the pool when an idle client hits a network-level
+    // fault (e.g. a TLS reset). EventEmitter throws and crashes the whole
+    // process for unhandled 'error' events specifically — so this listener
+    // is required, not optional, to keep a transient DB blip from taking
+    // down the entire app.
+    _pool.on("error", (err) => {
+      console.error("[pg pool] idle client error:", err);
+    });
   }
   return _pool;
 }
