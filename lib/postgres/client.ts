@@ -10,6 +10,12 @@ export function pgPool(): Pool {
     _pool = new Pool({
       connectionString: process.env.POSTGRES_CONNECTION_STRING!,
       ssl: { rejectUnauthorized: true },
+      // pg's default connectionTimeoutMillis is 0 (no timeout — it waits on
+      // the OS's own TCP timeout, which can be 60s+ when packets are silently
+      // dropped rather than actively refused). Seen live: dead connections
+      // hung 20-74s before failing, holding page loads on a blank spinner
+      // instead of surfacing a fast, retryable error. Cap it explicitly.
+      connectionTimeoutMillis: 5000,
     });
     // pg emits 'error' on the pool when an idle client hits a network-level
     // fault (e.g. a TLS reset). EventEmitter throws and crashes the whole
