@@ -29,13 +29,35 @@ export function pgPool(): Pool {
   return _pool;
 }
 
+// Codes/messages seen live on this project's VNet path to Azure Postgres —
+// all occur at connection *acquisition* (pg-pool checking out/creating a
+// client), before any SQL reaches the server, so retrying is safe: the query
+// itself was never sent, meaning a retry cannot double-execute a write.
+const RETRYABLE_CONNECTION_ERROR = /ECONNRESET|Connection terminated unexpectedly|socket disconnected before secure TLS/;
+
+function isRetryableConnectionError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const code = (err as NodeJS.ErrnoException).code;
+  return code === "ECONNRESET" || RETRYABLE_CONNECTION_ERROR.test(err.message);
+}
+
 /** Thin helper every repository method calls instead of pgPool().query(...)
  *  directly, so parameter binding stays in one place. Returns rows typed as T[].
  *  Note: `pg` automatically parses JSON/JSONB columns into JS objects/arrays on
  *  read (no manual JSON.parse needed) — but does NOT auto-serialize JS objects
  *  into JSONB for writes; bind those via JSON.stringify(...) with a `$n::jsonb`
- *  cast in the SQL, as each repository does explicitly. */
+ *  cast in the SQL, as each repository does explicitly.
+ *  Retries once on a connection-acquisition failure (see isRetryableConnectionError) —
+ *  the VNet path to Azure Postgres intermittently drops idle connections, and a
+ *  fresh attempt right after almost always succeeds. */
 export async function query<T = unknown>(text: string, params?: unknown[]): Promise<T[]> {
-  const result = await pgPool().query(text, params);
-  return result.rows as T[];
+  try {
+    const result = await pgPool().query(text, params);
+    return result.rows as T[];
+  } catch (err) {
+    if (!isRetryableConnectionError(err)) throw err;
+    console.error("[pg] retrying once after connection error:", err);
+    const result = await pgPool().query(text, params);
+    return result.rows as T[];
+  }
 }
