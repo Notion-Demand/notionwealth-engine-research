@@ -78,16 +78,32 @@ function blobServiceClient(): BlobServiceClient {
   return _blobServiceClient;
 }
 
+// Azure Blob's listBlobsFlat() has no server-side substring search, so every
+// list()/listAllPaginated() call used to walk the entire container — with
+// ~200 parallel per-ticker searches on one page load (app/api/v1/available),
+// that meant ~200 full-container enumerations per request. Transcript uploads
+// are rare, so a short-lived cache of the full listing turns that into at most
+// one real Azure call per TTL window, shared across all concurrent callers.
+const LIST_CACHE_TTL_MS = 60_000;
+let _listCache: { blobs: TranscriptFile[]; expiresAt: number } | null = null;
+
 export class AzureBlobStorageRepository implements StorageRepository {
-  async list(options: ListOptions): Promise<TranscriptFile[]> {
+  private async allBlobs(): Promise<TranscriptFile[]> {
+    if (_listCache && _listCache.expiresAt > Date.now()) return _listCache.blobs;
     const containerClient = blobServiceClient().getContainerClient(AZURE_CONTAINER);
-    const results: TranscriptFile[] = [];
-    // Azure Blob's listBlobsFlat() has no server-side substring search, so the
-    // search filter is applied client-side, same effective behavior as before.
+    const blobs: TranscriptFile[] = [];
     for await (const blob of containerClient.listBlobsFlat()) {
-      if (options.search && !blob.name.toLowerCase().includes(options.search.toLowerCase())) continue;
-      results.push({ name: blob.name });
+      blobs.push({ name: blob.name });
     }
+    _listCache = { blobs, expiresAt: Date.now() + LIST_CACHE_TTL_MS };
+    return blobs;
+  }
+
+  async list(options: ListOptions): Promise<TranscriptFile[]> {
+    const all = await this.allBlobs();
+    const results = options.search
+      ? all.filter((blob) => blob.name.toLowerCase().includes(options.search!.toLowerCase()))
+      : all;
     let sorted = results;
     if (options.sortBy) {
       const { column, order } = options.sortBy;
@@ -101,19 +117,8 @@ export class AzureBlobStorageRepository implements StorageRepository {
     return limit !== undefined ? sorted.slice(offset, offset + limit) : sorted.slice(offset);
   }
 
-  async listAllPaginated(pageSize = 100): Promise<TranscriptFile[]> {
-    // Azure Blob's listBlobsFlat() with .byPage() already handles pagination
-    // correctly (including short-but-nonempty intermediate pages), so this
-    // reduces to a straightforward accumulation loop over its async iterator —
-    // no manual offset/empty-page logic needed, unlike Supabase Storage's API.
-    const containerClient = blobServiceClient().getContainerClient(AZURE_CONTAINER);
-    const all: TranscriptFile[] = [];
-    for await (const response of containerClient.listBlobsFlat().byPage({ maxPageSize: pageSize })) {
-      for (const blob of response.segment.blobItems) {
-        all.push({ name: blob.name });
-      }
-    }
-    return all;
+  async listAllPaginated(): Promise<TranscriptFile[]> {
+    return this.allBlobs();
   }
 
   async download(path: string): Promise<Buffer> {
@@ -136,6 +141,7 @@ export class AzureBlobStorageRepository implements StorageRepository {
     await blockBlobClient.upload(data, data.length, {
       blobHTTPHeaders: { blobContentType: "application/pdf" },
     });
+    _listCache = null;
   }
 
   async createSignedUrl(path: string, expiresInSeconds: number): Promise<string> {
