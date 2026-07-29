@@ -16,6 +16,15 @@ export function pgPool(): Pool {
       // hung 20-74s before failing, holding page loads on a blank spinner
       // instead of surfacing a fast, retryable error. Cap it explicitly.
       connectionTimeoutMillis: 5000,
+      // Root cause of the ECONNRESET/TLS-reset errors this pool retries around:
+      // `keepAlive` defaults to false in pg, so idle pooled connections never send
+      // TCP keepalive probes. Azure's outbound network path (App Service VNet
+      // integration -> NAT/LB) silently reaps TCP flows that appear idle, and the
+      // pool has no way to detect this until it tries to reuse the dead socket.
+      // Enabling keepalive with a short initial delay keeps the flow active on
+      // Azure's side and lets the OS detect a truly dead connection on its own.
+      keepAlive: true,
+      keepAliveInitialDelayMillis: 10000,
     });
     // pg emits 'error' on the pool when an idle client hits a network-level
     // fault (e.g. a TLS reset). EventEmitter throws and crashes the whole
