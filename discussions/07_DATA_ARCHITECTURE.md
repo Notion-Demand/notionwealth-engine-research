@@ -85,7 +85,11 @@ Despite the docs saying "Supabase Storage `transcripts` bucket," the wired imple
 
 ---
 
-## 4. Full relational schema (all 11 tables, migrations 001–011)
+## 4. Full relational schema (13 tables as of migrations 001–011, 15 as of 012)
+
+> **Update (RAG/agents vertical slice, `feature/rag-agents-v1`):** migration `012_rag_and_agents.sql`
+> adds two more tables, `transcript_chunks` and `evidence_verifications` — see the new subsection
+> at the end of this section. Everything else here (001–011) is unmodified.
 
 11 tables across 11 migration files (`supabase/migrations/001_initial.sql` … `011_api_access.sql`). Two tables not in the README's original 9-table list, added in 010/011: **`user_credits`** and the 4-table **`api_partners` / `api_keys` / `api_key_products` / `api_usage`** cluster (011 alone adds 4 tables, so the true count is 9 original + `user_credits` + 4 API-access tables = **13 CREATE TABLE statements**, though the "11 tables" the assignment names likely bundles the api_access cluster as one concern — table-by-table below).
 
@@ -120,13 +124,42 @@ Exactly 3 tables carry RLS **in the SQL as written**: `user_connections`, `analy
 
 ### JSONB payload fields
 
-Every cache/analysis table stores its AI-pipeline output as one `payload JSONB NOT NULL` (or `kpis JSONB` for `kpi_snapshots`) column: `analysis_results.payload`, `solo_analysis_cache.payload`, `insights_cache.payload`, `sector_intelligence.payload`, `kpi_snapshots.kpis`. This is the dominant storage pattern in the schema — see §8 for why.
+Every cache/analysis table stores its AI-pipeline output as one `payload JSONB NOT NULL` (or `kpis JSONB` for `kpi_snapshots`) column: `analysis_results.payload`, `solo_analysis_cache.payload`, `insights_cache.payload`, `sector_intelligence.payload`, `kpi_snapshots.kpis`. This is the dominant storage pattern in the schema (§8 explains why) — **neither of the two new 012 tables follows this pattern**, which is itself worth noting: `transcript_chunks`/`evidence_verifications` use real typed columns (`TEXT`, `VECTOR(768)`, `INTEGER`, plus one `JSONB` column on `evidence_verifications` for the findings array specifically, since that's genuinely variable-shaped structured data, not a full-payload blob) rather than one opaque JSONB payload — a deliberate departure from the schema's dominant convention, because unlike the five original pipelines' output, these two tables' columns are actually queried/filtered on individually (`WHERE ticker = $1 AND quarter = $2`, `ORDER BY embedding <=> $3::vector`), not just fetched whole by primary/natural key.
+
+### 4.1 New in migration 012 (RAG/agents vertical slice) — `transcript_chunks`, `evidence_verifications`
+
+| Table | Migration | Primary/Unique key | Notable columns | Indexes | FK | RLS (as written) |
+|---|---|---|---|---|---|---|
+| `transcript_chunks` | 012 | PK `id`; `UNIQUE(ticker, quarter, chunk_index)` | `content TEXT`, `embedding VECTOR(768)`, `storage_key TEXT` | `idx_transcript_chunks_ticker_quarter(ticker, quarter)`, `idx_transcript_chunks_embedding` (`ivfflat`, `vector_cosine_ops`) | — | none (comment: same rationale as `user_credits`/`api_access` — accessed only via the application's own repository layer) |
+| `evidence_verifications` | 012 | PK `id` (`gen_random_uuid()`) | `status TEXT`, `findings JSONB`, `supported_count`/`unsupported_count`/`uncertain_count INTEGER`, `model`/`agent_version TEXT` | `idx_evidence_verifications_lookup(ticker, quarter, quarter_previous, created_at DESC)` | — | none |
+
+Both tables **do** carry a real index matched to their actual query pattern from day one —
+`transcript_chunks` has both a lookup index and an ANN (`ivfflat`) similarity-search index, and
+`evidence_verifications` has a lookup index ordered for its one real read path
+(`getLatestByTicker`'s `ORDER BY created_at DESC LIMIT 1`) — in contrast to the missing-index
+findings just above for `analysis_results`/`solo_analysis_cache`, which shipped with zero
+indexes beyond their surrogate PK despite years of being the highest-traffic read tables. Worth
+naming honestly: two tables is a much easier bar to clear thoughtfully than the 13-table schema
+above accumulated over — this isn't evidence the codebase's indexing discipline improved
+system-wide, just that this one new addition didn't repeat that specific mistake. Full detail on
+the Azure `azure.extensions` VECTOR-allowlist prerequisite this migration needs: `RAG_ARCHITECTURE.md`.
 
 ---
 
 ## 5. No vector database, no NoSQL beyond Postgres JSONB
 
-`IMPLEMENTED` (as a stated design decision, not an oversight): the live production stack has **zero** vector index, embedding store, or NoSQL document store. All persistence is Postgres (Azure Flexible Server) with `JSONB` columns for semi-structured AI output, queried with plain SQL (`ILIKE`/equality/`ANY($::text[])`/`ORDER BY`) — no `pgvector` extension reference anywhere in the 11 migrations, no embedding column, no similarity-search endpoint.
+> **Update (RAG/agents vertical slice, `feature/rag-agents-v1`):** the headline claim below —
+> "zero vector index... no `pgvector` extension reference anywhere" — is no longer true. Migration
+> `012_rag_and_agents.sql` adds `CREATE EXTENSION IF NOT EXISTS vector` and a `VECTOR(768)` column
+> (`transcript_chunks.embedding`, §4.1 above), searched via pgvector's `<=>` cosine-distance
+> operator through an `ivfflat` index. This remains a genuinely **minimal** addition, by design —
+> not a general-purpose vector database service, no new infrastructure component, same Postgres
+> instance every other table in this file lives in — see `RAG_ARCHITECTURE.md` for the full
+> reasoning against a standalone vector DB service. The "no NoSQL beyond Postgres JSONB" half of
+> this section's claim remains fully accurate: pgvector is a Postgres extension, not a second
+> database, and no document/NoSQL store was introduced.
+
+`IMPLEMENTED` (as a stated design decision, not an oversight) **as of before this slice**: the live production stack had **zero** vector index, embedding store, or NoSQL document store. All persistence is Postgres (Azure Flexible Server) with `JSONB` columns for semi-structured AI output, queried with plain SQL (`ILIKE`/equality/`ANY($::text[])`/`ORDER BY`) — no `pgvector` extension reference anywhere in the original 11 migrations, no embedding column, no similarity-search endpoint. (Migration 012 changes this for one new, narrow purpose — see the update note above.)
 
 `IMPLEMENTED-BUT-ARCHIVED`: the archived Python prototype (`finance-agent/`, confirmed unreferenced by any live Next.js route — `grep -rln "finance-agent" app lib` returns only a **comment** in `lib/nifty50.ts:1` saying it "mirrors finance-agent/fetcher/nifty50.py", not an import) had a real vector architecture:
 

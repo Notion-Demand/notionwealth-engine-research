@@ -121,7 +121,7 @@ Every one of these prompts is domain-role-primed ("senior equity research analys
 
 ## 5. Context Construction
 
-**IMPLEMENTED**, and mechanically simple — no retrieval, no chunk selection, no reranking. Context assembly is string concatenation of (a) the PDF-extracted transcript, capped, and (b) for later phases, the structured output of earlier Gemini calls.
+**IMPLEMENTED**, and mechanically simple — no retrieval, no chunk selection, no reranking. Context assembly is string concatenation of (a) the PDF-extracted transcript, capped, and (b) for later phases, the structured output of earlier Gemini calls. *(Still true for the five original analysis pipelines as of this writing. A second, separate context-construction path now exists for one new consumer — the Evidence Verification Agent's retrieval step — which does chunk, embed, and search; see the note at the top of the RAG section below and `RAG_ARCHITECTURE.md`. It has not replaced or altered anything described in this section.)*
 
 **Phase-by-phase, in `lib/pipeline.ts`:**
 
@@ -338,7 +338,21 @@ A second minor doc-arithmetic issue: `TECHNICAL_ARCHITECTURE.md` §4a's "Total G
 
 ## Archived Prototype: Vector Search / Embeddings / RAG / LLM-as-Judge
 
-Everything in this section is **IMPLEMENTED-BUT-ARCHIVED / PROTOTYPE-ONLY**, under `finance-agent/`. None of it is reachable from the live Next.js app — confirmed by grep finding zero imports of `finance-agent/*` anywhere under `lib/` or `app/`. Explicitly **absent from production**: no vector index, no embeddings, no chunking/reranking, no retrieval step of any kind — production's "context construction" (§5) is pure string truncation of a single transcript, never a search over an indexed corpus.
+> **Update (RAG/agents vertical slice, `feature/rag-agents-v1`):** the "absent from production"
+> claim below is no longer categorically true. A real, live, **minimal** RAG path now exists —
+> `lib/rag/` (chunk → embed via Gemini `text-embedding-004` → pgvector cosine search) backing the
+> new Evidence Verification Agent's claim-checking step (`AGENT_ARCHITECTURE.md`,
+> `RAG_ARCHITECTURE.md`). It is deliberately narrow: single-transcript scoped (no cross-document
+> corpus, unlike the FAISS index below, which searches across everything ingested), no reranking,
+> no hybrid search, and used by exactly one consumer. The comparison this section draws between
+> "genuine RAG" (archived, FAISS-based, cross-corpus) and production's prior total absence of
+> retrieval is still the right comparison for the **five original analysis pipelines**, which are
+> completely unchanged by this slice and still do zero retrieval, as this section describes. Read
+> this section as: "here is what a full-corpus FAISS RAG system looked like when it existed only
+> in the archive — and separately, here is what a deliberately minimal, single-purpose pgvector
+> RAG path now looks like, live, for one new agent" — two different scopes, not a contradiction.
+
+Everything below is unmodified from the original analysis and remains **IMPLEMENTED-BUT-ARCHIVED / PROTOTYPE-ONLY**, under `finance-agent/`. None of it is reachable from the live Next.js app — confirmed by grep finding zero imports of `finance-agent/*` anywhere under `lib/` or `app/`. What has changed, per the update note above, is that production is no longer *categorically* free of any retrieval step — but production's five original analysis pipelines' "context construction" (§5) is still pure string truncation of a single transcript, never a search over an indexed corpus.
 
 ### Vector search & embeddings (`finance-agent/core/vector.py`, `core/embeddings.py`)
 
@@ -426,6 +440,7 @@ Everything in this section is **IMPLEMENTED-BUT-ARCHIVED / PROTOTYPE-ONLY**, und
 | Retries on individual agent failure | NOT IMPLEMENTED (prod) / IMPLEMENTED-BUT-ARCHIVED | prod: null-degrade only; `finance-agent/core/llm.py:21` has `max_retries=3` + backoff |
 | Pipeline/function-level timeout | IMPLEMENTED | 270s vs. 300s `maxDuration`, `app/api/v1/analyze/route.ts:8,96` |
 | Model routing (multiple models per task) | NOT IMPLEMENTED (prod) | single model string everywhere; archived prototype uses a separate embedding model only |
-| Vector search / embeddings / RAG | NOT IMPLEMENTED (prod) / IMPLEMENTED-BUT-ARCHIVED | `finance-agent/core/vector.py`, `embeddings.py`, `agents/financial_agent.py` |
+| Vector search / embeddings / RAG (5 original analysis pipelines) | NOT IMPLEMENTED / IMPLEMENTED-BUT-ARCHIVED | `finance-agent/core/vector.py`, `embeddings.py`, `agents/financial_agent.py` — unchanged by the RAG/agents slice |
+| Vector search / embeddings / RAG (Evidence Verification Agent, new) | **IMPLEMENTED**, minimal, single-transcript scope | `lib/rag/chunk.ts`, `lib/rag/embeddings.ts`, `lib/rag/ingest.ts`, `lib/rag/retrieve.ts`, pgvector on the existing Azure Postgres — see `RAG_ARCHITECTURE.md` |
 | Chunking / reranking / metadata filtering | NOT IMPLEMENTED (archived prototype too) | no chunker, no reranker, unfiltered FAISS `IndexFlatL2` |
 | LLM-as-judge evaluation | NOT IMPLEMENTED (prod) / IMPLEMENTED-BUT-ARCHIVED | `judge_evaluator.py`, `evaluation_report.py` |

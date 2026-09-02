@@ -109,7 +109,7 @@ const VERIFICATION_SCHEMA: Schema = {
   required: ["status", "reasoning"],
 };
 
-interface Verdict {
+export interface Verdict {
   status: "supported" | "unsupported" | "uncertain";
   reasoning: string;
   /** true only when the Gemini call itself errored/timed out — distinct
@@ -117,7 +117,12 @@ interface Verdict {
   callFailed: boolean;
 }
 
-async function verifyClaim(
+/** Exported (not just used internally) so the offline evaluation harness
+ *  (scripts/evaluate-evidence-verification.ts, lib/eval/) can call the exact
+ *  production verification step against a hand-labeled golden set, instead
+ *  of re-implementing it — an eval that doesn't exercise the real code path
+ *  isn't evaluating anything. */
+export async function verifyClaim(
   ticker: string,
   quarter: string,
   claim: string,

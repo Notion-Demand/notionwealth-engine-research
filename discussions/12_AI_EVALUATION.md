@@ -6,6 +6,15 @@
 
 ## 0. The one-sentence verdict
 
+> **Update (RAG/agents vertical slice, `feature/rag-agents-v1`):** this verdict is now partially
+> superseded for one narrow surface — `scripts/evaluate-evidence-verification.ts` + `lib/eval/`
+> is a real, runnable evaluation pipeline (exact-match accuracy + confusion matrix against a
+> hand-labeled golden set) for the new Evidence Verification Agent's VERIFY stage. It is the
+> first automated AI-output evaluation anywhere in the live product. It is deliberately narrow —
+> see §5 for exactly what it covers and, honestly, what it still doesn't. Everything below this
+> note describes the state before that slice and remains accurate for the five original analysis
+> pipelines (`lib/pipeline.ts` and siblings), which are still entirely unevaluated.
+
 The **live product** (`app/`, `lib/`) has **zero automated quality evaluation of Gemini's output**. What it has is JSON-shape enforcement (Gemini's own `responseSchema` contract) plus one small piece of deterministic internal-consistency arithmetic. It has **no** golden datasets, **no** regression suite, **no** LLM-as-judge, **no** human review workflow, **no** drift/hallucination monitoring, **no** A/B testing. A real, working four-stage **LLM-as-judge evaluation framework** exists, fully coded and documented — but it lives in the **archived prototype** (`finance-agent/disclosure_pipeline/`), is invoked only via an opt-in CLI flag on a pipeline that is not wired into the live app, and there is no evidence it has ever produced a saved report in this repo (no `output/evaluation_report.*` artifacts present anywhere in the tree). Separately, a small number of TypeScript unit-test-*shaped* scripts in `finance-agent/scripts/` are not unit tests — they are manual smoke scripts (see `13_TESTING.md`), and none of them constitute AI evaluation in any rigorous sense (score thresholds, ground truth, statistical confidence). **These are categorically different things — "the code runs without throwing" is not "the AI's answer is correct" — and the live Quantalyze product only has evidence of the former.**
 
 ---
@@ -128,3 +137,69 @@ Beyond Gemini's own `responseSchema` shape guarantee, add real content-plausibil
 ### 4.5 Human evaluation workflow
 
 None exists today (§2.4). The cheapest version worth building: a lightweight thumbs-up/down + optional note on each Delta Analysis result in `DashboardClient.tsx`, written to a new `analysis_feedback` table keyed the same way as `analysis_results` — this both surfaces real production error cases for free (no synthetic golden set can anticipate every real transcript's edge cases) and, over time, becomes a second, human-labeled golden set independent of and more trustworthy than the same-family LLM-judge approach in §4.3.
+
+---
+
+## 5. What's now implemented (RAG/agents vertical slice) — the first real evaluation pipeline in this repo
+
+**Location**: `scripts/evaluate-evidence-verification.ts` (CLI runner) + `lib/eval/goldenSet.ts`
+(hand-labeled cases) + `lib/eval/scoreEvaluation.ts` (pure scoring, unit-tested in
+`lib/eval/__tests__/scoreEvaluation.test.ts`). Labeled **IMPLEMENTED**, scoped narrowly — read
+this section next to §4 above, since it's the direct, built version of that section's own
+proposal, not a different design.
+
+### 5.1 What it evaluates, and why this stage first
+
+It evaluates exactly one thing: `lib/agents/evidenceVerification.ts`'s `verifyClaim()` — the one
+Gemini call in the new Evidence Verification Agent (`AGENT_ARCHITECTURE.md`) that judges whether
+a set of retrieved transcript passages supports, contradicts, or doesn't settle a claim. The
+harness calls the **exact production function**, not a reimplementation — `verifyClaim` is
+exported specifically so the eval script can exercise the real code path (a prompt edit or model
+swap that breaks real verification also breaks this eval; an eval that calls a copy of the logic
+would not catch that). This is deliberately the cheapest, highest-signal slice to evaluate first,
+per §4.2's own reasoning: `verifyClaim`'s output is a closed three-value enum
+(`supported`/`unsupported`/`uncertain`), so exact-match accuracy against a golden label is a
+meaningful, cheap check — unlike the free-text `earningsDelta` bullets or `summary` fields the
+five original pipelines produce, where exact-match would be meaningless and a judge-model score
+would be needed instead (still not built — see §5.3).
+
+### 5.2 How it works
+
+`lib/eval/goldenSet.ts` hand-authors 8 (claim, retrieved-passage-text, expected label) cases,
+each with a `note` field explaining *why* the expected label is the unambiguous right answer —
+directly, and quotably, supported; directly contradicted; off-topic; a deliberate hedge; a
+zero-passage short-circuit case (verifies the no-model-call path); and one case requiring
+combining two passages to check a comparative claim. `scripts/evaluate-evidence-verification.ts`
+calls `verifyClaim()` once per case against a real Gemini API key (opt-in, `npx tsx
+scripts/evaluate-evidence-verification.ts` — never on the synchronous request path, same
+principle §4.3 states explicitly), scores the results with `lib/eval/scoreEvaluation.ts`'s pure
+`scoreGoldenSet()` (accuracy + a 3×3 confusion matrix, so a systematic bias — e.g. everything
+misclassified as `uncertain` — is visible, not just the aggregate pass rate), and writes both a
+terminal summary and a timestamped JSON + Markdown report under `eval-reports/` (gitignored — run
+artifacts, not source, same reasoning as `.next/`). The failures section of the report surfaces
+each wrong case individually with the model's own reasoning attached — the same "don't only
+report the aggregate, surface the worst individual cases" lesson `evaluation_report.py` (§1.4)
+already got right in the archived prototype, carried over deliberately.
+
+### 5.3 What this explicitly does NOT cover (don't claim more than this)
+
+- **Retrieval quality.** The harness hands `verifyClaim` hand-picked passages directly — it does
+  not call `lib/rag/retrieve.ts`, so it says nothing about whether the RAG layer actually
+  retrieves the *right* passages for a claim (precision/recall of retrieved chunks against a
+  labeled relevant-chunk set — the RAG-evaluation vocabulary §4's Senior-tier reading already
+  named as absent). That gap still exists; only the downstream judgment step is evaluated here.
+- **The full agent loop.** `runEvidenceVerificationAgent()`'s ingestion and persistence steps are
+  untouched by this eval — it is VERIFY-stage-only, by design.
+- **The five original pipelines.** `lib/pipeline.ts`, `lib/insights-pipeline.ts`,
+  `lib/solo-pipeline.ts`, `lib/kpi-extractor.ts`, `lib/sector-narrative.ts` remain entirely
+  unevaluated, exactly as §0's original verdict stated. Nothing about this slice changes that.
+- **No CI wiring.** Like `npm test` itself (§1.5, `MCP_ARCHITECTURE.md`'s own noted gap), this
+  script is not run automatically on any schedule or on any code change — it's a manual/CLI tool
+  today, not a regression gate.
+- **No same-family-judge caveat applies here** — unlike the archived `judge_evaluator.py` (§1.1),
+  this isn't a judge scoring free-text quality; it's an exact-match check against human-authored
+  labels, so the same-family-bias concern §1.1 raises doesn't transfer to this harness. What *does*
+  transfer: an 8-case golden set is small enough that a single ambiguous case can swing the
+  headline accuracy number meaningfully — growing the golden set is real, cheap future work, not
+  a design flaw to fix later.
+

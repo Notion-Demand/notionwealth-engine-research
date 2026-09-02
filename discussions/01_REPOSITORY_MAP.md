@@ -2,6 +2,15 @@
 
 *Flat, scannable ground-truth inventory of the Quantalyze repo — where things live, what's live vs. dead vs. archived, and how big each part is. Complements `03_SYSTEM_ARCHITECTURE.md` Part A, which reads as narrative pattern-analysis (dependency direction, architectural role of each layer); this file is the checklist you scan in two minutes to find where something lives. All facts verified directly against `/tmp/quantalyze` (`find`, `Glob`, direct file reads) as of this snapshot (2026-09-01/02).*
 
+> **Update (2026-09-02, two vertical slices on `feature/mcp-server-v1` → `feature/rag-agents-v1`,
+> not yet merged to `main`):** since this snapshot, two new surfaces were added: an MCP tool
+> server (`app/api/mcp/`, `lib/mcp/`) and a minimal RAG + autonomous-agent layer
+> (`lib/rag/`, `lib/agents/`, `lib/llm/`, `lib/eval/`), plus `vitest` as the repo's first-ever
+> test runner. The counts and claims below are the pre-slice baseline unless a line says
+> otherwise — updated inline at each affected point rather than re-verifying every number in this
+> file from scratch. Full detail on each slice: `MCP_ARCHITECTURE.md`, `RAG_ARCHITECTURE.md`,
+> `AGENT_ARCHITECTURE.md`.
+
 ---
 
 ## A. Full directory tree, with one-line purpose per directory
@@ -14,6 +23,7 @@
 │   │   ├── public/v1/            External partner API — 3 route.ts files, API-key auth (middleware-enforced)
 │   │   ├── auth/[...nextauth]/   NextAuth.js handler mount point
 │   │   ├── health/                Liveness check (`{status:"ok"}`, no dependency checks)
+│   │   ├── mcp/                   NEW (post-snapshot) — MCP tool server, 1 route.ts, stateless Streamable HTTP
 │   │   └── og/                   OG image generation
 │   ├── dashboard/, insights/, screener/, sectors/, calendar/, videos/,
 │   │   request/, kpis/, developers/, login/, why-quantalyze/,
@@ -37,11 +47,16 @@
 │   ├── supabase/admin.ts         DEAD — legacy Supabase service-role client, unused in prod
 │   ├── services/                 sectorThesisService.ts + errors.ts — the one real service-layer instance
 │   ├── api-contracts/v1/         DTO/mapper layer for the public API (company, sector, sectorThesis)
-│   └── public-api/product-routes.ts   URL → product-name resolver for entitlement checks
+│   ├── public-api/product-routes.ts   URL → product-name resolver for entitlement checks
+│   ├── mcp/                      NEW — MCP tool registry (server.ts, types.ts, log.ts, tools/*)
+│   ├── rag/                      NEW — minimal RAG: chunk.ts, embeddings.ts, ingest.ts, retrieve.ts
+│   ├── agents/                   NEW — evidenceVerification.ts, the first real autonomous agent
+│   ├── llm/                      NEW — shared Gemini client (genai.ts) + structured-call helper (structured.ts), for new code only
+│   └── eval/                     NEW — offline evaluation harness: goldenSet.ts, scoreEvaluation.ts (see 12_AI_EVALUATION.md §5)
 ├── components/                   3 files: EarningsReport.tsx, AgentPanel.tsx, Nav.tsx (presentation only)
 ├── types/next-auth.d.ts          Module augmentation for NextAuth Session/JWT types
-├── supabase/migrations/          11 .sql files — schema history, run against AZURE Postgres today, not Supabase
-├── scripts/                      One-shot Azure migration toolkit (not app runtime code) — 7 files
+├── supabase/migrations/          12 .sql files (001–011 pre-snapshot + 012 new: pgvector + transcript_chunks/evidence_verifications) — schema history, run against AZURE Postgres today, not Supabase
+├── scripts/                      One-shot Azure migration toolkit (not app runtime code) — 7 files, + 1 new: evaluate-evidence-verification.ts (offline eval CLI, §R below)
 ├── docs/superpowers/plans/       8 dated engineering plans — the real, up-to-date migration history
 ├── docs/superpowers/specs/       7 dated design specs, paired with the plans above
 ├── public/                       Static assets (favicons, OG images)
@@ -76,10 +91,10 @@
 
 ## B. File inventory counts by directory
 
-| Directory | File count | Notes |
-|---|---|---|
-| `app/` | 50 | Pages, client components, 24 `route.ts` handlers |
-| `lib/` | 39 | Pipelines, repositories, services, static registries |
+| Directory | File count (this snapshot) | File count (post-slices, verified) | Notes |
+|---|---|---|---|
+| `app/` | 50 | 52 | Pages, client components, 25 `route.ts` handlers (24 original + `app/api/mcp/route.ts`) |
+| `lib/` | 39 | 53 (+6 more `__tests__/*.test.ts` files = 59 total `.ts` under `lib/`) | Pipelines, repositories, services, static registries, + new `mcp/`, `rag/`, `agents/`, `llm/`, `eval/` |
 | `components/` | 3 | Entire shared presentation layer |
 | `finance-agent/` | 101 | Archived — largest single directory in the repo by file count |
 | `disclosure-analysis-pipeline/` | 44 | Archived — includes 30 sample PDFs |
@@ -109,14 +124,14 @@ Commit-activity contrast (from git history, cited throughout `discussions/`): **
 | PDF parsing | `pdf-parse` ^1.1.1 (server-side) | `pypdf`, `pdfplumber` |
 | PDF export | `jspdf` ^4.2.0 + `html2canvas` ^1.4.1 (client-side) | — |
 | Legacy DB/storage client | `@supabase/supabase-js` ^2.45.4 (dead code — `lib/supabase/admin.ts` unused in prod) | `supabase>=2.3.0` (`db/supabase.py`) |
-| Agent/tool protocol | **None** | MCP (`mcp.server.fastmcp`, `mcp_server.py`, 12 tools) |
+| Agent/tool protocol | **`@modelcontextprotocol/sdk` ^1.30 (post-snapshot; was None)** — 2 registered tools, `app/api/mcp/`, `lib/mcp/`, stateless Streamable HTTP | MCP (`mcp.server.fastmcp`, `mcp_server.py`, 12 tools) |
 | Integrations | YouTube Data API v3, Yahoo Finance (unofficial), BSE/NSE public APIs, Screener.in (scraped) | Slack (`slack-bolt>=1.20`), Gmail (`google-api-python-client`) |
 | Deployment artifact | Docker (multi-stage, `output: "standalone"`) | None — never deployed as a product |
 | Icons/UI kit | `lucide-react` ^0.446.0; no component library (no shadcn/Radix/Headless UI) | — |
 | Dead/vestigial dep | `@vercel/functions` ^3.4.3 (Vercel-era, inert on Container Apps) | — |
 | `package.json`/`requirements.txt` name | `"notionwealth-frontend"` (unrenamed legacy artifact) | — |
-| Test tooling | **None** (no jest/vitest/playwright/@testing-library) | **None** (no pytest/unittest config; `test_*.py` are manual smoke scripts) |
-| ORM/schema validation | **None** (no Prisma/Drizzle/zod — hand-written parameterized SQL, hand-written `!` non-null env reads) | Pydantic (FastAPI-idiomatic) |
+| Test tooling | **`vitest` ^4.1 (post-snapshot; was None)** — 44 tests, scoped to `lib/mcp/`, `lib/rag/`, `lib/agents/`, `lib/eval/`, `lib/public-api/product-routes.ts` only; no jest/playwright/@testing-library | **None** (no pytest/unittest config; `test_*.py` are manual smoke scripts) |
+| ORM/schema validation | **None** for the original app (no Prisma/Drizzle — hand-written parameterized SQL, hand-written `!` non-null env reads). `zod` ^3.25 is now a dependency (post-snapshot), used only for MCP tool input/output schemas (`lib/mcp/tools/*`) — not adopted anywhere in the original `app/api/v1/**`/`app/api/public/v1/**` routes or pipelines | Pydantic (FastAPI-idiomatic) |
 
 ---
 
@@ -154,7 +169,7 @@ There is no backend/frontend process split. `app/*/page.tsx` (Server Component, 
 
 - **Azure Database for PostgreSQL Flexible Server** — the only structured store. **16 tables** across `supabase/migrations/001-011` (11 files, 13 `CREATE TABLE` statements once the migration-011 API-access cluster is unbundled): `user_connections`, `analysis_results`, `kpi_snapshots`, `sector_intelligence`, `earnings_calendar`, `concall_links`, `user_tickers`, `insights_cache`, `promoter_activity`, `promoter_activity_fetch_log`, `solo_analysis_cache`, `user_credits`, `api_partners`, `api_keys`, `api_key_products`, `api_usage`. Accessed exclusively via raw `pg` + parameterized SQL (`lib/postgres/client.ts`), never through Supabase's PostgREST layer.
 - **Azure Blob Storage** — container `transcripts`, flat `TICKER_Q#_YYYY.pdf` keys, no folder structure. Account-key writes server-side only; browser downloads go through time-limited SAS-token URLs.
-- **NOT present in production**: any vector database, any NoSQL/document store, any Redis/cache-server layer. `pgvector` is referenced nowhere. All "caching" is real Postgres tables with explicit key/TTL/invalidation logic (`07_DATA_ARCHITECTURE.md` §6), not an ephemeral cache tier.
+- **NOT present in production, as of this snapshot**: any vector database, any NoSQL/document store, any Redis/cache-server layer. `pgvector` was referenced nowhere. All "caching" is real Postgres tables with explicit key/TTL/invalidation logic (`07_DATA_ARCHITECTURE.md` §6), not an ephemeral cache tier. **Post-snapshot update**: `pgvector` is now used, minimally and for one narrow purpose (`transcript_chunks.embedding VECTOR(768)`, migration 012) — see `07_DATA_ARCHITECTURE.md` §4.1/§5 and `RAG_ARCHITECTURE.md`. Still no NoSQL/document store, no Redis — pgvector is a Postgres extension on the same instance, not a new service.
 - **Present only in the archived prototype**: FAISS (`finance-agent/core/vector.py`, local index files `data/processed/finance.index`), a flat local JSON fact store (`financial_memory.py`).
 
 ## I. AI/LLM components
@@ -169,9 +184,11 @@ There is no backend/frontend process split. `app/*/page.tsx` (Server Component, 
 
 Every one of the five files independently defines its own `getGenAI()` and its own `Promise.race`-based timeout wrapper — **no shared `lib/gemini.ts`/`LLMProvider` abstraction exists** (confirmed absent; `20_TECHNICAL_DEBT_AND_GAPS.md` #9). Single hardcoded model everywhere: `gemini-2.5-flash-lite`, temperature `0`, structured output via `responseSchema`/`SchemaType.OBJECT`. Archived-only AI components: `finance-agent/agents/*.py` (6 single-shot RAG+LLM functions), `finance-agent/vertex.py`'s `call_gemini()` (has retry logic production never got), `disclosure_pipeline/src/judge_evaluator.py` (real LLM-as-judge, never wired to production).
 
+**Post-snapshot addition**: `lib/agents/evidenceVerification.ts` — 1 Gemini call per verified claim (capped at 5), using a NEW shared client/helper (`lib/llm/genai.ts`, `lib/llm/structured.ts`) rather than a sixth private copy of `getGenAI()`. This new shared helper does **not** retrofit the five pre-existing files listed above — `20_TECHNICAL_DEBT_AND_GAPS.md` #9 remains accurate for them; the new helper only prevents a sixth duplicate from being added. Also new: `lib/rag/embeddings.ts` (2 embedding calls per verification run — one query embed per claim via `embedQuery`, plus one batched `embedDocumentsBatch` call on first ingestion of a transcript), using `text-embedding-004`. Full detail: `AGENT_ARCHITECTURE.md`, `RAG_ARCHITECTURE.md`.
+
 ## J. Agent / orchestration components
 
-**No autonomous agents in production.** The orchestration is a fixed DAG hand-written in TypeScript — `Promise.all()` fan-out/fan-in across explicit phases inside each pipeline function — not an LLM-driven planner and not a framework (LangGraph/CrewAI/AutoGen confirmed absent from `package.json`). The "5 specialist agents" in `lib/pipeline.ts` (`AGENT_PROMPTS`: Revenue & Growth, Margins & Profitability, Cost Structure, CapEx & Balance Sheet, Macro & Risk) are five differently-prompted calls to the same `invokeStructured()` function. Full argument: `06_AGENT_ARCHITECTURE.md`. The only real agent/orchestration machinery in the whole repo is archived: `finance-agent/control/control_plane.py` (a router that in practice hard-codes one downstream call), `research_replay.py`, and `mcp_server.py` (a genuine MCP server registering 12 tools — real engineering, but disconnected from the live product).
+**No autonomous agents in production, as of this snapshot** *(post-snapshot: one now exists — `lib/agents/evidenceVerification.ts`, see the note below)*. The orchestration is a fixed DAG hand-written in TypeScript — `Promise.all()` fan-out/fan-in across explicit phases inside each pipeline function — not an LLM-driven planner and not a framework (LangGraph/CrewAI/AutoGen confirmed absent from `package.json`). The "5 specialist agents" in `lib/pipeline.ts` (`AGENT_PROMPTS`: Revenue & Growth, Margins & Profitability, Cost Structure, CapEx & Balance Sheet, Macro & Risk) are five differently-prompted calls to the same `invokeStructured()` function. Full argument: `06_AGENT_ARCHITECTURE.md`. The only real agent/orchestration machinery in the whole repo is archived: `finance-agent/control/control_plane.py` (a router that in practice hard-codes one downstream call), `research_replay.py`, and `mcp_server.py` (a genuine MCP server registering 12 tools — real engineering, but disconnected from the live product). **Post-snapshot**: `lib/agents/evidenceVerification.ts` is a genuine autonomous agent by `06_AGENT_ARCHITECTURE.md` §1's own test — it loops, evaluating its own prior retrieval/verification output at each step, until a stop condition (§7 of that file has the full argument). It is exposed as a second MCP tool, `verify_company_analysis`, via the also-new `lib/mcp/` (MCP tool server, first slice — `MCP_ARCHITECTURE.md`). This is the first component in the live production codebase itself, not an external client and not the archived prototype, to clear that bar.
 
 ## K. External integrations
 
@@ -202,7 +219,7 @@ Every one of the five files independently defines its own `getGenAI()` and its o
 
 ## M. Testing infrastructure
 
-**None automated, for the live app — stated plainly.** No `jest`/`vitest`/`mocha`/`playwright`/`cypress`/`@testing-library/*` in `package.json`. Zero `*.test.ts`/`*.spec.ts` files anywhere under `app/`, `lib/`, `components/`, `types/`, `scripts/`. The project's own dated engineering docs state this outright as a given constraint (`docs/superpowers/specs/2026-07-10-azure-hosting-migration-design.md:101`: *"No automated test runner exists in this repo. Verification is `npx tsc --noEmit`..."*). Verification today = TypeScript type-checking + manual `npm run dev` + browser/`curl` checks. The archived prototype's 10 `test_*.py` files are manual smoke scripts (no `assert`, no pytest/unittest config, print-and-read pattern) — not automated tests, despite the naming. Full inventory and component-by-component "what actually proves this works" table: `13_TESTING.md`.
+**None automated, for the live app, as of this snapshot — stated plainly.** No `jest`/`vitest`/`mocha`/`playwright`/`cypress`/`@testing-library/*` in `package.json`. Zero `*.test.ts`/`*.spec.ts` files anywhere under `app/`, `lib/`, `components/`, `types/`, `scripts/`. **Post-snapshot**: `vitest` (^4.1) is now a dependency — the repo's first-ever installed test runner — with 44 tests across 8 files (`vitest.config.mts`, `npm test`), but scoped entirely to the two new slices: `lib/mcp/`, `lib/rag/`, `lib/agents/`, `lib/eval/`, and `lib/public-api/product-routes.ts`. **This claim remains accurate for everything else** — the five original AI pipelines, all `app/api/v1/**`/`app/api/public/v1/**` routes, every repository file, and every React component still have zero automated tests. CI still does not run `npm test` (§O below, unchanged). The project's own dated engineering docs state this outright as a given constraint (`docs/superpowers/specs/2026-07-10-azure-hosting-migration-design.md:101`: *"No automated test runner exists in this repo. Verification is `npx tsc --noEmit`..."*). Verification today = TypeScript type-checking + manual `npm run dev` + browser/`curl` checks. The archived prototype's 10 `test_*.py` files are manual smoke scripts (no `assert`, no pytest/unittest config, print-and-read pattern) — not automated tests, despite the naming. Full inventory and component-by-component "what actually proves this works" table: `13_TESTING.md`.
 
 ## N. Deployment / infrastructure
 
@@ -232,7 +249,8 @@ Every one of the five files independently defines its own `getGenAI()` and its o
 | `docs/superpowers/plans/*.md` (8 files) | **Current, real** | Dated execution plans for real shipped features/migrations — Azure hosting, Azure data+storage, Azure auth, repositories/migration, public API, company memory, developer docs page, why-quantalyze page |
 | `docs/superpowers/specs/*.md` (7 files) | **Current, real** | Paired design specs for the plans above — scope, non-goals, verification approach, cutover procedures |
 | `.env.local.example` | **STALE** | Documents dead Google/Slack OAuth vars; omits every var the live app actually needs |
-| `discussions/*.md` (this folder) | **Current** | This case study's own 23 files + master map |
+| `discussions/*.md` (this folder) | **Current** | This case study's own 25 numbered files + master map + this reading list |
+| `MCP_ARCHITECTURE.md`, `RAG_ARCHITECTURE.md`, `AGENT_ARCHITECTURE.md` | **Current, real, post-snapshot** | Top-level (not in `discussions/`), same honesty discipline — document exactly what each of the two vertical slices implements and, explicitly, what it doesn't |
 
 **The load-bearing correction**: anyone reading `README.md`/`TECHNICAL_ARCHITECTURE.md` first (as this task's own framing initially did) forms a materially wrong mental model. `docs/superpowers/` is the actually-current, actually-trustworthy source for infrastructure reality — it's just not the first thing a reader opens.
 
