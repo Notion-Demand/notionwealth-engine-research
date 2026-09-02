@@ -1,6 +1,22 @@
 # Quantalyze — Technical Architecture
 
-Complete system design, API topology, database schema, AI pipeline architecture, cost estimation, and engineering decisions.
+Complete system design, API topology, database schema, AI pipeline architecture, and engineering decisions — reflecting the **live, Azure-native** system as of this update. Earlier versions of this document described a Supabase + Vercel stack; that stack has since been fully migrated away from (see §0 and §10). For a deeper, code-cited audit of everything in this document (including known gaps this doc doesn't sugar-coat but also doesn't dwell on), see `discussions/` — start with `discussions/QUANTALYZE_ENGINEERING_MASTER_MAP.md`.
+
+---
+
+## 0. What changed since the last version of this document
+
+| | Was (Supabase/Vercel era) | Is now |
+|---|---|---|
+| Auth | Supabase Auth (JWT, email/password + Google OAuth) | NextAuth (Auth.js v5) + Microsoft Entra External ID, JWT session strategy (`auth.ts`) |
+| Database | Supabase PostgreSQL, accessed via `supabaseAdmin()` | Azure Database for PostgreSQL (Flexible Server, private VNet), raw `pg.Pool` (`lib/postgres/client.ts`) |
+| Object storage | Supabase Storage | Azure Blob Storage (`lib/repositories/storage.ts` → `AzureBlobStorageRepository`) |
+| Hosting | Vercel (serverless functions, 300s max duration) | Azure Container Apps (Docker, `Dockerfile` + `.github/workflows/deploy-azure.yml`) — this itself was a second hop; the hosting migration was originally executed to Azure App Service (`docs/superpowers/plans/2026-07-10-azure-hosting-migration.md`), then moved again to Container Apps without a corresponding design doc |
+| Row-level security | Enforced via Supabase's `auth.uid()` | **Not enforced at the database level.** The RLS statements still exist in `supabase/migrations/001_initial.sql`/`006_user_tickers.sql`/`010_user_credits.sql`, but `scripts/migrate-schema-to-azure.ts` strips every `ENABLE ROW LEVEL SECURITY`/`CREATE POLICY` statement before applying them to Azure Postgres, since plain Postgres has no `auth.uid()`. Per-user data isolation today is 100% hand-written `WHERE user_id = $1` clauses in each repository method — real, but with no database-level backstop if one is ever missed. |
+
+Every repository file (`lib/repositories/*.ts`) still contains an unused `Supabase*Repository` class next to the live `Postgres*Repository`/`AzureBlobStorageRepository` one — `lib/repositories/index.ts` is the ground truth for which class is actually wired up (all Postgres/Azure). These are dead code from the migration, not a second live path.
+
+The migration itself is a genuinely well-documented, disciplined piece of engineering: three dated plan+spec document pairs in `docs/superpowers/` (hosting → Azure App Service, Jul 10 2026; data+storage → Azure Postgres/Blob, Jul 10 2026; auth → Entra ID, Jul 13 2026), each following a "Strangler Fig" approach — old and new paths coexist behind a flag or parallel class during a safety window, with an explicit rollback plan and a documented deletion date for the old path. The one exception is the later App Service → Container Apps jump, which has no equivalent design document — see `discussions/14_DEVOPS_CLOUD.md` §7 for the full account.
 
 ---
 
@@ -8,48 +24,50 @@ Complete system design, API topology, database schema, AI pipeline architecture,
 
 | Layer | Technology | Detail |
 |-------|-----------|--------|
-| Frontend | Next.js 14 (App Router) | React Server Components + Client Components |
+| Frontend | Next.js 14 (App Router) | Server Components handle only auth-gating/redirect; all real data-fetching happens client-side in paired `*Client.tsx` components |
 | Styling | Tailwind CSS | Custom `brand-*` color palette |
-| AI Model | Gemini 2.5 Flash Lite | All pipelines, structured JSON output |
-| Auth | Supabase Auth | JWT Bearer tokens, service-role admin |
-| Database | Supabase PostgreSQL | 10 tables, JSONB payloads, RLS on 3 tables |
-| Object Storage | Supabase Storage | `transcripts` bucket (PDF files) |
-| Deployment | Vercel | Serverless functions, 300s max duration |
-| Streaming | NDJSON over ReadableStream | Real-time pipeline progress |
-| PDF Export | jsPDF | Client-side text-based PDF generation |
+| AI Model | Gemini 2.5 Flash Lite, via `@google/generative-ai` | Direct Gemini Developer API (API key), **not** Vertex AI — no `google-cloud-aiplatform`/`vertexai` import anywhere in the live app |
+| Auth | NextAuth (Auth.js v5) + Microsoft Entra External ID | JWT session strategy; `account.providerAccountId`/OIDC `sub` is a non-UUID pairwise identifier for Entra External ID, so the Entra `oid` claim is used instead to match existing UUID `user_id` columns (`auth.ts`) |
+| Database | Azure Database for PostgreSQL (Flexible Server) | Private VNet-only networking; 16 tables, JSONB payloads for AI output; RLS *declared* in SQL history but *not enforced* at runtime (see §0) |
+| Object Storage | Azure Blob Storage | `transcripts` container, PDF files |
+| Deployment | Azure Container Apps | Docker multi-stage build, Consumption plan, GitHub Actions CI/CD via OIDC federated identity (no stored Azure credentials) |
+| Streaming | NDJSON over `ReadableStream` | Real-time pipeline progress, genuinely incremental (verified byte-for-byte — see `discussions/09_FRONTEND_ARCHITECTURE.md`) |
+| PDF Export | jsPDF (+ html2canvas for the Delta report) | Client-side, two independent code paths (not unified into one shared utility) |
 | PDF Parsing | pdf-parse | Server-side transcript extraction |
+| Public API | `app/api/public/v1/**` | API-key-authenticated, per-key product entitlements + daily quota, metered via `api_usage` |
 
 ---
 
-## 2. Database Schema (10 Tables)
+## 2. Database Schema (16 Tables)
 
 ### Core Tables
 
-| Table | Key | Purpose | Used By |
-|-------|-----|---------|---------|
-| `analysis_results` | (company_ticker, q_prev, q_curr) | Delta analysis cache | Dashboard, Screener, Sectors |
-| `solo_analysis_cache` | (ticker, quarter) | Deep Dive cache | Dashboard |
-| `insights_cache` | (ticker, quarters_key) | Multi-quarter insights cache | Insights |
-| `sector_intelligence` | (sector, quarter) | Sector narrative + scores | Sectors |
-| `earnings_calendar` | (ticker, quarter) | Board meeting dates | Calendar |
-| `concall_links` | (ticker, quarter) | YouTube video ID cache | Videos |
-| `kpi_snapshots` | (company_ticker, quarter) | KPI extractions | KPIs |
-| `promoter_activity` | (ticker, news_id) | BSE pledge/SAST filings | Divergence |
-| `user_tickers` | (user_id, ticker) | Per-user custom stocks | Dashboard, Insights |
-| `user_connections` | (user_id, provider) | OAuth connections (legacy) | — |
+| Table | Migration | Key | Purpose | RLS in SQL history | Enforced in production? |
+|-------|-----------|-----|---------|---------------------|--------------------------|
+| `analysis_results` | 001 | `(company_ticker, q_prev, q_curr)` — **no DB unique constraint on this key** | Delta analysis cache | Yes (`auth.uid() = user_id`) | **No** — stripped by `scripts/migrate-schema-to-azure.ts` |
+| `user_connections` | 001 | `(user_id, provider)` | Legacy OAuth connections (unused) | Yes | **No** |
+| `kpi_snapshots` | 002 | `UNIQUE(company_ticker, quarter)` | KPI extractions | No | — |
+| `sector_intelligence` | 003 | `UNIQUE(sector, quarter)` | Sector narrative + scores | No | — |
+| `earnings_calendar` | 004 | `UNIQUE(ticker, quarter)` | Board meeting dates | No | — |
+| `concall_links` | 005 | `UNIQUE(ticker, quarter)` | YouTube video ID cache | No | — |
+| `user_tickers` | 006 | `UNIQUE(user_id, ticker)` | Per-user custom stocks | Yes | **No** |
+| `insights_cache` | 007 | `UNIQUE(ticker, quarters_key)` | Multi-quarter insights cache, 30-day app-enforced TTL | No | — |
+| `promoter_activity` | 008 | `UNIQUE(ticker, news_id)` | BSE pledge/SAST filings | No | — |
+| `promoter_activity_fetch_log` | 008 | PK `ticker` | Per-ticker 24h refetch cooldown tracking | No | — |
+| `solo_analysis_cache` | 009 | `(ticker, quarter)` — **no DB unique constraint on this key** | Deep Dive cache | No | — |
+| `user_credits` | 010 | `UNIQUE(user_id, month)` | Monthly credit metering for AI-triggering actions | Comment says "no RLS — managed by backend" despite a `user_id` FK to `auth.users` | — |
+| `api_partners` | 011 | PK `id` | Public API partner accounts | No | — |
+| `api_keys` | 011 | PK `id`, `key_hash` unique | Hashed API keys, per-key `daily_quota`, active flag | No | — |
+| `api_key_products` | 011 | `(key_id, product_name)` | Per-key product entitlements | No | — |
+| `api_usage` | 011 | `(key_id, window_start)` | Daily request counters for the public API | No | — |
+
+`analysis_results` and `solo_analysis_cache` have no unique constraint on their natural cache key — de-duplication relies entirely on the application performing a `DELETE` then a separate `INSERT` (not wrapped in a transaction), which is a real, if narrow, race window under concurrent requests for the same (ticker, quarter[s]). Tables with a genuine `UNIQUE` constraint (`kpi_snapshots`, `sector_intelligence`, `concall_links`, `insights_cache`, `promoter_activity`, `user_credits`, `earnings_calendar`) use real, atomic `ON CONFLICT ... DO UPDATE` upserts instead. See `discussions/07_DATA_ARCHITECTURE.md` for the full concurrency analysis.
 
 ### Storage
 
-| Bucket | Content | Access |
-|--------|---------|--------|
-| `transcripts` | Earnings call PDFs (`TICKER_Q#_YYYY.pdf`) | Service-role only |
-
-### RLS Policy
-
-- `analysis_results` — RLS enabled, `auth.uid() = user_id`
-- `user_tickers` — RLS enabled, `auth.uid() = user_id`
-- `user_connections` — RLS enabled, `auth.uid() = user_id`
-- All others — No RLS (accessed via `supabaseAdmin` service-role key)
+| Container | Content | Access |
+|-----------|---------|--------|
+| `transcripts` (Azure Blob) | Earnings call PDFs (`TICKER_Q#_YYYY.pdf`) | App-level only, via `AzureBlobStorageRepository` |
 
 ---
 
@@ -57,60 +75,52 @@ Complete system design, API topology, database schema, AI pipeline architecture,
 
 ### Dashboard (`/dashboard` → `DashboardClient.tsx`)
 
-| Action | Endpoint | Method | Tables | External API | Streaming |
-|--------|----------|--------|--------|-------------|-----------|
-| Load available transcripts | `/api/v1/available` | GET | Supabase Storage list | — | No |
-| Auto-fetch transcripts | `/api/v1/request` | POST | Supabase Storage (upload) | Screener.in, BSE API | No |
-| Delta Analysis | `/api/v1/analyze` | POST | `analysis_results`, Storage | Gemini (11 calls), Yahoo Finance | NDJSON |
-| Deep Dive Analysis | `/api/v1/analyze/solo` | POST | `solo_analysis_cache`, Storage | Gemini (1 call) | NDJSON |
-| Promoter Pledge Badge | `/api/v1/divergence` | GET | `promoter_activity`, `insights_cache` | BSE API | No |
-| Analysis History | `/api/v1/analyze/history` | GET | `analysis_results` | — | No |
-| Transcript Download | `/api/v1/transcript/download` | GET | Supabase Storage | — | No |
-| User Tickers | `/api/v1/user-tickers` | GET/POST | `user_tickers` | — | No |
+| Action | Endpoint | Method | Tables | External API | Streaming | Auth required? |
+|--------|----------|--------|--------|-------------|-----------|-----------------|
+| Load available transcripts | `/api/v1/available` | GET | Blob Storage list | — | No | No |
+| Auto-fetch transcripts | `/api/v1/request` | POST | Blob Storage (upload) | Screener.in, BSE API | No | No |
+| Delta Analysis | `/api/v1/analyze` | POST | `analysis_results`, Blob | Gemini (~19-20 calls), Yahoo Finance | NDJSON | Yes |
+| Deep Dive Analysis | `/api/v1/analyze/solo` | POST | `solo_analysis_cache`, Blob | Gemini (1 call) | NDJSON | Yes |
+| Promoter Pledge Badge | `/api/v1/divergence` | GET | `promoter_activity`, `insights_cache` | BSE API | No | No |
+| Analysis History | `/api/v1/analyze/history` | GET | `analysis_results` | — | No | Yes |
+| Transcript Download | `/api/v1/transcript/download` | GET | Blob Storage | — | No | No |
+| User Tickers | `/api/v1/user-tickers` | GET/POST | `user_tickers` | — | No | Yes |
 
 ### Multi-Quarter Insights (`/insights` → `InsightsClient.tsx`)
 
 | Action | Endpoint | Method | Tables | External API | Streaming |
 |--------|----------|--------|--------|-------------|-----------|
-| Run Insights | `/api/v1/insights` | POST | `insights_cache`, Storage | Gemini (N+1 calls: N per-quarter + 1 synthesis) | NDJSON |
+| Run Insights | `/api/v1/insights` | POST | `insights_cache`, Blob | Gemini (N+1 calls: N per-quarter + 1 synthesis) | NDJSON (note: lacks the `closed`-flag guard and pre-Vercel-kill timeout margin that `/api/v1/analyze` has — see `discussions/04_RUNTIME_FLOWS.md`) |
 
-### Screener (`/screener` → `ScreenerClient.tsx`)
+### Screener, Sectors, Calendar, Videos
 
-| Action | Endpoint | Method | Tables | External API |
-|--------|----------|--------|--------|-------------|
-| Load Signals | `/api/v1/screener` | GET | `analysis_results` | — |
+Unchanged in shape from the original design — see the route tables in `discussions/04_RUNTIME_FLOWS.md` for the fully verified, current version, including which of these are unauthenticated (most are — only routes that touch a specific user's data require a session).
 
-### Sectors (`/sectors` → `SectorsClient.tsx`)
+### Public API (`/api/public/v1/**`)
 
-| Action | Endpoint | Method | Tables | External API |
-|--------|----------|--------|--------|-------------|
-| Load Sectors | `/api/v1/sectors` | GET | `sector_intelligence` | — |
-| Seed Sector | `/api/v1/sectors/seed` | POST | `sector_intelligence`, `analysis_results`, Storage | Gemini (per uncached ticker + narrative) |
+| Route | Auth | Purpose |
+|-------|------|---------|
+| `/api/public/v1/data/companies/[ticker]` | API key (`middleware.ts`) | Company data by ticker, gated by key's product entitlements |
+| `/api/public/v1/data/sectors/[sector]` | API key | Sector data |
+| `/api/public/v1/products/sector-thesis` | API key | Sector thesis product |
 
-### Calendar (`/calendar` → `CalendarClient.tsx`)
-
-| Action | Endpoint | Method | Tables | External API |
-|--------|----------|--------|--------|-------------|
-| Load Calendar | `/api/v1/calendar` | GET | `earnings_calendar`, `analysis_results` | — |
-| Seed Calendar | `/api/v1/calendar/seed` | POST | `earnings_calendar` | NSE API, BSE API, Tickertape |
-
-### Videos (`/videos` → `VideosClient.tsx`)
-
-| Action | Endpoint | Method | Tables | External API |
-|--------|----------|--------|--------|-------------|
-| Load Video per company | `/api/v1/concall` | GET | `concall_links` | YouTube Data API v3 |
+Auth for this surface is enforced centrally in `middleware.ts` (matcher scoped to `/api/public/*`), unlike the internal `/api/v1/**` surface where auth is opt-in per route — see §5.
 
 ---
 
 ## 4. AI Pipeline Architecture
 
+No provider abstraction exists — every pipeline file imports `GoogleGenerativeAI` directly and constructs its own model object; there is no shared `LLMProvider` interface, and each file re-implements its own timeout-wrapper and JSON-schema-building helper independently (a real duplication, not a stylistic choice — see `discussions/16_ONELEET_JD_MAPPING.md`).
+
 ### 4a. Delta Analysis Pipeline (`lib/pipeline.ts`)
 
 **Trigger**: `POST /api/v1/analyze` → `runPipeline()`
 
-**Model**: `gemini-2.5-flash-lite`, temperature `0`, structured JSON output
+**Model**: `gemini-2.5-flash-lite`, temperature `0`, structured JSON output (`responseSchema` + `responseMimeType: "application/json"`)
 
-**Agent timeout**: 25s per agent | **Function timeout**: 300s | **Pipeline timeout**: 270s
+**Agent timeout**: 25s per call (`Promise.race`, does **not** cancel the underlying Gemini request — no `AbortController` is used anywhere against the Gemini SDK) | **Pipeline timeout**: 270s, races the whole `runPipeline()` call against the route's declared `maxDuration = 300` | **No retries on any call.**
+
+> Note: `export const maxDuration = 300` in `app/api/v1/analyze/route.ts` is a Vercel-specific directive, inherited from the pre-migration codebase. It has no effect on Azure Container Apps, which has no equivalent hard per-request timeout — the 270s pipeline-internal timeout is now the only thing actually bounding a run's duration.
 
 **Phases (sequential)**:
 
@@ -120,7 +130,7 @@ Phase 1 — PDF Extraction (parallel)
   └── extractPdfText(qCurrKey)     ~2-3s
   Transcript cap: 120,000 chars
 
-Phase 2 — Thematic Agents + Evasiveness (parallel, 11 calls)
+Phase 2 — Thematic calls + Evasiveness (parallel, 11 calls)
   ├── Revenue & Growth (prev)      ─┐
   ├── Revenue & Growth (curr)       │
   ├── Margins & Profitability (prev)│
@@ -131,13 +141,16 @@ Phase 2 — Thematic Agents + Evasiveness (parallel, 11 calls)
   ├── CapEx & Balance Sheet (curr)  │
   ├── Macro & Risk (prev)           │
   ├── Macro & Risk (curr)          ─┘
-  └── Evasiveness Agent (curr only) ── 1 Gemini call
+  └── Evasiveness call (curr only) ── 1 Gemini call
                                         Schema: EVASIVENESS_SCHEMA
                                         Input: last 30,000 chars only
 
 Phase 3 — Temporal Delta (parallel, up to 5 calls)
   For each section where both prev+curr succeeded:
   └── runTemporalDelta(section)     Schema: SECTIONAL_INSIGHT_SCHEMA
+  (A section with a failed/timed-out prev or curr call is silently
+   dropped here — not retried, not surfaced as an explicit error to
+   the user beyond a lower implicit signal count.)
 
 Phase 4 — Synthesis + Market Data (parallel, 4 calls)
   ├── runEarningsDeltaAgent()       Schema: BULLETS_SCHEMA ("What Changed")
@@ -146,11 +159,16 @@ Phase 4 — Synthesis + Market Data (parallel, 4 calls)
   └── fetchStockPriceChange()       Yahoo Finance API (no Gemini)
 
 Phase 5 — Local Validation (no LLM)
-  ├── localValidation()             Signal/score consistency check
+  ├── localValidation()             Signal/score self-consistency check ONLY —
+  │                                  does not verify any quote against the source
+  │                                  transcript. A real LLM-as-judge validator that
+  │                                  does check quotes exists but only in the archived
+  │                                  prototype (finance-agent/disclosure_pipeline/src/
+  │                                  judge_evaluator.py) — never wired into production.
   └── computeMarketAlignment()      Stock direction vs signal direction
 ```
 
-**Total Gemini calls per delta analysis**: 11 (thematic) + 1 (evasiveness) + 5 (delta) + 3 (synthesis) = **~20 calls**
+**Total Gemini calls per delta analysis**: 11 (thematic + evasiveness) + up to 5 (delta) + 3 (synthesis) = **~19-20 calls**, all non-streaming (`generateContent`, not `generateContentStream`) — the NDJSON progress the client sees is one line per *completed call*, not token-level streaming.
 
 **Streaming events** (NDJSON to client):
 ```
@@ -164,82 +182,62 @@ Phase 5 — Local Validation (no LLM)
 
 ### 4b. Deep Dive Pipeline (`lib/solo-pipeline.ts`)
 
-**Trigger**: `POST /api/v1/analyze/solo` → `runSoloPipeline()`
-
-**Model**: `gemini-2.5-flash-lite`, temperature `0`, structured JSON
-
-**Agent timeout**: 55s | **Function timeout**: 120s
+**Trigger**: `POST /api/v1/analyze/solo` → `runSoloPipeline()` · **Model**: `gemini-2.5-flash-lite`, temperature `0` · **Timeout**: 55s per call
 
 ```
 Phase 1 — Cache check (solo_analysis_cache)
 Phase 2 — PDF extraction (~2-3s)
-Phase 3 — Single Gemini call with comprehensive prompt
-           Input: full transcript (120K chars)
-           Output: { headline, management_tone, sections: [{ title, bullets }] }
-           Sections: 8-14 thematic sections
+Phase 3 — Single Gemini call, full transcript (120K char cap) →
+           { headline, management_tone, sections: [{ title, bullets }] }
 Phase 4 — Cache result
 ```
 
-**Total Gemini calls**: **1** (single comprehensive call)
+**Total Gemini calls**: **1**.
 
 ### 4c. Multi-Quarter Insights Pipeline (`lib/insights-pipeline.ts`)
 
-**Trigger**: `POST /api/v1/insights` → `runInsightsPipeline()`
-
-**Model**: `gemini-2.5-flash-lite`, temperature `0`, structured JSON
-
-**Agent timeout**: 55s | **Function timeout**: 300s
+**Trigger**: `POST /api/v1/insights` → `runInsightsPipeline()` · **Model**: `gemini-2.5-flash-lite`, temperature `0` · **Timeout**: 55s per call
 
 ```
-Phase 1 — Discover quarters (Supabase Storage search)
-           Takes up to 8 most recent quarters
-
-Phase 2 — Per-quarter brief extraction (parallel, N calls)
-           Each call extracts: key_points, segment_highlights,
-           guidance_statements, new_developments, management_tone,
-           financials, growth_outlook, margins, cost_control,
-           capex_and_capacity, customer_and_market, macro_and_news
-           Schema: QUARTER_BRIEF_SCHEMA
-
-Phase 3 — Cross-quarter synthesis (1 call)
-           Input: all quarter briefs concatenated
-           Output: recurring_themes, guidance_tracks,
-           management_credibility_score, new_business_signals,
-           key_watchpoints, segment_narrative
-           Schema: SYNTHESIS_SCHEMA
+Phase 1 — Discover quarters (Blob Storage search), up to 8 most recent
+Phase 2 — Per-quarter brief extraction (parallel, N calls) → QUARTER_BRIEF_SCHEMA
+Phase 3 — Cross-quarter synthesis (1 call) → recurring_themes, guidance_tracks,
+           management_credibility_score, new_business_signals, key_watchpoints,
+           segment_narrative — SYNTHESIS_SCHEMA
 ```
 
-**Total Gemini calls**: **N+1** (N quarters + 1 synthesis, typically 5-9 calls)
+**Total Gemini calls**: **N+1** (typically 5-9). Cached with a **30-day TTL enforced in application code** (`CACHE_TTL_DAYS = 30`, `lib/insights-pipeline.ts`), not a DB expiry mechanism.
 
-### 4d. Sector Narrative (`lib/sector-narrative.ts`)
+> **Known bug**: `lib/divergence-score.ts` reads `overall_signal`/`overall_score` off this pipeline's cached output to power the "Promoter Pledge + concall sentiment" cross-reference flag on the Dashboard. This pipeline's `SYNTHESIS_SCHEMA` does not produce fields with those names — the flag is, per the code's own comment, "very likely always null in practice." Left unfixed intentionally, in keeping with the migration's Strangler Fig discipline of not bundling unrelated fixes into infra work. See `discussions/07_DATA_ARCHITECTURE.md`.
 
-**Model**: `gemini-2.5-flash-lite`, temperature `0.1`
+### 4d. Sector Narrative (`lib/sector-narrative.ts`) and KPI Extractor (`lib/kpi-extractor.ts`)
 
-**Timeout**: 22s
-
-**Output**: 7 fields — competitive_structure, strategic_theme, tailwinds, headwinds, key_triggers, macro_sensitivity, transformation_signal
-
-**Calls**: 1 per sector seed
+Both run at **temperature `0.1`**, not `0` — a deliberate departure from the other three pipelines, trading a small amount of determinism for less repetitive prose in synthesis-flavored output. `lib/kpi-extractor.ts` additionally has no `Promise.race` timeout wrapper at all (the only pipeline file without one).
 
 ---
 
-## 5. Authentication Flow
+## 5. Authentication & Authorization
 
 ```
-Browser → Supabase Auth (email/password or Google OAuth)
-       → JWT stored in Supabase session
-       → Client reads: supabase.auth.getSession() → access_token
+Browser → NextAuth sign-in → Microsoft Entra External ID (OIDC)
+       → JWT session (session.strategy = "jwt")
+       → auth.ts's jwt() callback sets token.sub to the Entra `oid` claim
+         (not the OIDC `sub`, which for Entra External ID is a non-UUID
+         pairwise identifier — every Postgres user_id column is typed UUID)
 
-API Request:
-  Client: Authorization: Bearer <access_token>
-  Server: getUserId(req) → supabase.auth.getUser(token) → user.id
-  Throws "Unauthorized" if invalid
+API Request (protected routes only):
+  Server: auth() reads the session server-side; session.user.id is the UUID
+  Route handlers that check auth do so individually — there is no blanket
+  middleware gate over /api/v1/**
 
-Admin operations (caching, storage):
-  supabaseAdmin() → createClient(url, service_role_key)
-  Bypasses RLS, used for all pipeline read/write operations
-  cache: "no-store" on all fetch calls (prevents Next.js fetch cache)
+middleware.ts:
+  matcher scoped to /api/public/* only — API-key auth for the partner API
+  Does NOT cover /api/v1/**
 ```
+
+**Known gap, stated plainly**: of the 24 route handlers under `app/api/v1/**`, roughly 14 have no authentication check at all — including several `POST` endpoints that trigger real, billed Gemini spend (`seed-analysis`, `seed-transcripts`, `calendar/seed`, `sectors/seed`). `seed-analysis` additionally bypasses the credits system entirely. This is a real, unaddressed security gap, not a design choice — see `discussions/08_BACKEND_ARCHITECTURE.md` and `discussions/20_TECHNICAL_DEBT_AND_GAPS.md` for the full route-by-route audit and a prioritized fix list.
+
+**Credits (paid usage metering)**: `lib/credits.ts` deducts a per-action credit (analysis/deep-dive/insights, flat cost regardless of transcript size or actual token spend) via a read-then-write pattern that is not atomic — a documented, unaddressed race under concurrent requests from the same user. The public API's `apiAccess.ts` implements the equivalent check with a proper atomic `ON CONFLICT` upsert; `credits.ts` does not follow the same pattern despite the fix already existing one file away.
 
 ---
 
@@ -255,7 +253,7 @@ Server (Route Handler):
       controller.close()
     }
   })
-  → Response with Content-Type: application/x-ndjson
+  → Response with Content-Type: application/x-ndjson, X-Accel-Buffering: no
 
 Client (lib/api.ts):
   const reader = response.body.getReader()
@@ -264,127 +262,45 @@ Client (lib/api.ts):
     buffer += decoder.decode(value, { stream: true })
     const lines = buffer.split("\n")
     buffer = lines.pop()
-    for (const line of lines) processLine(line)  // JSON.parse → onEvent callback
+    for (const line of lines) processLine(line)  // JSON.parse → onEvent callback → React state update
   }
 ```
 
-**Safety mechanisms**:
-- `closed` flag prevents enqueue after controller errors
-- Pipeline-level timeout (270s) sends error event before Vercel kills function
-- `try/catch` around `controller.enqueue` to handle client disconnects
+Verified genuinely incremental — `components/AgentPanel.tsx` re-renders per event, not once at the end (`discussions/09_FRONTEND_ARCHITECTURE.md`). `AgentPanel.tsx` itself is purely presentational; the read loop lives in `lib/api.ts`/the page's `Client.tsx`.
+
+**Safety mechanisms — inconsistently applied across the three streaming routes**:
+- `/api/v1/analyze`: `closed` flag prevents `enqueue` after a client disconnect, and the 270s pipeline timeout fires before the (now largely vestigial, see §4a) 300s function-duration directive.
+- `/api/v1/insights`: **missing** the same `closed`-flag guard and pre-timeout safety margin — a real inconsistency across otherwise near-identical route handlers.
 
 ---
 
 ## 7. Caching Strategy
 
-| Cache | Table | Key | TTL | Invalidation |
-|-------|-------|-----|-----|-------------|
-| Delta Analysis | `analysis_results` | (ticker, q_prev, q_curr) | Permanent | Manual "Clear cache & re-analyze" |
-| Deep Dive | `solo_analysis_cache` | (ticker, quarter) | Permanent | Manual re-analyse |
-| Multi-Quarter | `insights_cache` | (ticker, quarters_key) | 30 days (app-enforced) | Auto: new quarter uploaded changes key |
-| Sector Intel | `sector_intelligence` | (sector, quarter) | Permanent | Manual re-seed |
-| YouTube Videos | `concall_links` | (ticker, quarter) | Permanent | `?retry=true` param skips cache |
-| Promoter Data | `promoter_activity` | (ticker, news_id) | 24h fetch log | Per-ticker 24h refetch TTL |
-| Calendar | `earnings_calendar` | (ticker, quarter) | Permanent | Manual Refresh button |
+| Cache | Table | Key | TTL | Atomicity |
+|-------|-------|-----|-----|-----------|
+| Delta Analysis | `analysis_results` | `(ticker, q_prev, q_curr)` | Permanent until manual re-run | Non-atomic DELETE-then-INSERT, no unique constraint |
+| Deep Dive | `solo_analysis_cache` | `(ticker, quarter)` | Permanent until manual re-run | Same non-atomic pattern |
+| Multi-Quarter | `insights_cache` | `(ticker, quarters_key)` | 30 days, app-enforced | Atomic `ON CONFLICT` upsert |
+| Sector Intel | `sector_intelligence` | `(sector, quarter)` | Permanent until manual reseed | Atomic upsert |
+| YouTube Videos | `concall_links` | `(ticker, quarter)` | Permanent, `?retry=true` bypasses | Atomic upsert |
+| Promoter Data | `promoter_activity` | `(ticker, news_id)` | 24h fetch-log cooldown per ticker | Atomic upsert, dedup on BSE's own `news_id` |
+| Calendar | `earnings_calendar` | `(ticker, quarter)` | Permanent until manual reseed | Atomic upsert; source-priority (tickertape > bse_notice > nse_calendar > estimated) is enforced only *within* one seed run, in memory — not a persisted invariant across separate reseed runs |
 
-**Analysis cache validation** (`lib/analysis-cache.ts`):
-- Rejects empty insights (`insights.length === 0`)
-- Strict mode: rejects missing `earnings_delta` (newer pipeline field)
-- Non-strict mode: for sector seeding (doesn't need synthesis fields)
+This is response-caching for cost/latency control, not a general-purpose cache layer (no Redis/Memcached anywhere) — every cache is a plain Postgres table read before deciding whether to call Gemini at all.
 
 ---
 
 ## 8. Frontend Patterns
 
-### State Management
-- React `useState` / `useEffect` — no external state library
-- `useRef` for mutable refs (fetchAttempted, cycleRef, csvInputRef)
-- `useMemo` for filtered/paginated lists
-- `localStorage` for watchlist persistence (shared across Dashboard + Insights via `quantalyze_watchlist` key)
-
-### Watchlist
-- Max 20 tickers, seeded with 10 defaults on first use
-- `toggle()`, `bulkAdd()`, `cycleNext()`, `cyclePrev()`
-- Arrow key cycling via global `keydown` listener (skips when input focused)
-- CSV upload: parses any whitespace/comma/semicolon-separated tokens
-
-### PDF Export
-- `jsPDF` — text-based PDF generation (not screenshot)
-- Header: "Quantalyze by Demandion | support@demandion.ai"
-- Footer on every page: "Generated by Quantalyze"
-- `checkPage()` helper for multi-page overflow
-- Delta report uses `html2canvas` → `jsPDF` (screenshot-based, for layout fidelity)
-
-### Company Search (`CompanySearch` component)
-- Fuzzy filter on `NIFTY200_LIST + userTickers + storageExtras`
-- "Add TICKER to my list — visible only to you" for unknown tickers
-- Optimistic UI update → POST to `/api/v1/user-tickers`
+Unchanged from the original design in substance — see `discussions/09_FRONTEND_ARCHITECTURE.md` for the fully verified account, including: zero accessibility effort anywhere in `app/`/`components/` (no `aria-*`, no `alt`, no `role`); no chart/visualization library (numeric comparisons render as CSS width-percentage bars); two independent, unsynced watchlist implementations (a `localStorage`-only star/chip system and a separate Postgres-backed "add to my list" flow); two independent PDF-export code paths (`html2canvas`-based for the Delta report, native `jsPDF` text layout for the Deep Dive export); no global state library, no Context, no error boundaries.
 
 ---
 
-## 9. Cost Estimation (Per User Per Month)
+## 9. Cost Model
 
-### Gemini API Costs
+The Gemini call-count figures in §4 (~19-20 calls for Delta, 1 for Deep Dive, N+1 for Insights) are accurate and code-verified. **Beyond that, treat any specific dollar figure in this section as a rough, unverified estimate** — there is no runtime token accounting anywhere in the codebase (no logging of `usageMetadata`/`promptTokenCount`/`candidatesTokenCount` on any Gemini response), so actual spend cannot currently be reconciled against a pipeline run. `lib/credits.ts`'s per-user metering is a flat per-action charge, decoupled from real token/transcript-size cost — a business-facing quota, not a cost-accounting mechanism.
 
-| Action | Gemini Calls | Input Tokens (est.) | Output Tokens (est.) | Cost per Run |
-|--------|-------------|--------------------|--------------------|-------------|
-| Delta Analysis | ~20 | ~600K (120K×5 sections×2 quarters) | ~15K | ~$0.03 |
-| Deep Dive | 1 | ~120K | ~8K | ~$0.01 |
-| Multi-Quarter (6Q) | 7 | ~720K | ~12K | ~$0.04 |
-| Sector Narrative | 1 | ~5K | ~2K | <$0.01 |
-
-**Gemini 2.5 Flash Lite pricing** (as of mid-2025): ~$0.01 / 1M input tokens, ~$0.04 / 1M output tokens
-
-**Estimated per-user monthly** (assuming 20 delta + 10 deep dive + 5 multi-quarter):
-- Gemini: **~$1.00–1.50/month**
-
-### Supabase Costs
-
-| Resource | Free Tier | Usage Estimate |
-|----------|-----------|---------------|
-| Database | 500MB | ~50MB for 200 cached analyses |
-| Storage | 1GB | ~500MB for 200 transcripts |
-| Auth | 50K MAU | Negligible |
-| Edge Functions | 500K invocations | ~10K/month per user |
-
-**Supabase**: Free tier covers ~50 users. Pro ($25/mo) covers ~500 users.
-
-### Vercel Costs
-
-| Resource | Free Tier | Pro ($20/mo) |
-|----------|-----------|-------------|
-| Serverless Functions | 100 GB-hrs | 1000 GB-hrs |
-| Function Duration | 10s max | 300s max |
-| Bandwidth | 100GB | 1TB |
-
-**Delta analysis requires 300s function limit** → **Vercel Pro required** ($20/mo)
-
-### YouTube Data API
-
-- Free tier: 10,000 units/day (~100 search calls)
-- Each `/api/v1/concall` with cache miss = 1 search call (100 units)
-- Cached hits = 0 API calls
-- For 500 companies: first-time seed costs ~5,000 units. After that, cache serves.
-
-### External APIs (Free)
-
-| API | Purpose | Cost |
-|-----|---------|------|
-| Yahoo Finance | Stock price change per quarter | Free (unofficial) |
-| BSE API | Promoter filings, calendar seed | Free |
-| NSE API | Calendar seed | Free |
-| Screener.in | Transcript PDF download | Free |
-
-### Total Infrastructure Cost
-
-| Users | Gemini | Supabase | Vercel | Total |
-|-------|--------|----------|--------|-------|
-| 1-10 | $15/mo | Free | $20/mo | **~$35/mo** |
-| 10-50 | $75/mo | Free | $20/mo | **~$95/mo** |
-| 50-200 | $300/mo | $25/mo | $20/mo | **~$345/mo** |
-| 200-500 | $750/mo | $25/mo | $20/mo | **~$795/mo** |
-
-**Unit economics at ₹35K/year per user**: ₹2,917/mo per user → ~$35/mo per user. At 50 users, infra is $95/mo vs revenue $1,750/mo = **95% gross margin**.
+Azure Container Apps (Consumption plan), Azure Database for PostgreSQL (Flexible Server), and Azure Blob Storage replace the former Vercel/Supabase cost structure; none of their actual billed usage is instrumented in-app. Building real cost observability (Gemini token logging per call site, correlated with Azure billing) is a concrete, scoped improvement — see `discussions/24_90_DAY_ENGINEERING_LEARNING_PLAN.md` for a prioritized version of this exercise.
 
 ---
 
@@ -392,54 +308,58 @@ Client (lib/api.ts):
 
 ### Why Gemini 2.5 Flash Lite (not GPT-4 / Claude)
 - Structured JSON output via `responseSchema` — guarantees valid JSON, no parsing failures
-- ~5-10x cheaper than GPT-4-turbo for similar quality on financial text
-- 1M token context window fits full conglomerate transcripts (120K chars)
-- Temperature 0 for deterministic financial extraction
+- Materially cheaper than GPT-4-class models for high call-volume, high-fan-out pipelines like Delta Analysis
+- Large context window fits full transcripts without chunking
+- Temperature 0 (in 3 of 5 pipeline files) for deterministic financial extraction
 
 ### Why NDJSON Streaming (not WebSockets)
-- Zero infrastructure overhead — works over standard HTTP
-- Compatible with Vercel serverless (no persistent connections needed)
-- Client can show real-time progress (11 thematic agents → 5 delta → synthesis)
-- Graceful degradation: if connection drops, partial results are still usable
+- Zero infrastructure overhead — works over standard HTTP, no persistent-connection server needed
+- Client shows real-time per-call progress across a high-fan-out pipeline
+- Graceful degradation: if the connection drops, partial results already streamed are still usable
 
-### Why Supabase Storage (not S3)
-- Same auth layer as the database — no separate IAM
-- `supabaseAdmin()` client works for both DB queries and file operations
-- Signed URLs for transcript download with zero additional config
+### Why 5 Parallel LLM Calls (not 1 comprehensive call, and not an agent framework)
+- Parallelism: 10+ concurrent calls finish in the time of roughly one (wall-clock ~15-25s vs. what a fully serial equivalent would take)
+- Per-domain structured schemas reduce cross-contamination between sections
+- A focused system prompt per domain measurably improves extraction quality over one giant prompt
+- Individual call failures don't kill the pipeline — a failed call is filtered to `null` and the rest of the `Promise.all` batch is unaffected
+- **This is a considered choice, not a stand-in for "real" agents**: nothing here needs dynamic tool selection or multi-step reasoning — a fixed, domain-sharded extraction DAG is the right shape for "read this transcript, extract these known categories of facts." See `discussions/06_AGENT_ARCHITECTURE.md`.
 
-### Why 5 Specialist Agents (not 1 comprehensive)
-- Parallelism: 10 agents finish in the time of 1 (wall-clock ~15-25s vs ~120s)
-- Structured schemas per domain prevent cross-contamination
-- Each agent has a focused system prompt → higher extraction quality
-- Individual failures don't kill the pipeline (null agents are filtered out)
+### Why Azure (Postgres + Blob + Entra ID + Container Apps), not Supabase/Vercel
+Migrated deliberately, in three dated, documented stages (`docs/superpowers/specs/2026-07-*-azure-*-migration-design.md`), each following a Strangler Fig pattern with an explicit rollback window. The stated rationale across those documents centers on data residency and platform economics as the product scaled past what a single managed BaaS vendor's free/pro tiers comfortably covered, plus wanting first-party control over the Postgres instance (private VNet networking) rather than depending on Supabase's connection-pooling and RLS model. The App Service → Container Apps hop that followed is not equally well-documented — see `discussions/14_DEVOPS_CLOUD.md` for that gap.
 
 ### Why Client-Side PDF Export (not Server-Side)
-- Zero server cost for export
-- `jsPDF` text rendering is fast (<1s for a 10-page report)
-- Delta report uses `html2canvas` for pixel-perfect layout reproduction
-- No Puppeteer/Chromium dependencies on Vercel
+- Zero server cost for export; no headless-browser dependency in the deployed container
+- `jsPDF` text rendering is fast; `html2canvas` gives the Delta report pixel-perfect layout fidelity where needed
 
-### Why localStorage for Watchlist (not DB)
-- Zero latency — no API call on page load
-- Shared across Dashboard and Insights via same key
-- 20-ticker cap keeps payload tiny (~500 bytes)
-- Per-user DB storage (`user_tickers`) only for custom stocks outside Nifty 200
+### Why `localStorage` for the Dashboard Watchlist (not the DB)
+- Zero latency, no API call on page load, tiny payload (20-ticker cap)
+- Per-user DB storage (`user_tickers`) is reserved for custom stocks outside the Nifty 200 universe, in a separate, unsynced flow — see `discussions/09_FRONTEND_ARCHITECTURE.md` for why these two systems don't currently talk to each other
 
-### Why `cache: "no-store"` on supabaseAdmin
-- Next.js 14 transparently caches `fetch()` responses
-- Supabase JS client uses `fetch` internally
-- Without `no-store`, DB writes (upserts) were invisible to subsequent reads
-- Discovered when sector intelligence showed 15/17 sectors despite all 17 being inserted
-
-### Why Pipeline-Level Timeout (270s) Inside Function Timeout (300s)
-- Vercel kills functions silently at `maxDuration` — no error event sent to client
-- Client sees "Pipeline completed without result" (stream closes without done/error)
-- 270s timeout fires 30s before Vercel kill → sends proper error event
-- `closed` flag prevents `controller.enqueue` after stream is closed
+### Why Pipeline-Level Timeout Inside the Route's Declared Function Timeout
+- A hard platform-level function kill (Vercel's old `maxDuration`, or an Azure Container Apps request timeout) delivers no error event to an in-flight NDJSON stream — the client just sees the connection drop mid-stream
+- A shorter, pipeline-internal timeout fires first and sends a proper `{ type: "error" }` event before that happens
+- This reasoning is why `PIPELINE_TIMEOUT_MS = 270_000` exists inside the still-present (now largely vestigial under Container Apps) `maxDuration = 300` Vercel directive — see §4a
 
 ---
 
-## 11. Transcript Sourcing
+## 11. Known Limitations & Technical Debt (summary — see `discussions/` for full detail)
+
+This document intentionally states these plainly rather than omitting them:
+
+- **No automated test suite** for the Next.js app (no jest/vitest/playwright); the only CI gate is `next build`'s TypeScript compilation. → `discussions/13_TESTING.md`
+- **No production AI-quality evaluation.** Output validity is enforced structurally (Gemini's `responseSchema`) plus one deterministic sign-consistency check; nothing checks a generated quote against the source transcript. A real LLM-as-judge validator exists only in the archived `finance-agent/disclosure_pipeline/src/judge_evaluator.py`, never wired into production. → `discussions/12_AI_EVALUATION.md`
+- **~14 of 24 internal API routes have no authentication**, including some that trigger billed Gemini spend. → `discussions/08_BACKEND_ARCHITECTURE.md`
+- **No retries on any LLM call**, and per-call timeouts don't cancel the underlying request. → `discussions/05_AI_ARCHITECTURE.md`
+- **No prompt-injection mitigation** — scraped transcript text is interpolated directly into every Gemini prompt. → `discussions/11_PRODUCTION_ENGINEERING.md`
+- **No observability**: no structured logging, metrics, or tracing beyond `console.*` calls; no per-call token or latency telemetry. → `discussions/11_PRODUCTION_ENGINEERING.md`
+- **No infrastructure-as-code** — every Azure resource was provisioned via one-off `az` CLI commands recorded in the migration plan documents, not in a Terraform/Bicep file. Named as a deliberate, scoped trade-off in the migration spec itself, revisitable once a second environment is needed. → `discussions/14_DEVOPS_CLOUD.md`
+- Two self-documented, unfixed concurrency issues: the `divergence-score.ts` dead-field bug (§4c above) and the `credits.ts` non-atomic deduction race (§5 above).
+
+None of these are secret — they're the natural next-priority list for this product, and the reasoning behind each is preserved in `discussions/19_ARCHITECTURE_DECISION_LOG.md` and `discussions/20_TECHNICAL_DEBT_AND_GAPS.md`, along with a ranked plan for closing them in `discussions/24_90_DAY_ENGINEERING_LEARNING_PLAN.md`.
+
+---
+
+## 12. Transcript Sourcing
 
 `lib/transcript-fetcher.ts` + `/api/v1/request`
 
@@ -447,13 +367,13 @@ Sources (tried in order):
 1. **Screener.in** — scrapes annual report / concall PDF links
 2. **BSE API** — `AnnSubCategoryGetData/w` for corporate announcements, filters for concall PDFs via `AnnPdfOpen` links
 
-PDFs uploaded to Supabase Storage as `TICKER_Q#_YYYY.pdf`.
+PDFs uploaded to Azure Blob Storage as `TICKER_Q#_YYYY.pdf`. `resolvePdfKey()` paginates the container listing to find the exact file, case-insensitive match.
 
-`resolvePdfKey()` paginates the storage bucket (100 per page) to find the exact file, case-insensitive match.
+`app/api/v1/request/route.ts` duplicates this fetch logic rather than importing `lib/transcript-fetcher.ts` directly, and the two copies have already drifted in their lookback windows and max-transcript limits — see `discussions/07_DATA_ARCHITECTURE.md`.
 
 ---
 
-## 12. Promoter Pledge Scoring
+## 13. Promoter Pledge Scoring
 
 `lib/divergence-score.ts` + `lib/promoter-activity-fetcher.ts`
 
@@ -466,15 +386,17 @@ BSE "Insider Trading / SAST" feed
 Scoring:
   recent = events in last 90 days
   baseline = events in 90-450 day window, normalized to 90-day rate
-  
+
   quiet: 0 recent events
   normal: recent ≤ baseline × 1.5
   elevated: recent > baseline × 1.5
-  
+
   flag = elevated AND concall signal is Positive/Mixed
   (promoter pledging while management sounds upbeat = worth investigating)
 ```
 
+The `elevated`/`quiet`/`normal` classification itself works as designed. The final `flag` condition currently cannot fire correctly in practice — see the known bug noted in §4c.
+
 ---
 
-*Generated for Quantalyze v2.0.0 — June 2026*
+*Last technically verified against the live codebase via `discussions/` (26-file engineering case study), covering the Azure migration, AI pipeline mechanics, and known gaps above.*
