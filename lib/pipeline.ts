@@ -237,7 +237,7 @@ export async function resolvePdfKey(ticker: string, quarter: string): Promise<st
 // to ensure all segments and Q&A are captured without hitting Gemini context limits.
 const MAX_TRANSCRIPT_CHARS = 120_000;
 
-async function extractPdfText(storageKey: string): Promise<string> {
+export async function extractPdfText(storageKey: string): Promise<string> {
   const buffer = await storageRepo.download(storageKey);
 
   const header = buffer.slice(0, 5).toString("ascii");

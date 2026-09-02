@@ -23,6 +23,11 @@ import {
   getCompanyAnalysisOutputSchema,
   runGetCompanyAnalysis,
 } from "@/lib/mcp/tools/getCompanyAnalysis";
+import {
+  verifyCompanyAnalysisInputSchema,
+  verifyCompanyAnalysisOutputSchema,
+  runVerifyCompanyAnalysis,
+} from "@/lib/mcp/tools/verifyCompanyAnalysis";
 import { logMcpToolInvocation } from "@/lib/mcp/log";
 import type { CallerContext } from "@/lib/mcp/types";
 
@@ -96,6 +101,69 @@ export function buildQuantalyzeMcpServer(): McpServer {
         // Record<string, unknown> (an index signature McpToolEnvelope<T>
         // deliberately doesn't carry, to keep it a precise, closed shape
         // everywhere else it's used).
+        structuredContent: { data: outcome.result.data, metadata: outcome.result.metadata },
+      };
+    }
+  );
+
+  server.registerTool(
+    "verify_company_analysis",
+    {
+      title: "Verify Company Analysis",
+      description:
+        "Runs the Evidence Verification Agent: checks Quantalyze's own earnings-delta claims for a " +
+        "ticker against the actual source transcript, via RAG retrieval over the transcript's chunked " +
+        "and embedded text, plus one grounded LLM verdict per claim. NOT read-only — ingests the " +
+        "transcript on first call and writes a new evidence_verifications row every time it runs. " +
+        "Returns NOT_FOUND if the ticker has no analysis, NO_CLAIMS if that analysis has no " +
+        "earnings-delta claims to check, or INGESTION_FAILED if the source transcript couldn't be read.",
+      inputSchema: verifyCompanyAnalysisInputSchema,
+      outputSchema: verifyCompanyAnalysisOutputSchema,
+      annotations: {
+        readOnlyHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ ticker }, extra) => {
+      const start = Date.now();
+      const caller = callerContextFromAuthInfo(extra.authInfo);
+      const requestId = String(extra.requestId);
+
+      const outcome = await runVerifyCompanyAnalysis(ticker);
+
+      if (!outcome.ok) {
+        logMcpToolInvocation({
+          requestId,
+          toolName: "verify_company_analysis",
+          keyId: caller?.keyId ?? null,
+          partnerId: caller?.partnerId ?? null,
+          argumentKeys: ["ticker"],
+          status: "error",
+          errorCode: outcome.code,
+          latencyMs: Date.now() - start,
+        });
+        return {
+          isError: true,
+          content: [{ type: "text", text: outcome.message }],
+          structuredContent: { code: outcome.code, message: outcome.message },
+        };
+      }
+
+      logMcpToolInvocation({
+        requestId,
+        toolName: "verify_company_analysis",
+        keyId: caller?.keyId ?? null,
+        partnerId: caller?.partnerId ?? null,
+        argumentKeys: ["ticker"],
+        status: "success",
+        latencyMs: Date.now() - start,
+      });
+
+      return {
+        content: [{ type: "text", text: JSON.stringify(outcome.result, null, 2) }],
+        // Same rationale as get_company_analysis above: spread into a plain
+        // object literal rather than passing the typed envelope directly.
         structuredContent: { data: outcome.result.data, metadata: outcome.result.metadata },
       };
     }

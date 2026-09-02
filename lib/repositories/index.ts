@@ -10,6 +10,8 @@ import { PostgresCalendarRepository } from "./calendar";
 import { PostgresConcallRepository } from "./concalls";
 import { AzureBlobStorageRepository } from "./storage";
 import { PostgresApiAccessRepository } from "./apiAccess";
+import { PostgresTranscriptChunkRepository } from "./transcriptChunks";
+import { PostgresEvidenceVerificationRepository } from "./evidenceVerifications";
 
 export const analysisRepo = new PostgresAnalysisRepository();
 export const sectorRepo = new PostgresSectorRepository();
@@ -23,3 +25,5 @@ export const calendarRepo = new PostgresCalendarRepository();
 export const concallRepo = new PostgresConcallRepository();
 export const storageRepo = new AzureBlobStorageRepository();
 export const apiAccessRepo = new PostgresApiAccessRepository();
+export const transcriptChunkRepo = new PostgresTranscriptChunkRepository();
+export const evidenceVerificationRepo = new PostgresEvidenceVerificationRepository();
