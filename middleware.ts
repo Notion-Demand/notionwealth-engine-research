@@ -3,7 +3,12 @@ import { apiAccessRepo } from "@/lib/repositories";
 import { resolveProductName } from "@/lib/public-api/product-routes";
 
 export const config = {
-  matcher: "/api/public/:path*",
+  // /api/mcp/:path* added alongside the original /api/public/:path* — the
+  // MCP server (app/api/mcp/route.ts) reuses this exact same API-key /
+  // entitlement / quota pipeline rather than getting its own. See
+  // lib/public-api/product-routes.ts for the "mcp:tools" product entry
+  // this depends on.
+  matcher: ["/api/public/:path*", "/api/mcp/:path*"],
 };
 
 async function sha256Hex(input: string): Promise<string> {
@@ -67,6 +72,10 @@ export async function middleware(req: NextRequest): Promise<NextResponse> {
     const forwardedHeaders = new Headers(req.headers);
     forwardedHeaders.set("x-api-key-id", keyInfo.keyId);
     forwardedHeaders.set("x-api-partner-id", keyInfo.partnerId);
+    // Lets a downstream route (currently just app/api/mcp/route.ts) know
+    // which product this request was authenticated against, without
+    // re-deriving it from the path or re-checking entitlements.
+    forwardedHeaders.set("x-api-product", product);
 
     const response = NextResponse.next({ request: { headers: forwardedHeaders } });
     return log(response, { requestId, pathname, product, start, keyId: keyInfo.keyId, partnerId: keyInfo.partnerId });

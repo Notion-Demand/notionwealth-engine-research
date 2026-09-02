@@ -35,6 +35,9 @@ Each dimension tracked across quarters with exact numbers and management quotes 
 ### Developer API
 A metered, API-key-authenticated public API surface (`app/api/public/v1/**`) exposes company and sector data to partners, gated per-key by product entitlement and a daily request quota (`api_keys`, `api_key_products`, `api_usage` tables). See `/developers` on the live site.
 
+### MCP server (early — one tool)
+`POST /api/mcp` exposes Quantalyze's domain capabilities to MCP-speaking agents (Claude, ChatGPT, internal scripts), reusing the exact same API-key/entitlement/quota pipeline as the Developer API above (`mcp:tools` product) rather than a separate auth system. Currently one tool, `get_company_analysis`, wired straight through the same repository and DTO the Developer API's companies endpoint uses — see `MCP_ARCHITECTURE.md` for the full trace and an explicit list of what isn't built yet.
+
 ---
 
 ## Tech Stack

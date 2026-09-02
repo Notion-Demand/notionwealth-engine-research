@@ -53,6 +53,8 @@ export interface AnalysisRepository {
   listUserHistory(userId: string, limit: number): Promise<(AnalysisRecord & { id: string })[]>;
   /** public API companies endpoint: most recent analysis for this ticker, any quarter. */
   getLatestByTicker(ticker: string): Promise<Analysis | null>;
+  /** MCP get_company_analysis tool: same lookup, plus the row timestamp for honest provenance metadata (getLatestByTicker discards created_at; this variant keeps it rather than fabricating a response-time timestamp). */
+  getLatestByTickerWithMeta(ticker: string): Promise<{ analysis: Analysis; createdAt: string } | null>;
 }
 
 // ── Mapping: persisted (DashboardPayload-shaped JSONB) <-> Analysis entity ────
@@ -233,6 +235,21 @@ export class SupabaseAnalysisRepository implements AnalysisRepository {
     return toEntity(data.company_ticker, data.q_prev, data.q_curr, data.payload);
   }
 
+  async getLatestByTickerWithMeta(ticker: string): Promise<{ analysis: Analysis; createdAt: string } | null> {
+    const { data } = await supabaseAdmin()
+      .from("analysis_results")
+      .select("company_ticker, q_curr, q_prev, payload, created_at")
+      .eq("company_ticker", ticker)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (!data) return null;
+    return {
+      analysis: toEntity(data.company_ticker, data.q_prev, data.q_curr, data.payload),
+      createdAt: data.created_at,
+    };
+  }
+
   async listByTickersAndQuarterPair(tickers: string[], qPrev: string, qCurr: string): Promise<AnalysisRecord[]> {
     const { data } = await supabaseAdmin()
       .from("analysis_results")
@@ -368,6 +385,19 @@ export class PostgresAnalysisRepository implements AnalysisRepository {
     );
     if (rows.length === 0) return null;
     return toEntity(rows[0].company_ticker, rows[0].q_prev, rows[0].q_curr, rows[0].payload);
+  }
+
+  async getLatestByTickerWithMeta(ticker: string): Promise<{ analysis: Analysis; createdAt: string } | null> {
+    const rows = await query<{ company_ticker: string; q_curr: string; q_prev: string; payload: unknown; created_at: string }>(
+      `SELECT company_ticker, q_curr, q_prev, payload, created_at FROM analysis_results
+       WHERE company_ticker = $1 ORDER BY created_at DESC LIMIT 1`,
+      [ticker]
+    );
+    if (rows.length === 0) return null;
+    return {
+      analysis: toEntity(rows[0].company_ticker, rows[0].q_prev, rows[0].q_curr, rows[0].payload),
+      createdAt: rows[0].created_at,
+    };
   }
 
   async listByTickersAndQuarterPair(tickers: string[], qPrev: string, qCurr: string): Promise<AnalysisRecord[]> {
